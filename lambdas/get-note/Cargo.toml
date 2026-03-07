@@ -1,0 +1,17 @@
+[package]
+name = "get-note"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "get-note"
+path = "src/main.rs"
+
+[dependencies]
+lambda_http = "0.13"
+aws-config = "1"
+aws-sdk-dynamodb = "1"
+tokio = { version = "1", features = ["macros"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
