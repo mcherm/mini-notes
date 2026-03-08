@@ -1,74 +1,93 @@
+use std::collections::HashMap;
 use aws_sdk_dynamodb::Client as DynamoClient;
+use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_http::{run, service_fn, Body, Error, Request, Response};
 use serde_json::json;
+use serde_json::value::Value as JsonValue;
 use tracing::info;
 
+
+/// Helper to create an error response from an error code and a message.
+fn http_error(status: u16, message: &str) -> Result<Response<Body>, Error> {
+    Ok(Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .body(Body::Text(json!({"error": message}).to_string()))?
+    )
+}
+
+/// Function to validate a note_id; returns true if it is valid.
+fn is_valid_note_id(note_id: &str) -> bool {
+    note_id.chars().all(|x| x.is_ascii_alphanumeric())
+}
+
+/// Convert a DynamoDB note item into JSON. Returns None if any field is the wrong type or
+/// any required field is missing.
+fn note_from_db(item: &HashMap<String, AttributeValue>) -> Option<JsonValue> {
+    let id      = item.get("id")     ?.as_s().ok()?;
+    let title   = item.get("title")  ?.as_s().ok()?;
+    let content = item.get("content")?.as_s().ok()?;
+    Some(json!({"id": id, "title": title, "content": content}))
+}
+
+
+/// This function performs the operation whenever the lambda is invoked. It receives an
+/// HTTP request and a handle to the DynamoDB client, and returns a successful HTTP response
+/// or an HTTP error.
 async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
-    // Extract note ID from the last path segment: /api/v1/notes/{note_id}
-    let path = request.uri().path().to_string();
-    let note_id = path
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .last()
-        .unwrap_or("hello-world");
-    // FIXME: Don't default to "hello-world"; need to fail if this isn't found.
-    // FIXME: Don't just take the last component; needs to match "/api/v1/notes/{note_id}" specifically.
+    // Extract note_id from the path: /api/v1/notes/{note_id}
+    let path = request.uri().path();
+    let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    let note_id = match path_segments.as_slice() {
+        ["api", "v1", "notes", note_id] if is_valid_note_id(note_id) => *note_id,
+        ["api", "v1", "notes", _] => return http_error(404, "note_id has invalid characters"),
+        _ => return http_error(404, "not found"),
+    };
 
     info!(note_id, table, "fetching note");
 
     let result = dynamo_client
         .get_item()
         .table_name(&table)
-        .key(
-            "id",
-            aws_sdk_dynamodb::types::AttributeValue::S(note_id.to_string()),
-        )
+        .key("id", AttributeValue::S(note_id.to_string()))
         .send()
         .await?;
-    // FIXME: Use an import to make "aws_sdk_dynamodb::types::AttributeValue::S" shorter.
 
-    let (status, response_body) = match result.item {
-        Some(item) => {
-            let note = json!({
-                "id":      item.get("id")     .and_then(|v| v.as_s().ok()),
-                "title":   item.get("title")  .and_then(|v| v.as_s().ok()),
-                "content": item.get("content").and_then(|v| v.as_s().ok()),
-            });
-            (200u16, json!({ "note": note }))
-        }
-        None => (404u16, json!({ "error": "note not found", "id": note_id })),
+    let item = match result.item {
+        Some(item) => item,
+        None => return http_error(404, "note not found"),
     };
-    // FIXME: Fields of the note need to be classified as required and optional. The current
-    //   code correctly handles optional fields: if they are missing it populates the JSON
-    //   response with a null. But the handling for required fields should be to return an
-    //   error instead (probably using "?"). It is quite possible that all of the fields
-    //   are required.
+    let note = match note_from_db(&item) {
+        Some(note) => note,
+        None => return http_error(500, "note is invalid in DB"),
+    };
 
     Ok(Response::builder()
-        .status(status)
+        .status(200)
         .header("content-type", "application/json")
-        .body(Body::Text(response_body.to_string()))?)
+        .body(Body::Text(json!({"note": note}).to_string()))?)
 }
 
+/// Entry point for initializing the lambda's environment, invoked when the lambda is
+/// instantiated. Must call run() to perform the main event loop.
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .json()
         .init();
-    // FIXME: I don't understand what the previous line is doing or how it works
 
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .load()
         .await;
     let client = DynamoClient::new(&config);
 
+    // Kick off main event loop
     run(service_fn(move |request: Request| {
         let client = client.clone();
         async move { handler(&client, request).await }
     }))
     .await
-    // FIXME: This line does a lot of "move"... is that needed?
 }

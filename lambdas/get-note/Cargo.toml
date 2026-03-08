@@ -1,14 +1,14 @@
 [package]
 name = "get-note"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "get-note"
 path = "src/main.rs"
 
 [dependencies]
-lambda_http = "0.13"
+lambda_http = "1"
 aws-config = "1"
 aws-sdk-dynamodb = "1"
 tokio = { version = "1", features = ["macros"] }
