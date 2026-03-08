@@ -29,6 +29,8 @@ aws sts get-caller-identity
 | `create-dynamodb-table.sh` | Once per stage | Creates the `mini-notes-notes-<stage>` DynamoDB table |
 | `create-iam-role.sh` | Once (shared) | Creates the Lambda execution role; not stage-specific |
 | `create-lambda-get-note.sh` | Once per stage | Creates the `mini-notes-get-note-<stage>` Lambda and attaches a public HTTPS Function URL |
+| `create-cloudfront-distribution.sh` | Once per stage | Creates a CloudFront distribution with S3 (static frontend) and Lambda origins, custom domains, and TLS |
+| `upload-static-assets.sh` | On frontend changes | Syncs `html/` to the S3 frontend bucket for the current stage |
 | `seed-test-data.sh` | As needed | Inserts a sample note into the current stage's DynamoDB table |
 
 ## Initial setup sequence

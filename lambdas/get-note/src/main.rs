@@ -1,20 +1,17 @@
 use aws_sdk_dynamodb::Client as DynamoClient;
-use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
+use lambda_http::{run, service_fn, Body, Error, Request, Response};
 use serde_json::json;
 use tracing::info;
 
 async fn handler(client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
-    // Accept note ID from either a path parameter (/notes/{id}) or query string (?id=...)
-    let note_id = request
-        .path_parameters_ref()
-        .and_then(|p| p.first("id"))
-        .or_else(|| {
-            request
-                .query_string_parameters_ref()
-                .and_then(|q| q.first("id"))
-        })
+    // Extract note ID from the last path segment: /api/v1/notes/{note_id}
+    let path = request.uri().path().to_string();
+    let note_id = path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .last()
         .unwrap_or("hello-world");
 
     info!(note_id, table, "fetching note");

@@ -167,3 +167,7 @@ the beginning; if a continuation_key is provided it starts where the last call l
 off. The output includes a continuation_key if there might be more to retrieve and
 does not contain one when we've gotten all of the notes that contain the search
 string.
+
+## URLs
+I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
+The API endpoints will be at https://api.mini-notes.com for production and https://dev-api.mini-notes.com for dev.
