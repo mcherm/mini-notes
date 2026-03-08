@@ -3,7 +3,7 @@ use lambda_http::{run, service_fn, Body, Error, Request, Response};
 use serde_json::json;
 use tracing::info;
 
-async fn handler(client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
+async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
     // Extract note ID from the last path segment: /api/v1/notes/{note_id}
@@ -13,10 +13,12 @@ async fn handler(client: &DynamoClient, request: Request) -> Result<Response<Bod
         .filter(|s| !s.is_empty())
         .last()
         .unwrap_or("hello-world");
+    // FIXME: Don't default to "hello-world"; need to fail if this isn't found.
+    // FIXME: Don't just take the last component; needs to match "/api/v1/notes/{note_id}" specifically.
 
     info!(note_id, table, "fetching note");
 
-    let result = client
+    let result = dynamo_client
         .get_item()
         .table_name(&table)
         .key(
@@ -25,8 +27,9 @@ async fn handler(client: &DynamoClient, request: Request) -> Result<Response<Bod
         )
         .send()
         .await?;
+    // FIXME: Use an import to make "aws_sdk_dynamodb::types::AttributeValue::S" shorter.
 
-    let (status, body) = match result.item {
+    let (status, response_body) = match result.item {
         Some(item) => {
             let note = json!({
                 "id":      item.get("id")     .and_then(|v| v.as_s().ok()),
@@ -37,11 +40,16 @@ async fn handler(client: &DynamoClient, request: Request) -> Result<Response<Bod
         }
         None => (404u16, json!({ "error": "note not found", "id": note_id })),
     };
+    // FIXME: Fields of the note need to be classified as required and optional. The current
+    //   code correctly handles optional fields: if they are missing it populates the JSON
+    //   response with a null. But the handling for required fields should be to return an
+    //   error instead (probably using "?"). It is quite possible that all of the fields
+    //   are required.
 
     Ok(Response::builder()
         .status(status)
         .header("content-type", "application/json")
-        .body(Body::Text(body.to_string()))?)
+        .body(Body::Text(response_body.to_string()))?)
 }
 
 #[tokio::main]
@@ -50,6 +58,7 @@ async fn main() -> Result<(), Error> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .json()
         .init();
+    // FIXME: I don't understand what the previous line is doing or how it works
 
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .load()
@@ -61,4 +70,5 @@ async fn main() -> Result<(), Error> {
         async move { handler(&client, request).await }
     }))
     .await
+    // FIXME: This line does a lot of "move"... is that needed?
 }
