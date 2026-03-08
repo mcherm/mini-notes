@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "lambdas/get-note",
+    "lambdas/api-v1",
 ]
 resolver = "2"

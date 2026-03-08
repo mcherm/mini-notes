@@ -1,10 +1,10 @@
 [package]
-name = "get-note"
+name = "api-v1"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "get-note"
+name = "api-v1"
 path = "src/main.rs"
 
 [dependencies]

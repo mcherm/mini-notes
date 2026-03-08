@@ -4,31 +4,31 @@
 LAMBDA_DIR := target/lambda
 STAGE      ?= dev
 
-.PHONY: build build-get-note zip zip-get-note deploy deploy-get-note clean
+.PHONY: build build-api-v1 zip zip-api-v1 deploy deploy-api-v1 clean
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-build-get-note:
-	cargo lambda build --release --arm64 --lambda-dir $(LAMBDA_DIR) --package get-note
+build-api-v1:
+	cargo lambda build --release --arm64 --lambda-dir $(LAMBDA_DIR) --package api-v1
 
-build: build-get-note
+build: build-api-v1
 
 # ── Package ───────────────────────────────────────────────────────────────────
 
-zip-get-note: build-get-note
-	zip -j $(LAMBDA_DIR)/get-note/bootstrap.zip $(LAMBDA_DIR)/get-note/bootstrap
+zip-api-v1: build-api-v1
+	zip -j $(LAMBDA_DIR)/api-v1/bootstrap.zip $(LAMBDA_DIR)/api-v1/bootstrap
 
-zip: zip-get-note
+zip: zip-api-v1
 
 # ── Deploy (update an already-created Lambda function) ────────────────────────
 
-deploy-get-note: zip-get-note
+deploy-api-v1: zip-api-v1
 	aws lambda update-function-code \
-	    --function-name mini-notes-get-note-$(STAGE) \
-	    --zip-file fileb://$(LAMBDA_DIR)/get-note/bootstrap.zip \
+	    --function-name mini-notes-api-v1-$(STAGE) \
+	    --zip-file fileb://$(LAMBDA_DIR)/api-v1/bootstrap.zip \
 	    --architectures arm64
 
-deploy: deploy-get-note
+deploy: deploy-api-v1
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 

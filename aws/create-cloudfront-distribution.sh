@@ -25,7 +25,7 @@ get_lambda_domain() {
     echo "${url}"
 }
 
-GET_NOTE_DOMAIN=$(get_lambda_domain "mini-notes-get-note-${STAGE}")
+API_LAMBDA_DOMAIN=$(get_lambda_domain "mini-notes-api-v1-${STAGE}")
 
 # ACM wildcard certificate for *.mini-notes.com (must be in us-east-1 for CloudFront)
 CERT_ARN="arn:aws:acm:us-east-1:402673111584:certificate/ec6c73a5-1aa8-46bf-9e60-4d9a281c3d95"
@@ -44,7 +44,7 @@ fi
 
 echo "Creating CloudFront distribution..."
 echo "  S3 bucket:    ${BUCKET}"
-echo "  Lambda (get-note): ${GET_NOTE_DOMAIN}"
+echo "  Lambda (api-v1): ${API_LAMBDA_DOMAIN}"
 echo "  Domains:      ${FRONTEND_DOMAIN}, ${API_DOMAIN}"
 echo "  ACM cert:     ${CERT_ARN}"
 echo "  OAC ID:       ${CLOUDFRONT_OAC_ID}"
@@ -76,8 +76,8 @@ DIST_CONFIG_WITH_TAGS=$(cat <<EOF
           "OriginAccessControlId": "${CLOUDFRONT_OAC_ID}"
         },
         {
-          "Id": "lambda-get-note",
-          "DomainName": "${GET_NOTE_DOMAIN}",
+          "Id": "lambda-api-v1",
+          "DomainName": "${API_LAMBDA_DOMAIN}",
           "CustomOriginConfig": {
             "HTTPPort": 80,
             "HTTPSPort": 443,
@@ -103,7 +103,7 @@ DIST_CONFIG_WITH_TAGS=$(cat <<EOF
       "Items": [
         {
           "PathPattern": "/api/*",
-          "TargetOriginId": "lambda-get-note",
+          "TargetOriginId": "lambda-api-v1",
           "ViewerProtocolPolicy": "redirect-to-https",
           "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
           "OriginRequestPolicyId": "b689b0a8-53d0-40ab-baf2-68738e2966ac",

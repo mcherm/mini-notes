@@ -1,6 +1,9 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git mv:*)",
+      "Bash(make build:*)",
+      "Bash(make zip:*)"
     ]
   }
 }
