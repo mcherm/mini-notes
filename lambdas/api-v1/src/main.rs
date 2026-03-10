@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
-use lambda_http::{run, service_fn, Body, Error, Request, Response};
+use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde_json::json;
 use serde_json::value::Value as JsonValue;
 use rand::RngExt;
@@ -55,11 +55,11 @@ type DynamoDBRecord = HashMap<String, AttributeValue>;
 
 /// Function to validate a CustomId; returns true if it is valid.
 fn is_valid_id(id: &str) -> bool {
-    // 10 bytes long, all ascii [0-9A-Za-z_$].
-    id.len() == ID_LENGTH && id.chars().all(|x| x.is_ascii_alphanumeric() || x == '_' || x == '$')
+    // 10 bytes long, all ascii [0-9A-Za-z_~].
+    id.len() == ID_LENGTH && id.chars().all(|x| x.is_ascii_alphanumeric() || x == '_' || x == '~')
 }
 
-const ID_ALPHABET: &[u8; 64] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
+const ID_ALPHABET: &[u8; 64] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_~";
 const ID_LENGTH: usize = 10;
 
 /// Generate a random id: a 10-character base-64 string using ID_ALPHABET.
@@ -176,28 +176,49 @@ fn http_error(status: u16, message: &str) -> Result<Response<Body>, Error> {
 }
 
 /// DynamoDB gives us back a "LastEvaluatedKey" map with the 3 fields user_id, note_id, and
-/// modify_time when we are reading from the LSI. This converts that to a String (or fails).
-fn build_continuation_key(last_evaluated_key: DynamoDBRecord) -> Result<String, String> {
+/// modify_time when we are reading from the LSI. This converts that to a pipe-delimited
+/// string in the format "user_id|modify_time|note_id" (or fails).
+fn build_continue_key(last_evaluated_key: DynamoDBRecord) -> Result<String, String> {
     let user_id = get_s(&last_evaluated_key, "user_id")?;
     let note_id = get_s(&last_evaluated_key, "note_id")?;
     let modify_time = get_s(&last_evaluated_key, "modify_time")?;
-    Ok(json!({
-        "user_id": user_id,
-        "note_id": note_id,
-        "modify_time": modify_time,
-    }).to_string())
+    Ok(format!("{user_id}|{modify_time}|{note_id}"))
+}
+
+/// Parse a continue_key string (as returned by build_continue_key) back into a
+/// DynamoDBRecord suitable for use as an exclusive_start_key.
+fn parse_continue_key(continue_key: &str) -> Result<DynamoDBRecord, String> {
+    let parts: Vec<&str> = continue_key.split('|').collect();
+    let [user_id, modify_time, note_id] = parts.as_slice() else {
+        return Err("continue_key must have exactly 3 pipe-delimited fields".to_string());
+    };
+    let mut key = DynamoDBRecord::new();
+    key.insert("user_id".to_string(), AttributeValue::S(user_id.to_string()));
+    key.insert("note_id".to_string(), AttributeValue::S(note_id.to_string()));
+    key.insert("modify_time".to_string(), AttributeValue::S(modify_time.to_string()));
+    Ok(key)
 }
 
 
 // ========== Endpoint Logic ==========
 
 /// Logic for handling the get_notes command.
-async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str) -> Result<Response<Body>, Error> {
+async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str, continue_key: Option<&str>) -> Result<Response<Body>, Error> {
 
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
     info!(user_id, table, "fetching notes");
 
+    // Parse the continuation key if provided
+    let exclusive_start_key: Option<DynamoDBRecord> = match continue_key {
+        Some(key) => match parse_continue_key(key) {
+            Ok(record) => Some(record),
+            Err(_) => return http_error(400, "invalid continue_key"),
+        },
+        None => None,
+    };
+
+    // Perform the query
     let result = dynamo_client
         .query()
         .table_name(&table)
@@ -206,13 +227,16 @@ async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str) -> Result
         .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
         .limit(NOTES_PER_BATCH)
         .scan_index_forward(false)
+        .set_exclusive_start_key(exclusive_start_key)
         .send()
         .await?;
-    let Ok(continuation_key) = result.last_evaluated_key
-        .map(build_continuation_key)
+
+    // And extract and return the results
+    let Ok(continue_key) = result.last_evaluated_key
+        .map(build_continue_key)
         .transpose()
     else {
-        return http_error(500, "continuation_key invalid in DB");
+        return http_error(500, "continue_key invalid in DB");
     };
     let Ok(note_headers): Result<Vec<NoteHeader>, String> = result.items
         .unwrap_or_default()
@@ -223,12 +247,10 @@ async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str) -> Result
         return http_error(500, "note header is invalid in DB");
     };
     let note_headers_json: JsonValue = note_headers.into_iter().map(JsonValue::from).collect();
-
     let body = json!({
         "note_headers": note_headers_json,
-        "continuation_key": continuation_key,
+        "continue_key": continue_key,
     });
-
     Ok(Response::builder()
         .status(200)
         .header("content-type", "application/json")
@@ -278,13 +300,17 @@ async fn handle_get_note(dynamo_client: &DynamoClient, user_id: &str, note_id: &
 /// or an HTTP error.
 async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
     // Later we will get the user_id from a cookie. For now, it is hard-coded:
-    let user_id = "Xq3_mK8$pL";
+    let user_id = "Xq3_mK8~pL";
 
     // Dispatch based on the: "/api/v1/notes" or "/api/v1/notes/{note_id}"
     let path = request.uri().path();
     let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    return match path_segments.as_slice() {
-        ["api", "v1", "notes"] => handle_get_notes(dynamo_client, user_id).await,
+    match path_segments.as_slice() {
+        ["api", "v1", "notes"] => {
+            let continue_key = request.query_string_parameters_ref()
+                .and_then(|q| q.first("continue_key"));
+            handle_get_notes(dynamo_client, user_id, continue_key).await
+        },
         ["api", "v1", "notes", note_id] => handle_get_note(dynamo_client, user_id, *note_id).await,
         _ => http_error(404, "not found"),
     }

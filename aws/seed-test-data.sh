@@ -7,8 +7,8 @@ set -euo pipefail
 aws dynamodb put-item \
     --table-name "mini-notes-notes-${STAGE}" \
     --item '{
-        "user_id": {"S": "Xq3_mK8$pL"},
-        "note_id": {"S": "bZ7$nR2_wQ"},
+        "user_id": {"S": "Xq3_mK8~pL"},
+        "note_id": {"S": "bZ7~nR2_wQ"},
         "version_id": {"N": "1"},
         "title":   {"S": "Hello World"},
         "create_time": {"S": "2026-03-08T20:28:54.000Z"},
@@ -20,8 +20,8 @@ aws dynamodb put-item \
 aws dynamodb put-item \
     --table-name "mini-notes-notes-${STAGE}" \
     --item '{
-        "user_id": {"S": "Xq3_mK8$pL"},
-        "note_id": {"S": "k7Rp$2mXvQ"},
+        "user_id": {"S": "Xq3_mK8~pL"},
+        "note_id": {"S": "k7Rp~2mXvQ"},
         "version_id": {"N": "1"},
         "title":   {"S": "Second Message"},
         "create_time": {"S": "2026-03-10T22:19:00.000Z"},
@@ -33,7 +33,7 @@ aws dynamodb put-item \
 aws dynamodb put-item \
     --table-name "mini-notes-notes-${STAGE}" \
     --item '{
-        "user_id": {"S": "Xq3_mK8$pL"},
+        "user_id": {"S": "Xq3_mK8~pL"},
         "note_id": {"S": "3tN_wBs8Ld"},
         "version_id": {"N": "1"},
         "title":   {"S": "Third One"},
@@ -44,4 +44,4 @@ aws dynamodb put-item \
     }'
 
 
-echo "Seeded 3 notes including 'bZ7\$nR2_wQ' into 'mini-notes-notes-${STAGE}'."
+echo "Seeded 3 notes including 'bZ7\~nR2_wQ' into 'mini-notes-notes-${STAGE}'."
