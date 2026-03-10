@@ -2,6 +2,9 @@
 
 ## Data Structures
 
+### Types
+I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
+
 ### User
 
 **Fields:**
@@ -12,13 +15,26 @@
 
 ### Note
 **Fields:**
+* user_id: string [alphanumeric]
+* note_id: string [alphanumeric]
+* version_id: number
 * title: string [no newlines]
-* body: string
+* create_time: timestamp
+* modify_time: timestamp
 * format: enum [plain]
+* body: string
+
+(In DynamoDB the PK is "user_id" and the sort key is "note_id". I will also generate an LSI where the sort key is "modify_time". The LSI will project the fields that are part of NoteHeader.)
+
+Making it an LSI instead of a GSI gives me immediate consistency (nice) and will be a pain if I ever need to change the contents of the LSI. I'm going with the LSI anyway.
 
 ### NoteHeader
 **Fields:**
+* user_id: string [alphanumeric]
+* note_id: string [alphanumeric]
+* version_id: number
 * title: String [no newlines]
+* modify_time: timestamp
 * format: enum [plain]
 
 ### Session
