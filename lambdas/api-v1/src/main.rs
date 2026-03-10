@@ -8,6 +8,10 @@ use serde_json::value::Value as JsonValue;
 use rand::RngExt;
 use tracing::info;
 
+// ========== Constants ==========
+
+const NOTES_PER_BATCH: i32 = 2;
+
 // ========== Data Structures ==========
 
 /// An enum for the various kinds of notes we support. Right now it is ONLY one
@@ -64,15 +68,6 @@ fn generate_id() -> String {
     (0..ID_LENGTH)
         .map(|_| ID_ALPHABET[rng.random_range(0..64)] as char)
         .collect()
-}
-
-/// Convert a DynamoDB note item into JSON. Returns None if any field is the wrong type or
-/// any required field is missing.
-fn note_from_db(item: &DynamoDBRecord) -> Option<JsonValue> {
-    let note_id      = item.get("note_id")     ?.as_s().ok()?;
-    let title   = item.get("title")  ?.as_s().ok()?;
-    let content = item.get("content")?.as_s().ok()?;
-    Some(json!({"note_id": note_id, "title": title, "content": content}))
 }
 
 /// Helper for reading string fields from DynamoDB.
@@ -132,7 +127,39 @@ impl From<Note> for JsonValue {
             "create_time": note.create_time,
             "modify_time": note.modify_time,
             "format": note.format.to_string(),
-            "body": note.body})
+            "body": note.body,
+        })
+    }
+}
+
+/// Convert a DynamoDBRecord into a NoteHeader. Returns an error if the record isn't formatted
+/// exactly as expected.
+impl TryFrom<&DynamoDBRecord> for NoteHeader {
+    type Error = String;
+
+    fn try_from(item: &DynamoDBRecord) -> Result<Self, Self::Error> {
+        Ok(NoteHeader {
+            user_id: get_s(item, "user_id")?,
+            note_id: get_s(item, "note_id")?,
+            version_id: get_n_as_u64(item, "version_id")?,
+            title: get_s(item, "title")?,
+            modify_time: get_s(item, "modify_time")?,
+            format: parse_note_format(&get_s(item, "format")?)?,
+        })
+    }
+}
+
+/// Convert a Note into a JsonValue suitable to return to the caller.
+impl From<NoteHeader> for JsonValue {
+    fn from(note_header: NoteHeader) -> Self {
+        json!({
+            "user_id": note_header.user_id,
+            "note_id": note_header.note_id,
+            "version_id": note_header.version_id,
+            "title": note_header.title,
+            "modify_time": note_header.modify_time,
+            "format": note_header.format.to_string(),
+        })
     }
 }
 
@@ -148,29 +175,77 @@ fn http_error(status: u16, message: &str) -> Result<Response<Body>, Error> {
     )
 }
 
+/// DynamoDB gives us back a "LastEvaluatedKey" map with the 3 fields user_id, note_id, and
+/// modify_time when we are reading from the LSI. This converts that to a String (or fails).
+fn build_continuation_key(last_evaluated_key: DynamoDBRecord) -> Result<String, String> {
+    let user_id = get_s(&last_evaluated_key, "user_id")?;
+    let note_id = get_s(&last_evaluated_key, "note_id")?;
+    let modify_time = get_s(&last_evaluated_key, "modify_time")?;
+    Ok(json!({
+        "user_id": user_id,
+        "note_id": note_id,
+        "modify_time": modify_time,
+    }).to_string())
+}
+
 
 // ========== Endpoint Logic ==========
 
+/// Logic for handling the get_notes command.
+async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str) -> Result<Response<Body>, Error> {
 
-/// This function performs the operation whenever the lambda is invoked. It receives an
-/// HTTP request and a handle to the DynamoDB client, and returns a successful HTTP response
-/// or an HTTP error.
-async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
-    // Later we will get the user_id from a cookie. For now, it is hard-coded:
-    let user_id = "Xq3_mK8$pL";
+    info!(user_id, table, "fetching notes");
 
-    // Extract note_id from the path: /api/v1/notes/{note_id}
-    let path = request.uri().path();
-    let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    let note_id = match path_segments.as_slice() {
-        ["api", "v1", "notes", note_id] if is_valid_id(note_id) => *note_id,
-        ["api", "v1", "notes", _] => return http_error(404, "note_id has invalid characters"),
-        _ => return http_error(404, "not found"),
+    let result = dynamo_client
+        .query()
+        .table_name(&table)
+        .index_name("notes-by-modify-time")
+        .key_condition_expression("user_id = :uid")
+        .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
+        .limit(NOTES_PER_BATCH)
+        .scan_index_forward(false)
+        .send()
+        .await?;
+    let Ok(continuation_key) = result.last_evaluated_key
+        .map(build_continuation_key)
+        .transpose()
+    else {
+        return http_error(500, "continuation_key invalid in DB");
     };
+    let Ok(note_headers): Result<Vec<NoteHeader>, String> = result.items
+        .unwrap_or_default()
+        .iter()
+        .map(|item| NoteHeader::try_from(item))
+        .collect()
+    else {
+        return http_error(500, "note header is invalid in DB");
+    };
+    let note_headers_json: JsonValue = note_headers.into_iter().map(JsonValue::from).collect();
 
-    info!(note_id, table, "fetching note");
+    let body = json!({
+        "note_headers": note_headers_json,
+        "continuation_key": continuation_key,
+    });
+
+    Ok(Response::builder()
+        .status(200)
+        .header("content-type", "application/json")
+        .body(Body::Text(body.to_string()))?
+    )
+}
+
+
+/// Logic for handling the get_note command.
+async fn handle_get_note(dynamo_client: &DynamoClient, user_id: &str, note_id: &str) -> Result<Response<Body>, Error> {
+    if ! is_valid_id(note_id) {
+        return http_error(404, "note_id has invalid characters");
+    }
+
+    let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
+
+    info!(user_id, note_id, table, "fetching note");
 
     let result = dynamo_client
         .get_item()
@@ -195,6 +270,24 @@ async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Respo
         .status(200)
         .header("content-type", "application/json")
         .body(Body::Text(json!({"note": note}).to_string()))?)
+}
+
+
+/// This function performs the operation whenever the lambda is invoked. It receives an
+/// HTTP request and a handle to the DynamoDB client, and returns a successful HTTP response
+/// or an HTTP error.
+async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
+    // Later we will get the user_id from a cookie. For now, it is hard-coded:
+    let user_id = "Xq3_mK8$pL";
+
+    // Dispatch based on the: "/api/v1/notes" or "/api/v1/notes/{note_id}"
+    let path = request.uri().path();
+    let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    return match path_segments.as_slice() {
+        ["api", "v1", "notes"] => handle_get_notes(dynamo_client, user_id).await,
+        ["api", "v1", "notes", note_id] => handle_get_note(dynamo_client, user_id, *note_id).await,
+        _ => http_error(404, "not found"),
+    }
 }
 
 

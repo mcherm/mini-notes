@@ -4,7 +4,8 @@
       "Bash(git mv:*)",
       "Bash(make build:*)",
       "Bash(make zip:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "WebSearch"
     ]
   }
 }
