@@ -29,7 +29,8 @@ aws sts get-caller-identity
 | `create-dynamodb-table.sh` | Once per stage | Creates the `mini-notes-notes-<stage>` DynamoDB table |
 | `create-iam-role.sh` | Once (shared) | Creates the Lambda execution role; not stage-specific |
 | `create-lambda-api-v1.sh` | Once per stage | Creates the `mini-notes-api-v1-<stage>` Lambda and attaches a public HTTPS Function URL |
-| `create-cloudfront-distribution.sh` | Once per stage | Creates a CloudFront distribution with S3 (static frontend) and Lambda origins, custom domains, and TLS |
+| `create-cors-policy.sh` | Once per stage | Creates a CloudFront response headers policy for CORS, allowing the frontend domain to call the API |
+| `create-cloudfront-distribution.sh` | Once per stage | Creates a CloudFront distribution with S3 (static frontend) and Lambda origins, custom domains, TLS, and CORS policy |
 | `upload-static-assets.sh` | On frontend changes | Syncs `html/` to the S3 frontend bucket for the current stage |
 | `seed-test-data.sh` | As needed | Inserts a sample note into the current stage's DynamoDB table |
 
@@ -46,6 +47,8 @@ chmod +x aws/*.sh
 
 make zip-api-v1                    # build binary and package it
 ./aws/create-lambda-api-v1.sh     # creates Lambda + Function URL; prints the invoke URL
+
+./aws/create-cors-policy.sh       # creates CORS response headers policy for CloudFront
 
 ./aws/seed-test-data.sh
 ```
