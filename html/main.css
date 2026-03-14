@@ -131,6 +131,14 @@ note-slug.active {
     background-color: var(--brand-color-lt);
 }
 
+note-list-sentinel {
+    display: block;
+    text-align: center;
+    font-size: 9pt;
+    color: var(--colorless-dk);
+    padding: 4px;
+}
+
 article {
     grid-area: article;
     display: flex;
