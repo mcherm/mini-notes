@@ -2,15 +2,16 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
-use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
+use axum::{Router, extract::{Path, Query, State}, response::Json, http::StatusCode, routing::get};
 use serde_json::json;
 use serde_json::value::Value as JsonValue;
 use rand::RngExt;
 use tracing::info;
+use serde::Deserialize;
 
 // ========== Constants ==========
 
-const NOTES_PER_BATCH: i32 = 2;
+const NOTES_PER_BATCH: i32 = 2; // FIXME: Should be ~100 when not debugging
 
 // ========== Data Structures ==========
 
@@ -166,12 +167,11 @@ impl From<NoteHeader> for JsonValue {
 
 // ========== Utilities ==========
 
-/// Helper to create an error response from an error code and a message.
-fn http_error(status: u16, message: &str) -> Result<Response<Body>, Error> {
-    Ok(Response::builder()
-        .status(status)
-        .header("content-type", "application/json")
-        .body(Body::Text(json!({"error": message}).to_string()))?
+/// Helper to create the contents of the Err to return from an error response from an error code and a message.
+fn http_error<T: TryInto<StatusCode>>(status: T, message: &str) -> HandlerErrOutput {
+    (
+        status.try_into().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        Json(json!({"error": message}))
     )
 }
 
@@ -202,24 +202,44 @@ fn parse_continue_key(continue_key: &str) -> Result<DynamoDBRecord, String> {
 
 // ========== Endpoint Logic ==========
 
-/// Logic for handling the get_notes command.
-async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str, continue_key: Option<&str>) -> Result<Response<Body>, Error> {
+type HandlerErrOutput = (StatusCode, Json<serde_json::Value>);
+type HandlerOutput = Result<Json<serde_json::Value>, HandlerErrOutput>;
+
+/// Common information shared by every call. Must be Clone since each thread will get a copy.
+#[derive(Clone)]
+struct AppState {
+    dynamo_client: DynamoClient,
+}
+
+
+/// Query parameter extractor for get_notes.
+#[derive(Deserialize)]
+struct GetNotesParams {
+    continue_key: Option<String>,
+}
+
+#[axum::debug_handler]
+async fn handle_get_notes(
+    State(state): State<AppState>,
+    Query(query_params): Query<GetNotesParams>
+) -> HandlerOutput {
+    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
     info!(user_id, table, "fetching notes");
 
     // Parse the continuation key if provided
-    let exclusive_start_key: Option<DynamoDBRecord> = match continue_key {
-        Some(key) => match parse_continue_key(key) {
+    let exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
+        Some(key) => match parse_continue_key(&key) {
             Ok(record) => Some(record),
-            Err(_) => return http_error(400, "invalid continue_key"),
+            Err(_) => return Err(http_error(400, "invalid continue_key")),
         },
         None => None,
     };
 
     // Perform the query
-    let result = dynamo_client
+    let result = state.dynamo_client
         .query()
         .table_name(&table)
         .index_name("notes-by-modify-time")
@@ -229,14 +249,18 @@ async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str, continue_
         .scan_index_forward(false)
         .set_exclusive_start_key(exclusive_start_key)
         .send()
-        .await?;
+        .await;
+    let result = match result {
+        Ok(response) => response,
+        Err(err) => return Err(http_error(500, &err.to_string())),
+    };
 
     // And extract and return the results
     let Ok(continue_key) = result.last_evaluated_key
         .map(build_continue_key)
         .transpose()
     else {
-        return http_error(500, "continue_key invalid in DB");
+        return Err(http_error(500, "continue_key invalid in DB"));
     };
     let Ok(note_headers): Result<Vec<NoteHeader>, String> = result.items
         .unwrap_or_default()
@@ -244,76 +268,58 @@ async fn handle_get_notes(dynamo_client: &DynamoClient, user_id: &str, continue_
         .map(|item| NoteHeader::try_from(item))
         .collect()
     else {
-        return http_error(500, "note header is invalid in DB");
+        return Err(http_error(500, "note header is invalid in DB"));
     };
     let note_headers_json: JsonValue = note_headers.into_iter().map(JsonValue::from).collect();
-    let body = json!({
+    let body_json = json!({
         "note_headers": note_headers_json,
         "continue_key": continue_key,
     });
-    Ok(Response::builder()
-        .status(200)
-        .header("content-type", "application/json")
-        .body(Body::Text(body.to_string()))?
-    )
+    Ok(Json(body_json))
 }
 
 
 /// Logic for handling the get_note command.
-async fn handle_get_note(dynamo_client: &DynamoClient, user_id: &str, note_id: &str) -> Result<Response<Body>, Error> {
-    if ! is_valid_id(note_id) {
-        return http_error(404, "note_id has invalid characters");
+#[axum::debug_handler]
+async fn handle_get_note(
+    State(state): State<AppState>,
+    Path(note_id): Path<String>
+) -> HandlerOutput {
+    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+
+    if ! is_valid_id(&note_id) {
+        return Err(http_error(404, "note_id has invalid characters"));
     }
 
     let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
 
     info!(user_id, note_id, table, "fetching note");
 
-    let result = dynamo_client
+    let result = state.dynamo_client
         .get_item()
         .table_name(&table)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
-        .await?;
+        .await;
+    let result = match result {
+        Ok(response) => response,
+        Err(err) => return Err(http_error(500, &err.to_string())),
+    };
     let item: DynamoDBRecord = match result.item {
         Some(item) => item,
-        None => return http_error(404, "note not found"),
+        None => return Err(http_error(404, "note not found")),
     };
     let note: JsonValue = match Note::try_from(&item) {
         Ok(note) => note.into(),
         Err(err) => {
             info!(err, "note is invalid in DB");
-            return http_error(500, "note is invalid in DB");
+            return Err(http_error(500, "note is invalid in DB"));
         }
     };
 
-    Ok(Response::builder()
-        .status(200)
-        .header("content-type", "application/json")
-        .body(Body::Text(json!({"note": note}).to_string()))?)
-}
-
-
-/// This function performs the operation whenever the lambda is invoked. It receives an
-/// HTTP request and a handle to the DynamoDB client, and returns a successful HTTP response
-/// or an HTTP error.
-async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Response<Body>, Error> {
-    // Later we will get the user_id from a cookie. For now, it is hard-coded:
-    let user_id = "Xq3_mK8~pL";
-
-    // Dispatch based on the: "/api/v1/notes" or "/api/v1/notes/{note_id}"
-    let path = request.uri().path();
-    let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    match path_segments.as_slice() {
-        ["api", "v1", "notes"] => {
-            let continue_key = request.query_string_parameters_ref()
-                .and_then(|q| q.first("continue_key"));
-            handle_get_notes(dynamo_client, user_id, continue_key).await
-        },
-        ["api", "v1", "notes", note_id] => handle_get_note(dynamo_client, user_id, *note_id).await,
-        _ => http_error(404, "not found"),
-    }
+    let body_json = json!({"note": note});
+    Ok(Json(body_json))
 }
 
 
@@ -323,7 +329,7 @@ async fn handler(dynamo_client: &DynamoClient, request: Request) -> Result<Respo
 /// Entry point for initializing the lambda's environment, invoked when the lambda is
 /// instantiated. Must call run() to perform the main event loop.
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), lambda_http::Error> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .json()
@@ -335,9 +341,39 @@ async fn main() -> Result<(), Error> {
     let client = DynamoClient::new(&config);
 
     // Kick off main event loop
-    run(service_fn(move |request: Request| {
-        let client = client.clone();
-        async move { handler(&client, request).await }
-    }))
-    .await
+    let state = AppState {
+        dynamo_client: client,
+    };
+    let app = Router::new()
+        .route("/api/v1/notes", get(handle_get_notes))
+        .route("/api/v1/notes/{note_id}", get(handle_get_note))
+        .with_state(state);
+    lambda_http::run(app).await
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_get_notes_params_ignores_extra_params() {
+        let uri: axum::http::Uri = "http://example.com/path?foo=hello&bar=42".parse().unwrap();
+        let query: Query<GetNotesParams> = Query::try_from_uri(&uri).unwrap();
+        assert_eq!(query.continue_key, None);
+    }
+
+    #[test]
+    fn parse_get_notes_params_parses_simple_strings() {
+        let uri: axum::http::Uri = "http://example.com/path?continue_key=abc".parse().unwrap();
+        let query: Query<GetNotesParams> = Query::try_from_uri(&uri).unwrap();
+        assert_eq!(query.continue_key, Some("abc".to_string()));
+    }
+
+    #[test]
+    fn parse_get_notes_params_parses_real_example_with_escaped_values() {
+        let uri: axum::http::Uri = "http://example.com/path?continue_key=Xq3_mK8~pL%7C2026-03-10T22%3A19%3A00.000Z%7Ck7Rp~2mXvQ".parse().unwrap();
+        let query: Query<GetNotesParams> = Query::try_from_uri(&uri).unwrap();
+        assert_eq!(query.continue_key, Some("Xq3_mK8~pL|2026-03-10T22:19:00.000Z|k7Rp~2mXvQ".to_string()));
+    }
 }
