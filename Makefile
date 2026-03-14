@@ -35,8 +35,15 @@ $(SENTINELS)/deploy-api-v1-$(STAGE): $(API_V1_SOURCES)
 	@mkdir -p $(SENTINELS)
 	@touch $@
 
+CF_DIST_ID_dev  := EE5QH6UGUBU5G
+CF_DIST_ID_prod := ELFIR4781UMJC
+CF_DIST_ID      := $(CF_DIST_ID_$(STAGE))
+
 $(SENTINELS)/deploy-frontend-$(STAGE): $(HTML_SOURCES)
 	aws s3 sync html/ s3://mini-notes-frontend-$(STAGE)/ --delete
+	aws cloudfront create-invalidation \
+	    --distribution-id $(CF_DIST_ID) \
+	    --paths "/*"
 	@mkdir -p $(SENTINELS)
 	@touch $@
 
