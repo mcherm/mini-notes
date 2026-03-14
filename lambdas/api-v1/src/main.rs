@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 // ========== Constants ==========
 
-const NOTES_PER_BATCH: i32 = 2; // FIXME: Should be ~100 when not debugging
+const NOTES_PER_BATCH: i32 = 100;
 
 // ========== Data Structures ==========
 

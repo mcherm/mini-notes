@@ -16,6 +16,7 @@ function getApiBaseUrl() {
 
 
 let noteHeaders = [];
+let currentNote = null;
 let continuationKey = null;
 let isLoadingNotes = false;
 
@@ -39,19 +40,33 @@ function renderNoteList() {
     // TODO: Special display for when the list is empty.
     const noteList = document.querySelector("note-list");
     noteList.innerHTML = "";
-    noteHeaders.forEach((header, index) => {
-        noteList.appendChild(createNoteSlug(header, index === 0));
+    noteHeaders.forEach((header) => {
+        const isActive = currentNote !== null && header.note_id === currentNote.note_id;
+        noteList.appendChild(createNoteSlug(header, isActive));
     });
     setupScrollObserver();
+}
+
+/** Populates the article area with the current note's title and body. */
+function renderNote() {
+    const titleInput = document.querySelector("article input.title");
+    const bodyTextarea = document.querySelector("article textarea.note-body");
+    if (currentNote) {
+        titleInput.value = currentNote.title;
+        bodyTextarea.value = currentNote.body;
+    } else {
+        titleInput.value = "";
+        bodyTextarea.value = "";
+    }
 }
 
 /** Appends new <note-slug> elements to <note-list>, inserted before the sentinel. */
 function appendNoteHeaders(newHeaders) {
     const noteList = document.querySelector("note-list");
     const sentinel = noteList.querySelector("note-list-sentinel");
-    const wasEmpty = noteHeaders.length === 0;
-    newHeaders.forEach((header, index) => {
-        noteList.insertBefore(createNoteSlug(header, wasEmpty && index === 0), sentinel);
+    newHeaders.forEach((header) => {
+        const isActive = currentNote !== null && header.note_id === currentNote.note_id;
+        noteList.insertBefore(createNoteSlug(header, isActive), sentinel);
     });
 }
 
@@ -66,8 +81,6 @@ function setupScrollObserver() {
     noteList.appendChild(sentinel);
 
     scrollObserver = new IntersectionObserver((entries) => {
-        console.log("IntersectionObserver fired, isIntersecting:", entries[0].isIntersecting,
-            "continuationKey:", continuationKey, "isLoadingNotes:", isLoadingNotes);
         if (entries[0].isIntersecting && continuationKey !== null && !isLoadingNotes) {
             loadNoteHeaders(continuationKey);
         }
@@ -90,7 +103,6 @@ function reobserveSentinel() {
 /** Shows or hides the sentinel based on whether more pages are available. */
 function updateSentinel() {
     const sentinel = document.querySelector("note-list-sentinel");
-    console.log("updateSentinel called, sentinel found:", !!sentinel, "continuationKey:", continuationKey);
     if (!sentinel) return;
     if (continuationKey !== null) {
         sentinel.textContent = "Loading...";
@@ -135,9 +147,27 @@ async function loadNoteHeaders(continueKey) {
     }
 }
 
+/** Fetches a single note from the API and renders it. */
+async function loadNote(noteId) {
+    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    currentNote = data.note;
+    renderNote();
+}
+
 // ========== Initialization ==========
 
 document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
     loadNoteHeaders();
+
+    document.querySelector("note-list").addEventListener("click", (event) => {
+        const slug = event.target.closest("note-slug");
+        if (!slug) return;
+        const current = document.querySelector("note-slug.active");
+        if (current) current.classList.remove("active");
+        slug.classList.add("active");
+        loadNote(slug.dataset.noteId);
+    });
 });
