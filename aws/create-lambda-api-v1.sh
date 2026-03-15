@@ -9,6 +9,12 @@ ARCH=arm64
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ZIP=target/lambda/api-v1/bootstrap.zip
 
+if [[ "${STAGE}" == "prod" ]]; then
+    FRONTEND_DOMAIN="mini-notes.com"
+else
+    FRONTEND_DOMAIN="dev.mini-notes.com"
+fi
+
 if [[ ! -f "${ZIP}" ]]; then
     echo "Error: ${ZIP} not found. Run 'make zip-api-v1' first." >&2
     exit 1
@@ -20,7 +26,7 @@ aws lambda create-function \
     --handler bootstrap \
     --role "arn:aws:iam::${ACCOUNT_ID}:role/mini-notes-lambda-role" \
     --zip-file "fileb://${ZIP}" \
-    --environment "Variables={TABLE_NAME=mini-notes-notes-${STAGE}}" \
+    --environment "Variables={TABLE_NAME=mini-notes-notes-${STAGE},ALLOWED_ORIGIN=https://${FRONTEND_DOMAIN}}" \
     --architectures "${ARCH}" \
     --tags mini-notes=
 

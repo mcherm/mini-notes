@@ -55,9 +55,6 @@ echo ""
 #   CachingOptimized          658327ea-f89d-4fab-a63d-7e88639e58f6
 #   AllViewerExceptHostHeader b689b0a8-53d0-40ab-baf2-68738e2966ac  (origin request policy)
 
-# CORS response headers policy (created by create-cors-policy.sh)
-CORS_POLICY_ID=$(cat "aws/.cors-policy-id-${STAGE}")
-
 CALLER_REF="mini-notes-${STAGE}-$(date +%s)"
 
 DIST_CONFIG_WITH_TAGS=$(cat <<EOF
@@ -110,7 +107,6 @@ DIST_CONFIG_WITH_TAGS=$(cat <<EOF
           "ViewerProtocolPolicy": "redirect-to-https",
           "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
           "OriginRequestPolicyId": "b689b0a8-53d0-40ab-baf2-68738e2966ac",
-          "ResponseHeadersPolicyId": "${CORS_POLICY_ID}",
           "AllowedMethods": {
             "Quantity": 7,
             "Items": ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"],

@@ -3,6 +3,8 @@ use std::fmt::{Display, Formatter};
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{Router, extract::{Path, Query, State}, response::Json, http::StatusCode, routing::get, routing::put};
+use axum::http::{Method, header};
+use tower_http::cors::CorsLayer;
 use serde_json::json;
 use serde_json::value::Value as JsonValue;
 use rand::RngExt;
@@ -210,6 +212,7 @@ type HandlerOutput = Result<Json<serde_json::Value>, HandlerErrOutput>;
 #[derive(Clone)]
 struct AppState {
     dynamo_client: DynamoClient,
+    table_name: String,
 }
 
 
@@ -226,9 +229,7 @@ async fn handle_get_notes(
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
-    let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
-
-    info!(user_id, table, "fetching notes");
+    info!(user_id, table = state.table_name, "fetching notes");
 
     // Parse the continuation key if provided
     let exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
@@ -242,7 +243,7 @@ async fn handle_get_notes(
     // Perform the query
     let result = state.dynamo_client
         .query()
-        .table_name(&table)
+        .table_name(&state.table_name)
         .index_name("notes-by-modify-time")
         .key_condition_expression("user_id = :uid")
         .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
@@ -292,13 +293,11 @@ async fn handle_get_note(
         return Err(http_error(404, "note_id has invalid characters"));
     }
 
-    let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
-
-    info!(user_id, note_id, table, "fetching note");
+    info!(user_id, note_id, table = state.table_name, "fetching note");
 
     let result = state.dynamo_client
         .get_item()
-        .table_name(&table)
+        .table_name(&state.table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
@@ -345,9 +344,7 @@ async fn handle_edit_note(
         return Err(http_error(404, "note_id has invalid characters"));
     }
 
-    let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
-
-    info!(user_id, note_id, table, ?edit_note_fields, "updating note");
+    info!(user_id, note_id, table = state.table_name, ?edit_note_fields, "updating note");
 
     let modify_time: String = match UtcDateTime::now().format(&Iso8601::DEFAULT) {
         Ok(modify_time) => modify_time,
@@ -357,7 +354,7 @@ async fn handle_edit_note(
     // --- Read the existing record (if any) ---
     let read_result = state.dynamo_client
         .get_item()
-        .table_name(&table)
+        .table_name(&state.table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
@@ -390,7 +387,7 @@ async fn handle_edit_note(
     // --- Update the record ---
     let result = state.dynamo_client
         .update_item()
-        .table_name(&table)
+        .table_name(&state.table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .update_expression("SET title = :t, body = :b, modify_time = :m, version_id = :v")
@@ -426,15 +423,27 @@ async fn main() -> Result<(), lambda_http::Error> {
         .await;
     let client = DynamoClient::new(&config);
 
-    // Kick off main event loop
+    // Read configuration from environment
+    let table_name = std::env::var("TABLE_NAME")
+        .expect("TABLE_NAME env var must be set");
+    let allowed_origin = std::env::var("ALLOWED_ORIGIN")
+        .expect("ALLOWED_ORIGIN env var must be set");
+
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::PUT, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_origin([allowed_origin.parse().expect("Invalid ALLOWED_ORIGIN")]);
+
     let state = AppState {
         dynamo_client: client,
+        table_name,
     };
     let app = Router::new()
         .route("/api/v1/notes", get(handle_get_notes))
         .route("/api/v1/notes/{note_id}", get(handle_get_note))
         .route("/api/v1/notes/{note_id}", put(handle_edit_note))
-        .with_state(state);
+        .with_state(state)
+        .layer(cors);
     lambda_http::run(app).await
 }
 
@@ -504,7 +513,10 @@ mod tests {
 
         let app = Router::new()
             .route("/api/v1/notes/{note_id}", put(handle_edit_note))
-            .with_state(AppState { dynamo_client: client });
+            .with_state(AppState {
+                dynamo_client: client,
+                table_name: "test-table".to_string(),
+            });
 
         let request = axum::http::Request::builder()
             .method("PUT")
