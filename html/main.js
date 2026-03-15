@@ -147,6 +147,49 @@ async function loadNoteHeaders(continueKey) {
     }
 }
 
+/** Saves the current note if the title or body has changed. */
+async function saveNoteIfChanged() {
+    if (!currentNote) return;
+    const titleInput = document.querySelector("article input.title");
+    const bodyTextarea = document.querySelector("article textarea.note-body");
+    const newTitle = titleInput.value;
+    const newBody = bodyTextarea.value;
+    if (newTitle === currentNote.title && newBody === currentNote.body) return;
+
+    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(currentNote.note_id)}`;
+    const response = await fetch(url, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({title: newTitle, body: newBody}),
+    });
+    const data = await response.json();
+    currentNote = data.note;
+
+    // Replace the note header in the list with one built from the updated note
+    const newHeader = {
+        user_id: currentNote.user_id,
+        note_id: currentNote.note_id,
+        version_id: currentNote.version_id,
+        title: currentNote.title,
+        modify_time: currentNote.modify_time,
+        format: currentNote.format,
+    };
+    const oldIndex = noteHeaders.findIndex(h => h.note_id === currentNote.note_id);
+    if (oldIndex !== -1) {
+        noteHeaders.splice(oldIndex, 1);
+    }
+    noteHeaders.unshift(newHeader);
+
+    // Remove the old slug and insert a new active one at the top of the list
+    const noteList = document.querySelector("note-list");
+    const oldSlug = noteList.querySelector(`note-slug[data-note-id="${currentNote.note_id}"]`);
+    if (oldSlug) {
+        oldSlug.remove();
+    }
+    const newSlug = createNoteSlug(newHeader, true);
+    noteList.insertBefore(newSlug, noteList.firstChild);
+}
+
 /** Fetches a single note from the API and renders it. */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
@@ -161,6 +204,9 @@ async function loadNote(noteId) {
 document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
     loadNoteHeaders();
+
+    document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
+    document.querySelector("article textarea.note-body").addEventListener("blur", saveNoteIfChanged);
 
     document.querySelector("note-list").addEventListener("click", (event) => {
         const slug = event.target.closest("note-slug");
