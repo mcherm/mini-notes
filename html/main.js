@@ -113,11 +113,55 @@ function updateSentinel() {
     }
 }
 
+// ========== Note State Helpers ==========
+
+/**
+ * Updates currentNote, noteHeaders, and the DOM after receiving a note from the API.
+ *   replaceNoteId: if set, removes the old header/slug for that note (used by save).
+ *   deactivateOld: if true, deactivates the currently active slug (used by new note).
+ */
+function applyNoteToUI(note, { replaceNoteId = null, deactivateOld = false } = {}) {
+    currentNote = note;
+
+    const newHeader = {
+        user_id: note.user_id,
+        note_id: note.note_id,
+        version_id: note.version_id,
+        title: note.title,
+        modify_time: note.modify_time,
+        format: note.format,
+    };
+
+    if (replaceNoteId) {
+        const oldIndex = noteHeaders.findIndex(h => h.note_id === replaceNoteId);
+        if (oldIndex !== -1) {
+            noteHeaders.splice(oldIndex, 1);
+        }
+    }
+    noteHeaders.unshift(newHeader);
+
+    const noteList = document.querySelector("note-list");
+
+    if (replaceNoteId) {
+        const oldSlug = noteList.querySelector(`note-slug[data-note-id="${replaceNoteId}"]`);
+        if (oldSlug) oldSlug.remove();
+    }
+
+    if (deactivateOld) {
+        const activeSlug = noteList.querySelector("note-slug.active");
+        if (activeSlug) activeSlug.classList.remove("active");
+    }
+
+    const newSlug = createNoteSlug(newHeader, true);
+    noteList.insertBefore(newSlug, noteList.firstChild);
+
+    renderNote();
+}
+
 // ========== API Calls ==========
 
 /** Fetches note headers from the API and renders the note list. */
 async function loadNoteHeaders(continueKey) {
-    console.log("loadNoteHeaders called, continueKey:", continueKey);
     isLoadingNotes = true;
     try {
         let url = `${getApiBaseUrl()}/api/v1/notes`;
@@ -157,37 +201,27 @@ async function saveNoteIfChanged() {
     if (newTitle === currentNote.title && newBody === currentNote.body) return;
 
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(currentNote.note_id)}`;
+    const noteId = currentNote.note_id;
     const response = await fetch(url, {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({title: newTitle, body: newBody}),
     });
     const data = await response.json();
-    currentNote = data.note;
+    applyNoteToUI(data.note, { replaceNoteId: noteId });
+}
 
-    // Replace the note header in the list with one built from the updated note
-    const newHeader = {
-        user_id: currentNote.user_id,
-        note_id: currentNote.note_id,
-        version_id: currentNote.version_id,
-        title: currentNote.title,
-        modify_time: currentNote.modify_time,
-        format: currentNote.format,
-    };
-    const oldIndex = noteHeaders.findIndex(h => h.note_id === currentNote.note_id);
-    if (oldIndex !== -1) {
-        noteHeaders.splice(oldIndex, 1);
-    }
-    noteHeaders.unshift(newHeader);
-
-    // Remove the old slug and insert a new active one at the top of the list
-    const noteList = document.querySelector("note-list");
-    const oldSlug = noteList.querySelector(`note-slug[data-note-id="${currentNote.note_id}"]`);
-    if (oldSlug) {
-        oldSlug.remove();
-    }
-    const newSlug = createNoteSlug(newHeader, true);
-    noteList.insertBefore(newSlug, noteList.firstChild);
+/** Creates a new note via the API and switches to it. */
+async function createNewNote() {
+    await saveNoteIfChanged();
+    const url = `${getApiBaseUrl()}/api/v1/notes`;
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({title: "New Note", body: "", format: "PlainText"}),
+    });
+    const data = await response.json();
+    applyNoteToUI(data.note, { deactivateOld: true });
 }
 
 /** Fetches a single note from the API and renders it. */
@@ -205,6 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
     loadNoteHeaders();
 
+    document.querySelector("#new-note").addEventListener("click", createNewNote);
     document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
     document.querySelector("article textarea.note-body").addEventListener("blur", saveNoteIfChanged);
 
