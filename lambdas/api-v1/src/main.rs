@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, Query, State, FromRequestParts},
     response::Json,
     http::{Method, StatusCode, header, request::Parts},
-    routing::{get, put, post}
+    routing::{get, put, post, delete}
 };
 use serde::Deserialize;
 use serde_json::{json, value::Value as JsonValue};
@@ -313,6 +313,62 @@ async fn handle_get_notes(
 }
 
 
+/// A struct for the things that are passed in as part of the body when a new note is created.
+#[derive(Debug, Deserialize)]
+struct NewNoteFields {
+    title: String,
+    body: String,
+    format: NoteFormat,
+}
+
+/// Logic for handling the new_note command.
+#[axum::debug_handler]
+async fn handle_new_note(
+    State(state): State<AppState>,
+    CurrentTime(current_time): CurrentTime,
+    IdGenerator(generate_id): IdGenerator,
+    Json(new_note_fields): Json<NewNoteFields>,
+) -> HandlerOutput {
+    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+
+    let note_id = generate_id();
+
+    info!(user_id, note_id, table = state.table_name, ?new_note_fields, "creating note");
+
+    let note: Note = Note {
+        user_id: user_id.to_string(),
+        note_id,
+        version_id: 0,
+        title: new_note_fields.title,
+        create_time: current_time.clone(),
+        modify_time: current_time,
+        format: new_note_fields.format,
+        body: new_note_fields.body,
+    };
+
+    let result = state.dynamo_client
+        .put_item()
+        .table_name(&state.table_name)
+        .item("user_id", AttributeValue::S(note.user_id.clone()))
+        .item("note_id", AttributeValue::S(note.note_id.clone()))
+        .item("version_id", AttributeValue::N(note.version_id.to_string()))
+        .item("title", AttributeValue::S(note.title.clone()))
+        .item("create_time", AttributeValue::S(note.create_time.clone()))
+        .item("modify_time", AttributeValue::S(note.modify_time.clone()))
+        .item("format", AttributeValue::S(note.format.to_string()))
+        .item("body", AttributeValue::S(note.body.clone()))
+        .send()
+        .await;
+    if result.is_err() {
+        return Err(http_error(500, "unable to create new note"));
+    }
+
+    let note_json: JsonValue = note.into();
+    let body_json = json!({"note": note_json});
+    Ok(Json(body_json))
+}
+
+
 /// Logic for handling the get_note command.
 #[axum::debug_handler]
 async fn handle_get_note(
@@ -433,60 +489,31 @@ async fn handle_edit_note(
 }
 
 
-/// A struct for the things that are passed in as part of the body when a new note is created.
-#[derive(Debug, Deserialize)]
-struct NewNoteFields {
-    title: String,
-    body: String,
-    format: NoteFormat,
-}
-
-/// Logic for handling the new_note command.
+/// Logic for handling the delete_note command.
 #[axum::debug_handler]
-async fn handle_new_note(
+async fn handle_delete_note(
     State(state): State<AppState>,
-    CurrentTime(current_time): CurrentTime,
-    IdGenerator(generate_id): IdGenerator,
-    Json(new_note_fields): Json<NewNoteFields>,
+    Path(note_id): Path<String>
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
-    let note_id = generate_id();
-
-    info!(user_id, note_id, table = state.table_name, ?new_note_fields, "creating note");
-
-    let note: Note = Note {
-        user_id: user_id.to_string(),
-        note_id,
-        version_id: 0,
-        title: new_note_fields.title,
-        create_time: current_time.clone(),
-        modify_time: current_time,
-        format: new_note_fields.format,
-        body: new_note_fields.body,
-    };
+    info!(user_id, note_id, table = state.table_name, "delete note");
 
     let result = state.dynamo_client
-        .put_item()
+        .delete_item()
         .table_name(&state.table_name)
-        .item("user_id", AttributeValue::S(note.user_id.clone()))
-        .item("note_id", AttributeValue::S(note.note_id.clone()))
-        .item("version_id", AttributeValue::N(note.version_id.to_string()))
-        .item("title", AttributeValue::S(note.title.clone()))
-        .item("create_time", AttributeValue::S(note.create_time.clone()))
-        .item("modify_time", AttributeValue::S(note.modify_time.clone()))
-        .item("format", AttributeValue::S(note.format.to_string()))
-        .item("body", AttributeValue::S(note.body.clone()))
+        .key("user_id", AttributeValue::S(user_id.to_string()))
+        .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
         .await;
     if result.is_err() {
-        return Err(http_error(500, "unable to create new note"));
+        return Err(http_error(500, "unable to delete note"));
     }
 
-    let note_json: JsonValue = note.into();
-    let body_json = json!({"note": note_json});
+    let body_json = json!({});
     Ok(Json(body_json))
 }
+
 
 // ========== Routing and Framework ==========
 
@@ -521,9 +548,10 @@ async fn main() -> Result<(), lambda_http::Error> {
     };
     let app = Router::new()
         .route("/api/v1/notes", get(handle_get_notes))
+        .route("/api/v1/notes", post(handle_new_note))
         .route("/api/v1/notes/{note_id}", get(handle_get_note))
         .route("/api/v1/notes/{note_id}", put(handle_edit_note))
-        .route("/api/v1/notes", post(handle_new_note))
+        .route("/api/v1/notes/{note_id}", delete(handle_delete_note))
         .with_state(state)
         .layer(cors);
     lambda_http::run(app).await

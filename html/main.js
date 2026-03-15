@@ -224,6 +224,27 @@ async function createNewNote() {
     applyNoteToUI(data.note, { deactivateOld: true });
 }
 
+/** Deletes the current note via the API and clears it from the UI. */
+async function deleteCurrentNote() {
+    console.log("Will delete note"); // FIXME: Remove
+    if (!currentNote) return;
+    const noteId = currentNote.note_id;
+    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
+    await fetch(url, { method: "DELETE" });
+
+    const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
+    if (oldIndex !== -1) {
+        noteHeaders.splice(oldIndex, 1);
+    }
+
+    const noteList = document.querySelector("note-list");
+    const oldSlug = noteList.querySelector(`note-slug[data-note-id="${noteId}"]`);
+    if (oldSlug) oldSlug.remove();
+
+    currentNote = null;
+    renderNote();
+}
+
 /** Fetches a single note from the API and renders it. */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
@@ -240,6 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadNoteHeaders();
 
     document.querySelector("#new-note").addEventListener("click", createNewNote);
+    document.querySelector("#delete-note").addEventListener("click", deleteCurrentNote);
     document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
     document.querySelector("article textarea.note-body").addEventListener("blur", saveNoteIfChanged);
 
