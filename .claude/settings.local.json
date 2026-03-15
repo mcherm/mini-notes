@@ -5,7 +5,10 @@
       "Bash(make build:*)",
       "Bash(make zip:*)",
       "Bash(cargo check:*)",
-      "WebSearch"
+      "Bash(cargo test:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)"
     ]
   }
 }

@@ -463,4 +463,67 @@ mod tests {
         let query: Query<GetNotesParams> = Query::try_from_uri(&uri).unwrap();
         assert_eq!(query.continue_key, Some("Xq3_mK8~pL|2026-03-10T22:19:00.000Z|k7Rp~2mXvQ".to_string()));
     }
+
+    #[tokio::test]
+    async fn test_handle_edit_note_updates_existing_note() {
+        use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient};
+        use aws_smithy_types::body::SdkBody;
+        use tower::ServiceExt;
+        use http_body_util::BodyExt;
+
+        // Canned DynamoDB responses: first GetItem (existing note), then UpdateItem (success)
+        let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"3"},"title":{"S":"Old Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Old body"}}}"#;
+        let update_item_response = r#"{}"#;
+
+        let http_client = StaticReplayClient::new(vec![
+            ReplayEvent::new(
+                axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
+                axum::http::Response::builder()
+                    .status(200)
+                    .body(SdkBody::from(get_item_response))
+                    .unwrap(),
+            ),
+            ReplayEvent::new(
+                axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
+                axum::http::Response::builder()
+                    .status(200)
+                    .body(SdkBody::from(update_item_response))
+                    .unwrap(),
+            ),
+        ]);
+
+        let config = aws_sdk_dynamodb::Config::builder()
+            .http_client(http_client)
+            .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
+            .credentials_provider(aws_credential_types::Credentials::new(
+                "test", "test", None, None, "test"
+            ))
+            .behavior_version_latest()
+            .build();
+        let client = DynamoClient::from_conf(config);
+
+        let app = Router::new()
+            .route("/api/v1/notes/{note_id}", put(handle_edit_note))
+            .with_state(AppState { dynamo_client: client });
+
+        let request = axum::http::Request::builder()
+            .method("PUT")
+            .uri("/api/v1/notes/ab12cd34ef")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"title":"New Title","body":"New body"}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["note"]["note_id"], "ab12cd34ef");
+        assert_eq!(json["note"]["title"], "New Title");
+        assert_eq!(json["note"]["body"], "New body");
+        assert_eq!(json["note"]["version_id"], 4);
+        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00.000000000Z");
+        assert_eq!(json["note"]["format"], "PlainText");
+    }
+
 }

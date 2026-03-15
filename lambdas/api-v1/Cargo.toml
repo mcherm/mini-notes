@@ -19,3 +19,10 @@ rand = "0.10"
 axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1", features = ["derive"] }
 time = {  version = "0.3", features = ["formatting"] }
+
+[dev-dependencies]
+aws-smithy-http-client = { version = "1", features = ["test-util"] }
+aws-smithy-types = "1"
+aws-credential-types = "1"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
