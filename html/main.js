@@ -243,12 +243,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
     document.querySelector("article textarea.note-body").addEventListener("blur", saveNoteIfChanged);
 
-    document.querySelector("note-list").addEventListener("click", (event) => {
+    document.querySelector("note-list").addEventListener("click", async (event) => {
         const slug = event.target.closest("note-slug");
         if (!slug) return;
+        await saveNoteIfChanged();
         const current = document.querySelector("note-slug.active");
         if (current) current.classList.remove("active");
         slug.classList.add("active");
-        loadNote(slug.dataset.noteId);
+        await loadNote(slug.dataset.noteId);
     });
 });
