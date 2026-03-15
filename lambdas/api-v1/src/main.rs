@@ -2,15 +2,20 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
-use axum::{Router, extract::{Path, Query, State}, response::Json, http::StatusCode, routing::get, routing::put};
-use axum::http::{Method, header};
-use tower_http::cors::CorsLayer;
-use serde_json::json;
-use serde_json::value::Value as JsonValue;
-use rand::RngExt;
-use time::{UtcDateTime, format_description::well_known::Iso8601};
-use tracing::info;
+use axum::{
+    Router,
+    extract::{Path, Query, State, FromRequestParts},
+    response::Json,
+    http::{Method, StatusCode, header, request::Parts},
+    routing::{get, put, post}
+};
 use serde::Deserialize;
+use serde_json::{json, value::Value as JsonValue};
+use time::{UtcDateTime, format_description::well_known::Iso8601};
+use tower_http::cors::CorsLayer;
+use tracing::info;
+use rand::RngExt;
+
 
 // ========== Constants ==========
 
@@ -20,6 +25,7 @@ const NOTES_PER_BATCH: i32 = 100;
 
 /// An enum for the various kinds of notes we support. Right now it is ONLY one
 /// kind (plain text).
+#[derive(Debug, Deserialize)]
 enum NoteFormat {
     PlainText,
 }
@@ -215,6 +221,32 @@ struct AppState {
     table_name: String,
 }
 
+/// Extractor for getting the time from the system clock.
+struct CurrentTime(String);
+
+/// Make CurrentTime into an extractor that can be used by handlers if declared as an argument.
+impl FromRequestParts<AppState> for CurrentTime {
+    type Rejection = HandlerErrOutput;
+
+    async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
+        match UtcDateTime::now().format(&Iso8601::DEFAULT) {
+            Ok(s) => Ok(CurrentTime(s)),
+            Err(_) => Err(http_error(500, "cannot read system clock"))
+        }
+    }
+}
+
+/// Extractor for generating new IDs. In production, axum resolves this using
+/// generate_id(); in tests, callers construct it directly with any function.
+struct IdGenerator(fn() -> String);
+
+impl FromRequestParts<AppState> for IdGenerator {
+    type Rejection = HandlerErrOutput;
+
+    async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
+        Ok(IdGenerator(generate_id))
+    }
+}
 
 /// Query parameter extractor for get_notes.
 #[derive(Deserialize)]
@@ -267,7 +299,7 @@ async fn handle_get_notes(
     let Ok(note_headers): Result<Vec<NoteHeader>, String> = result.items
         .unwrap_or_default()
         .iter()
-        .map(|item| NoteHeader::try_from(item))
+        .map(NoteHeader::try_from)
         .collect()
     else {
         return Err(http_error(500, "note header is invalid in DB"));
@@ -329,13 +361,12 @@ struct EditNoteFields {
     body: String,
 }
 
-// ========== Routing and Framework ==========
-
 /// Logic for handling the edit_note command. This modifies a note that already exists.
 #[axum::debug_handler]
 async fn handle_edit_note(
     State(state): State<AppState>,
     Path(note_id): Path<String>,
+    CurrentTime(current_time): CurrentTime,
     Json(edit_note_fields): Json<EditNoteFields>,
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
@@ -345,11 +376,6 @@ async fn handle_edit_note(
     }
 
     info!(user_id, note_id, table = state.table_name, ?edit_note_fields, "updating note");
-
-    let modify_time: String = match UtcDateTime::now().format(&Iso8601::DEFAULT) {
-        Ok(modify_time) => modify_time,
-        Err(_) => return Err(http_error(500, "unable to get time"))
-    };
 
     // --- Read the existing record (if any) ---
     let read_result = state.dynamo_client
@@ -379,8 +405,8 @@ async fn handle_edit_note(
     }
 
     // --- Apply the changes ---
-    updated_note.version_id = updated_note.version_id + 1;
-    updated_note.modify_time = modify_time;
+    updated_note.version_id += 1;
+    updated_note.modify_time = current_time;
     updated_note.title = edit_note_fields.title;
     updated_note.body = edit_note_fields.body;
 
@@ -397,8 +423,8 @@ async fn handle_edit_note(
         .expression_attribute_values(":v", AttributeValue::N(updated_note.version_id.to_string()))
         .send()
         .await;
-    if let Err(err) = result {
-        return Err(http_error(404, &err.to_string()));
+    if result.is_err() {
+        return Err(http_error(404, "no such note or could not update note"));
     }
 
     let note_json: JsonValue = updated_note.into();
@@ -406,6 +432,61 @@ async fn handle_edit_note(
     Ok(Json(body_json))
 }
 
+
+/// A struct for the things that are passed in as part of the body when a new note is created.
+#[derive(Debug, Deserialize)]
+struct NewNoteFields {
+    title: String,
+    body: String,
+    format: NoteFormat,
+}
+
+/// Logic for handling the new_note command.
+#[axum::debug_handler]
+async fn handle_new_note(
+    State(state): State<AppState>,
+    CurrentTime(current_time): CurrentTime,
+    IdGenerator(generate_id): IdGenerator,
+    Json(new_note_fields): Json<NewNoteFields>,
+) -> HandlerOutput {
+    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+
+    let note_id = generate_id();
+
+    info!(user_id, note_id, table = state.table_name, ?new_note_fields, "creating note");
+
+    let note: Note = Note {
+        user_id: user_id.to_string(),
+        note_id,
+        version_id: 0,
+        title: new_note_fields.title,
+        create_time: current_time.clone(),
+        modify_time: current_time,
+        format: new_note_fields.format,
+        body: new_note_fields.body,
+    };
+
+    let result = state.dynamo_client
+        .put_item()
+        .table_name(&state.table_name)
+        .item("user_id", AttributeValue::S(note.user_id.clone()))
+        .item("note_id", AttributeValue::S(note.note_id.clone()))
+        .item("version_id", AttributeValue::N(note.version_id.to_string()))
+        .item("title", AttributeValue::S(note.title.clone()))
+        .item("create_time", AttributeValue::S(note.create_time.clone()))
+        .item("modify_time", AttributeValue::S(note.modify_time.clone()))
+        .item("format", AttributeValue::S(note.format.to_string()))
+        .item("body", AttributeValue::S(note.body.clone()))
+        .send()
+        .await;
+    if result.is_err() {
+        return Err(http_error(500, "unable to create new note"));
+    }
+
+    let note_json: JsonValue = note.into();
+    let body_json = json!({"note": note_json});
+    Ok(Json(body_json))
+}
 
 // ========== Routing and Framework ==========
 
@@ -430,7 +511,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .expect("ALLOWED_ORIGIN env var must be set");
 
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::PUT, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::PUT, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_origin([allowed_origin.parse().expect("Invalid ALLOWED_ORIGIN")]);
 
@@ -442,6 +523,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/notes", get(handle_get_notes))
         .route("/api/v1/notes/{note_id}", get(handle_get_note))
         .route("/api/v1/notes/{note_id}", put(handle_edit_note))
+        .route("/api/v1/notes", post(handle_new_note))
         .with_state(state)
         .layer(cors);
     lambda_http::run(app).await
