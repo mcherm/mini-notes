@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
-use axum::{Router, extract::{Path, Query, State}, response::Json, http::StatusCode, routing::get};
+use axum::{Router, extract::{Path, Query, State}, response::Json, http::StatusCode, routing::get, routing::put};
 use serde_json::json;
 use serde_json::value::Value as JsonValue;
 use rand::RngExt;
+use time::{UtcDateTime, format_description::well_known::Iso8601};
 use tracing::info;
 use serde::Deserialize;
 
@@ -34,7 +35,7 @@ impl Display for NoteFormat {
 struct Note {
     user_id: String,
     note_id: String,
-    version_id: u64,
+    version_id: u32,
     title: String,
     create_time: String,
     modify_time: String,
@@ -46,7 +47,7 @@ struct Note {
 struct NoteHeader {
     user_id: String,
     note_id: String,
-    version_id: u64,
+    version_id: u32,
     title: String,
     modify_time: String,
     format: NoteFormat,
@@ -81,13 +82,13 @@ fn get_s(item: &DynamoDBRecord, field: &str) -> Result<String, String> {
 }
 
 /// Helper for reading number fields from DynamoDB.
-fn get_n_as_u64(item: &DynamoDBRecord, field: &str) -> Result<u64, String> {
+fn get_n_as_u32(item: &DynamoDBRecord, field: &str) -> Result<u32, String> {
     let n_str = item.get(field)
         .ok_or_else(|| format!("missing field '{field}'"))?
         .as_n()
         .map_err(|_| format!("field '{field}' is not a number"))?;
-    n_str.parse::<u64>()
-        .map_err(|_| format!("field '{field}' is not a valid u64"))
+    n_str.parse::<u32>()
+        .map_err(|_| format!("field '{field}' is not a valid u32"))
 }
 
 /// Helper for reading the enum NoteFormat fields from DynamoDB.
@@ -107,7 +108,7 @@ impl TryFrom<&DynamoDBRecord> for Note {
         Ok(Note {
             user_id: get_s(item, "user_id")?,
             note_id: get_s(item, "note_id")?,
-            version_id: get_n_as_u64(item, "version_id")?,
+            version_id: get_n_as_u32(item, "version_id")?,
             title: get_s(item, "title")?,
             create_time: get_s(item, "create_time")?,
             modify_time: get_s(item, "modify_time")?,
@@ -142,7 +143,7 @@ impl TryFrom<&DynamoDBRecord> for NoteHeader {
         Ok(NoteHeader {
             user_id: get_s(item, "user_id")?,
             note_id: get_s(item, "note_id")?,
-            version_id: get_n_as_u64(item, "version_id")?,
+            version_id: get_n_as_u32(item, "version_id")?,
             title: get_s(item, "title")?,
             modify_time: get_s(item, "modify_time")?,
             format: parse_note_format(&get_s(item, "format")?)?,
@@ -322,9 +323,94 @@ async fn handle_get_note(
     Ok(Json(body_json))
 }
 
+/// A struct for the things that are passed in as part of the body when a note is being modified.
+#[derive(Debug, Deserialize)]
+struct EditNoteFields {
+    title: String,
+    body: String,
+}
 
 // ========== Routing and Framework ==========
 
+/// Logic for handling the edit_note command. This modifies a note that already exists.
+#[axum::debug_handler]
+async fn handle_edit_note(
+    State(state): State<AppState>,
+    Path(note_id): Path<String>,
+    Json(edit_note_fields): Json<EditNoteFields>,
+) -> HandlerOutput {
+    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+
+    if ! is_valid_id(&note_id) {
+        return Err(http_error(404, "note_id has invalid characters"));
+    }
+
+    let table = std::env::var("TABLE_NAME").unwrap_or_else(|_| "mini-notes-notes-dev".to_string());
+
+    info!(user_id, note_id, table, ?edit_note_fields, "updating note");
+
+    let modify_time: String = match UtcDateTime::now().format(&Iso8601::DEFAULT) {
+        Ok(modify_time) => modify_time,
+        Err(_) => return Err(http_error(500, "unable to get time"))
+    };
+
+    // --- Read the existing record (if any) ---
+    let read_result = state.dynamo_client
+        .get_item()
+        .table_name(&table)
+        .key("user_id", AttributeValue::S(user_id.to_string()))
+        .key("note_id", AttributeValue::S(note_id.to_string()))
+        .send()
+        .await;
+    let read_result = match read_result {
+        Ok(response) => response,
+        Err(err) => return Err(http_error(500, &err.to_string())),
+    };
+
+    let mut updated_note: Note;
+    match read_result.item {
+        Some(item) => {
+            updated_note = match Note::try_from(&item) {
+                Ok(note) => note,
+                Err(err) => {
+                    info!(err, "note is invalid in DB");
+                    return Err(http_error(500, "note is invalid in DB"));
+                }
+            };
+        }
+        None => return Err(http_error(500, "note not found")),
+    }
+
+    // --- Apply the changes ---
+    updated_note.version_id = updated_note.version_id + 1;
+    updated_note.modify_time = modify_time;
+    updated_note.title = edit_note_fields.title;
+    updated_note.body = edit_note_fields.body;
+
+    // --- Update the record ---
+    let result = state.dynamo_client
+        .update_item()
+        .table_name(&table)
+        .key("user_id", AttributeValue::S(user_id.to_string()))
+        .key("note_id", AttributeValue::S(note_id.to_string()))
+        .update_expression("SET title = :t, body = :b, modify_time = :m, version_id = :v")
+        .expression_attribute_values(":t", AttributeValue::S(updated_note.title.clone()))
+        .expression_attribute_values(":b", AttributeValue::S(updated_note.body.clone()))
+        .expression_attribute_values(":m", AttributeValue::S(updated_note.modify_time.clone()))
+        .expression_attribute_values(":v", AttributeValue::N(updated_note.version_id.to_string()))
+        .send()
+        .await;
+    if let Err(err) = result {
+        return Err(http_error(404, &err.to_string()));
+    }
+
+    let note_json: JsonValue = updated_note.into();
+    let body_json = json!({"note": note_json});
+    Ok(Json(body_json))
+}
+
+
+// ========== Routing and Framework ==========
 
 /// Entry point for initializing the lambda's environment, invoked when the lambda is
 /// instantiated. Must call run() to perform the main event loop.
@@ -347,6 +433,7 @@ async fn main() -> Result<(), lambda_http::Error> {
     let app = Router::new()
         .route("/api/v1/notes", get(handle_get_notes))
         .route("/api/v1/notes/{note_id}", get(handle_get_note))
+        .route("/api/v1/notes/{note_id}", put(handle_edit_note))
         .with_state(state);
     lambda_http::run(app).await
 }
