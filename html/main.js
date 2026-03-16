@@ -19,6 +19,7 @@ let noteHeaders = [];
 let currentNote = null;
 let continuationKey = null;
 let isLoadingNotes = false;
+let searchDebounceTimer = null;
 
 // ========== DOM Helpers ==========
 
@@ -191,6 +192,38 @@ async function loadNoteHeaders(continueKey) {
     }
 }
 
+/** Fetches note headers matching a search string and renders the note list. */
+async function searchNotes(searchString, continueKey) {
+    isLoadingNotes = true;
+    try {
+        let url = `${getApiBaseUrl()}/api/v1/note_search?search_string=${encodeURIComponent(searchString)}`;
+        if (continueKey) {
+            url += `&continue_key=${encodeURIComponent(continueKey)}`;
+        }
+        const response = await fetch(url);
+        const data = await response.json();
+        const newHeaders = data.note_headers;
+        continuationKey = data.continue_key || null;
+
+        if (continueKey) {
+            noteHeaders = noteHeaders.concat(newHeaders);
+            appendNoteHeaders(newHeaders);
+        } else {
+            noteHeaders = newHeaders;
+            renderNoteList();
+        }
+        updateSentinel();
+
+        // Auto-follow continuation keys since search results are filtered and small
+        if (continuationKey) {
+            await searchNotes(searchString, continuationKey);
+        }
+    } finally {
+        isLoadingNotes = false;
+        reobserveSentinel();
+    }
+}
+
 /** Saves the current note if the title or body has changed. */
 async function saveNoteIfChanged() {
     if (!currentNote) return;
@@ -264,6 +297,28 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#delete-note").addEventListener("click", deleteCurrentNote);
     document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
     document.querySelector("article textarea.note-body").addEventListener("blur", saveNoteIfChanged);
+
+    document.querySelector("input.search").addEventListener("input", (event) => {
+        clearTimeout(searchDebounceTimer);
+
+        // Immediately deselect current note and clear article
+        currentNote = null;
+        renderNote();
+        const activeSlug = document.querySelector("note-slug.active");
+        if (activeSlug) activeSlug.classList.remove("active");
+
+        const searchString = event.target.value.trim();
+
+        if (searchString === "") {
+            // Empty search: reload full note list
+            loadNoteHeaders();
+        } else {
+            // Debounce: wait 300ms after typing stops, then search
+            searchDebounceTimer = setTimeout(() => {
+                searchNotes(searchString);
+            }, 300);
+        }
+    });
 
     document.querySelector("note-list").addEventListener("click", async (event) => {
         const slug = event.target.closest("note-slug");
