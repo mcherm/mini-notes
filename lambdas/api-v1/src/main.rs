@@ -107,21 +107,21 @@ fn parse_note_format(s: &str) -> Result<NoteFormat, String> {
     }
 }
 
-/// Convert a DynamoDBRecord into a Note. Returns an error if the record isn't formatted
-/// exactly as expected.
-impl TryFrom<&DynamoDBRecord> for Note {
+/// Convert a DynamoDBRecord (which this consues) into a Note. Returns an error if the record
+/// isn't formatted exactly as expected.
+impl TryFrom<DynamoDBRecord> for Note {
     type Error = String;
 
-    fn try_from(item: &DynamoDBRecord) -> Result<Self, Self::Error> {
+    fn try_from(item: DynamoDBRecord) -> Result<Self, Self::Error> {
         Ok(Note {
-            user_id: get_s(item, "user_id")?,
-            note_id: get_s(item, "note_id")?,
-            version_id: get_n_as_u32(item, "version_id")?,
-            title: get_s(item, "title")?,
-            create_time: get_s(item, "create_time")?,
-            modify_time: get_s(item, "modify_time")?,
-            format: parse_note_format(&get_s(item, "format")?)?,
-            body: get_s(item, "body")?,
+            user_id: get_s(&item, "user_id")?,
+            note_id: get_s(&item, "note_id")?,
+            version_id: get_n_as_u32(&item, "version_id")?,
+            title: get_s(&item, "title")?,
+            create_time: get_s(&item, "create_time")?,
+            modify_time: get_s(&item, "modify_time")?,
+            format: parse_note_format(&get_s(&item, "format")?)?,
+            body: get_s(&item, "body")?,
         })
     }
 }
@@ -144,17 +144,17 @@ impl From<Note> for JsonValue {
 
 /// Convert a DynamoDBRecord into a NoteHeader. Returns an error if the record isn't formatted
 /// exactly as expected.
-impl TryFrom<&DynamoDBRecord> for NoteHeader {
+impl TryFrom<DynamoDBRecord> for NoteHeader {
     type Error = String;
 
-    fn try_from(item: &DynamoDBRecord) -> Result<Self, Self::Error> {
+    fn try_from(item: DynamoDBRecord) -> Result<Self, Self::Error> {
         Ok(NoteHeader {
-            user_id: get_s(item, "user_id")?,
-            note_id: get_s(item, "note_id")?,
-            version_id: get_n_as_u32(item, "version_id")?,
-            title: get_s(item, "title")?,
-            modify_time: get_s(item, "modify_time")?,
-            format: parse_note_format(&get_s(item, "format")?)?,
+            user_id: get_s(&item, "user_id")?,
+            note_id: get_s(&item, "note_id")?,
+            version_id: get_n_as_u32(&item, "version_id")?,
+            title: get_s(&item, "title")?,
+            modify_time: get_s(&item, "modify_time")?,
+            format: parse_note_format(&get_s(&item, "format")?)?,
         })
     }
 }
@@ -184,19 +184,20 @@ fn http_error<T: TryInto<StatusCode>>(status: T, message: &str) -> HandlerErrOut
     )
 }
 
-/// DynamoDB gives us back a "LastEvaluatedKey" map with the 3 fields user_id, note_id, and
-/// modify_time when we are reading from the LSI. This converts that to a pipe-delimited
-/// string in the format "user_id|modify_time|note_id" (or fails).
-fn build_continue_key(last_evaluated_key: DynamoDBRecord) -> Result<String, String> {
+/// When traversing the index used by get_notes, DynamoDB gives us back a "LastEvaluatedKey"
+/// map with the 3 fields user_id, note_id, and modify_time when we are reading from the LSI.
+/// This converts that to a pipe-delimited string in the format "user_id|modify_time|note_id"
+/// (or fails).
+fn build_get_notes_continue_key(last_evaluated_key: DynamoDBRecord) -> Result<String, String> {
     let user_id = get_s(&last_evaluated_key, "user_id")?;
     let note_id = get_s(&last_evaluated_key, "note_id")?;
     let modify_time = get_s(&last_evaluated_key, "modify_time")?;
     Ok(format!("{user_id}|{modify_time}|{note_id}"))
 }
 
-/// Parse a continue_key string (as returned by build_continue_key) back into a
+/// Parse a continue_key string (as returned by build_get_notes_continue_key()) back into a
 /// DynamoDBRecord suitable for use as an exclusive_start_key.
-fn parse_continue_key(continue_key: &str) -> Result<DynamoDBRecord, String> {
+fn parse_get_notes_continue_key(continue_key: &str) -> Result<DynamoDBRecord, String> {
     let parts: Vec<&str> = continue_key.split('|').collect();
     let [user_id, modify_time, note_id] = parts.as_slice() else {
         return Err("continue_key must have exactly 3 pipe-delimited fields".to_string());
@@ -205,6 +206,28 @@ fn parse_continue_key(continue_key: &str) -> Result<DynamoDBRecord, String> {
     key.insert("user_id".to_string(), AttributeValue::S(user_id.to_string()));
     key.insert("note_id".to_string(), AttributeValue::S(note_id.to_string()));
     key.insert("modify_time".to_string(), AttributeValue::S(modify_time.to_string()));
+    Ok(key)
+}
+
+/// When traversing the base table used by search_notes, DynamoDB gives us back a
+/// "LastEvaluatedKey" map with the 2 fields user_id and note_id. This function converts
+/// that to a pipe-delimited string in the format "user_id|note_id" (or fails).
+fn build_search_notes_continue_key(last_evaluated_key: DynamoDBRecord) -> Result<String, String> {
+    let user_id = get_s(&last_evaluated_key, "user_id")?;
+    let note_id = get_s(&last_evaluated_key, "note_id")?;
+    Ok(format!("{user_id}|{note_id}"))
+}
+
+/// Parse a continue_key string (as returned by build_search_notes_continue_key()) back into a
+/// DynamoDBRecord suitable for use as an exclusive_start_key.
+fn parse_search_notes_continue_key(continue_key: &str) -> Result<DynamoDBRecord, String> {
+    let parts: Vec<&str> = continue_key.split('|').collect();
+    let [user_id, note_id] = parts.as_slice() else {
+        return Err("continue_key must have exactly 2 pipe-delimited fields".to_string());
+    };
+    let mut key = DynamoDBRecord::new();
+    key.insert("user_id".to_string(), AttributeValue::S(user_id.to_string()));
+    key.insert("note_id".to_string(), AttributeValue::S(note_id.to_string()));
     Ok(key)
 }
 
@@ -254,6 +277,7 @@ struct GetNotesParams {
     continue_key: Option<String>,
 }
 
+/// Handler for getting a list of notes (with pagination). Returns them by modify_date descending.
 #[axum::debug_handler]
 async fn handle_get_notes(
     State(state): State<AppState>,
@@ -265,7 +289,7 @@ async fn handle_get_notes(
 
     // Parse the continuation key if provided
     let exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
-        Some(key) => match parse_continue_key(&key) {
+        Some(key) => match parse_get_notes_continue_key(&key) {
             Ok(record) => Some(record),
             Err(_) => return Err(http_error(400, "invalid continue_key")),
         },
@@ -291,14 +315,14 @@ async fn handle_get_notes(
 
     // And extract and return the results
     let Ok(continue_key) = result.last_evaluated_key
-        .map(build_continue_key)
+        .map(build_get_notes_continue_key)
         .transpose()
     else {
         return Err(http_error(500, "continue_key invalid in DB"));
     };
     let Ok(note_headers): Result<Vec<NoteHeader>, String> = result.items
         .unwrap_or_default()
-        .iter()
+        .into_iter()
         .map(NoteHeader::try_from)
         .collect()
     else {
@@ -373,7 +397,7 @@ async fn handle_new_note(
 #[axum::debug_handler]
 async fn handle_get_note(
     State(state): State<AppState>,
-    Path(note_id): Path<String>
+    Path(note_id): Path<String>,
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
@@ -398,7 +422,7 @@ async fn handle_get_note(
         Some(item) => item,
         None => return Err(http_error(404, "note not found")),
     };
-    let note: JsonValue = match Note::try_from(&item) {
+    let note: JsonValue = match Note::try_from(item) {
         Ok(note) => note.into(),
         Err(err) => {
             info!(err, "note is invalid in DB");
@@ -449,7 +473,7 @@ async fn handle_edit_note(
     let mut updated_note: Note;
     match read_result.item {
         Some(item) => {
-            updated_note = match Note::try_from(&item) {
+            updated_note = match Note::try_from(item) {
                 Ok(note) => note,
                 Err(err) => {
                     info!(err, "note is invalid in DB");
@@ -514,6 +538,91 @@ async fn handle_delete_note(
     Ok(Json(body_json))
 }
 
+/// Query parameter extractor for search_notes.
+#[derive(Deserialize)]
+struct SearchNotesParams {
+    search_string: String,
+    continue_key: Option<String>,
+}
+
+/// Handler for getting a list of notes (with pagination). Does not return them in any
+/// particular order (it's sorted by note_id, which is randomly assigned). Returns a
+/// continue_key for pagination if there *may* be more to be found. Will always return
+/// at least 1 matching note unless we are at the end of the list of matches. Matching
+/// notes are those that have the search string literally (case sensitive) somewhere
+/// in the title or body.
+#[axum::debug_handler]
+async fn handle_search_notes(
+    State(state): State<AppState>,
+    Query(query_params): Query<SearchNotesParams>
+) -> HandlerOutput {
+    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+
+    info!(user_id, table = state.table_name, query_params.search_string, ?query_params.continue_key, "searching for notes");
+
+    // Parse the continuation key if provided
+    let mut exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
+        Some(key) => match parse_search_notes_continue_key(&key) {
+            Ok(record) => Some(record),
+            Err(_) => return Err(http_error(400, "invalid continue_key")),
+        },
+        None => None,
+    };
+
+    let mut note_headers: Vec<NoteHeader> = Vec::new();
+
+    loop {
+
+        // Perform the query
+        let result = state.dynamo_client
+            .query()
+            .table_name(&state.table_name)
+            .key_condition_expression("user_id = :uid")
+            .filter_expression("contains(title, :search) OR contains(body, :search)")
+            .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
+            .expression_attribute_values(":search", AttributeValue::S(query_params.search_string.clone()))
+            .limit(NOTES_PER_BATCH)
+            .set_exclusive_start_key(exclusive_start_key)
+            .send()
+            .await;
+        let result = match result {
+            Ok(response) => response,
+            Err(err) => return Err(http_error(500, &err.to_string())),
+        };
+
+        exclusive_start_key = result.last_evaluated_key;
+
+        // turn any new items found into notes
+        let Ok(new_items): Result<Vec<NoteHeader>,String> = result
+            .items.unwrap_or_default()
+            .into_iter()
+            .map(NoteHeader::try_from)
+            .collect()
+        else {
+            return Err(http_error(500, "a note is invalid in DB"));
+        };
+        // add those notes onto our list
+        note_headers.extend(new_items);
+
+        // Exit when there are no more to find OR we've found at least 1 matching note
+        if exclusive_start_key.is_none() || !note_headers.is_empty() {
+            break;
+        }
+    }
+
+    // Turn exclusive_start_key (DynamoDB format) into continue_key (my string encoding)
+    let Ok(continue_key) = exclusive_start_key.map(build_search_notes_continue_key).transpose() else {
+        return Err(http_error(500, "continue_key invalid in DB"));
+    };
+
+    let note_headers_json: JsonValue = note_headers.into_iter().map(JsonValue::from).collect();
+    let body_json = json!({
+        "note_headers": note_headers_json,
+        "continue_key": continue_key,
+    });
+    Ok(Json(body_json))
+}
+
 
 // ========== Routing and Framework ==========
 
@@ -552,6 +661,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/notes/{note_id}", get(handle_get_note))
         .route("/api/v1/notes/{note_id}", put(handle_edit_note))
         .route("/api/v1/notes/{note_id}", delete(handle_delete_note))
+        .route("/api/v1/note_search", get(handle_search_notes))
         .with_state(state)
         .layer(cors);
     lambda_http::run(app).await

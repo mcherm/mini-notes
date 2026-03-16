@@ -164,8 +164,8 @@ it was based on, to address issues of edit collisions. Save that work for later.
 Deletes the given note.
 
 ### Search Notes
-**Path:** /api/v1/note_search/*{search_string}* [GET]\
-**Path:** /api/v1/note_search/*{search_string}*?continue_key={continue_key} [GET]
+**Path:** /api/v1/note_search?search_string=*{search_string}* [GET]\
+**Path:** /api/v1/note_search?search_string=*{search_string}*&continue_key=*{continue_key}* [GET]
 
 **Inputs:**
 * session_id: [header] string
