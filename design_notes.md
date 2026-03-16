@@ -10,7 +10,8 @@ I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 **Fields:**
 * user_id: string
 * email: string [restricted character set]
-* password: string [restricted character set]
+* salt: string
+* encrypted_password: string
 * user_type: enum [earlybird]
 
 ### Note
