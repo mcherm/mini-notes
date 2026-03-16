@@ -43,6 +43,24 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 * user_id: string
 * expires: date
 
+## Tables
+
+### Notes
+* PK: user_id
+* SK: note_id
+* Fields: [the fields of Note]
+* LSI:
+  * PK: user_id
+  * SK: modify_time
+
+### Users
+* PK: user_id
+* Fields: [the fields of User]
+
+### Sessions
+* PK: session_id
+* Fields: [the fields of Session]
+
 ## Commands
 
 ### Create User
