@@ -42,7 +42,7 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 **Fields:**
 * session_id: string
 * user_id: string
-* expires: date
+* expire_time: date
 
 ## Tables
 
@@ -57,6 +57,8 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 ### Users
 * PK: user_id
 * Fields: [the fields of User]
+* GSI (users-by-email):
+  * PK: email
 
 ### Sessions
 * PK: session_id

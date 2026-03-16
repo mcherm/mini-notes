@@ -26,8 +26,11 @@ aws dynamodb create-table \
     --table-name "mini-notes-users-${STAGE}" \
     --attribute-definitions \
         AttributeName=user_id,AttributeType=S \
+        AttributeName=email,AttributeType=S \
     --key-schema \
         AttributeName=user_id,KeyType=HASH \
+    --global-secondary-indexes \
+        'IndexName=users-by-email,KeySchema=[{AttributeName=email,KeyType=HASH}],Projection={ProjectionType=ALL}' \
     --billing-mode PAY_PER_REQUEST \
     --tags Key=mini-notes,Value=
 

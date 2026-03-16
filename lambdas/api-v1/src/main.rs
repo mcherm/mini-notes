@@ -38,6 +38,39 @@ impl Display for NoteFormat {
     }
 }
 
+/// Helper for reading the enum NoteFormat fields from DynamoDB.
+fn parse_note_format(s: &str) -> Result<NoteFormat, String> {
+    match s {
+        "PlainText" => Ok(NoteFormat::PlainText),
+        _ => Err(format!("unknown note format '{s}'")),
+    }
+}
+
+
+
+/// An enum for the various kinds of user we support. Right now it is ONLY one
+/// kind ("Earlybird")
+#[derive(Debug, Deserialize)]
+enum UserType {
+    Earlybird,
+}
+
+impl Display for UserType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            UserType::Earlybird => "Earlybird"
+        })
+    }
+}
+
+/// Helper for reading the enum UserType fields from DynamoDB.
+fn parse_user_type(s: &str) -> Result<UserType, String> {
+    match s {
+        "Earlybird" => Ok(UserType::Earlybird),
+        _ => Err(format!("unknown user type '{s}'")),
+    }
+}
+
 
 /// A struct for the contents of a note.
 struct Note {
@@ -60,6 +93,24 @@ struct NoteHeader {
     modify_time: String,
     format: NoteFormat,
 }
+
+/// A struct for a user.
+struct User {
+    user_id: String,
+    email: String,
+    salt: String,
+    encrypted_password: String,
+    user_type: UserType,
+}
+
+/// A struct for a session.
+struct Session {
+    session_id: String,
+    user_id: String,
+    expire_time: String,
+}
+
+
 
 type DynamoDBRecord = HashMap<String, AttributeValue>;
 
@@ -97,14 +148,6 @@ fn get_n_as_u32(item: &DynamoDBRecord, field: &str) -> Result<u32, String> {
         .map_err(|_| format!("field '{field}' is not a number"))?;
     n_str.parse::<u32>()
         .map_err(|_| format!("field '{field}' is not a valid u32"))
-}
-
-/// Helper for reading the enum NoteFormat fields from DynamoDB.
-fn parse_note_format(s: &str) -> Result<NoteFormat, String> {
-    match s {
-        "PlainText" => Ok(NoteFormat::PlainText),
-        _ => Err(format!("unknown note format '{s}'")),
-    }
 }
 
 /// Convert a DynamoDBRecord (which this consues) into a Note. Returns an error if the record
@@ -169,6 +212,60 @@ impl From<NoteHeader> for JsonValue {
             "title": note_header.title,
             "modify_time": note_header.modify_time,
             "format": note_header.format.to_string(),
+        })
+    }
+}
+
+/// Convert a DynamoDBRecord (which this consumes) into a User. Returns an error if the record
+/// isn't formatted exactly as expected.
+impl TryFrom<DynamoDBRecord> for User {
+    type Error = String;
+
+    fn try_from(item: DynamoDBRecord) -> Result<Self, Self::Error> {
+        Ok(User {
+            user_id: get_s(&item, "user_id")?,
+            email: get_s(&item, "email")?,
+            salt: get_s(&item, "salt")?,
+            encrypted_password: get_s(&item, "encrypted_password")?,
+            user_type: parse_user_type(&get_s(&item, "user_type")?)?,
+        })
+    }
+}
+
+/// Convert a Note into a JsonValue suitable to return to the caller.
+impl From<User> for JsonValue {
+    fn from(user: User) -> Self {
+        json!({
+            "user_id": user.user_id,
+            "email": user.email,
+            "salt": user.salt,
+            "encrypted_password": user.encrypted_password,
+            "user_type": user.user_type.to_string(),
+        })
+    }
+}
+
+/// Convert a DynamoDBRecord (which this consumes) into a User. Returns an error if the record
+/// isn't formatted exactly as expected.
+impl TryFrom<DynamoDBRecord> for Session {
+    type Error = String;
+
+    fn try_from(item: DynamoDBRecord) -> Result<Self, Self::Error> {
+        Ok(Session {
+            session_id: get_s(&item, "session_id")?,
+            user_id: get_s(&item, "user_id")?,
+            expire_time: get_s(&item, "expire_time")?,
+        })
+    }
+}
+
+/// Convert a Note into a JsonValue suitable to return to the caller.
+impl From<Session> for JsonValue {
+    fn from(session: Session) -> Self {
+        json!({
+            "session_id": session.session_id,
+            "user_id": session.user_id,
+            "expire_time": session.expire_time,
         })
     }
 }
@@ -339,7 +436,7 @@ async fn handle_get_notes(
 
 /// A struct for the things that are passed in as part of the body when a new note is created.
 #[derive(Debug, Deserialize)]
-struct NewNoteFields {
+struct NewNoteBody {
     title: String,
     body: String,
     format: NoteFormat,
@@ -351,7 +448,7 @@ async fn handle_new_note(
     State(state): State<AppState>,
     CurrentTime(current_time): CurrentTime,
     IdGenerator(generate_id): IdGenerator,
-    Json(new_note_fields): Json<NewNoteFields>,
+    Json(new_note_fields): Json<NewNoteBody>,
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
@@ -436,7 +533,7 @@ async fn handle_get_note(
 
 /// A struct for the things that are passed in as part of the body when a note is being modified.
 #[derive(Debug, Deserialize)]
-struct EditNoteFields {
+struct EditNoteBody {
     title: String,
     body: String,
 }
@@ -447,7 +544,7 @@ async fn handle_edit_note(
     State(state): State<AppState>,
     Path(note_id): Path<String>,
     CurrentTime(current_time): CurrentTime,
-    Json(edit_note_fields): Json<EditNoteFields>,
+    Json(edit_note_fields): Json<EditNoteBody>,
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
@@ -624,6 +721,27 @@ async fn handle_search_notes(
 }
 
 
+
+/// A struct for the things that are passed in as part of the body when a user login occurs.
+#[derive(Debug, Deserialize)]
+struct UserLoginBody {
+    email: String,
+    password: String,
+}
+
+/// Handler for user login.
+#[axum::debug_handler]
+async fn handle_user_login(
+    State(state): State<AppState>,
+    Json(user_login_body): Json<UserLoginBody>,
+) -> HandlerOutput {
+    // TODO: Read user from user table using user_login_body.email
+    // TODO: Error if not found
+    // TODO: Add salt and encrypt user_login_body.password. Error if it doesn't match encrypted_password.
+    // TODO: Return a response that creates a cookie containing the session_id
+    todo!()
+}
+
 // ========== Routing and Framework ==========
 
 /// Entry point for initializing the lambda's environment, invoked when the lambda is
@@ -662,6 +780,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/notes/{note_id}", put(handle_edit_note))
         .route("/api/v1/notes/{note_id}", delete(handle_delete_note))
         .route("/api/v1/note_search", get(handle_search_notes))
+        .route("/api/v1/user_login", post(handle_user_login))
         .with_state(state)
         .layer(cors);
     lambda_http::run(app).await
@@ -797,7 +916,7 @@ mod tests {
             test_state(client),
             CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
             IdGenerator(fake_id),
-            Json(NewNoteFields {
+            Json(NewNoteBody {
                 title: "Test Title".to_string(),
                 body: "Test body".to_string(),
                 format: NoteFormat::PlainText,
@@ -844,7 +963,7 @@ mod tests {
             test_state(client),
             Path("ab12cd34ef".to_string()),
             CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
-            Json(EditNoteFields {
+            Json(EditNoteBody {
                 title: "New Title".to_string(),
                 body: "New body".to_string(),
             }),
@@ -954,7 +1073,7 @@ mod tests {
             test_state(client),
             Path("ab12cd34ef".to_string()),
             CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
-            Json(EditNoteFields {
+            Json(EditNoteBody {
                 title: "New Title".to_string(),
                 body: "New body".to_string(),
             }),
