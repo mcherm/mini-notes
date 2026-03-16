@@ -695,8 +695,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_edit_note_updates_existing_note() {
-        use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient};
-        use aws_smithy_types::body::SdkBody;
         use tower::ServiceExt;
         use http_body_util::BodyExt;
 
@@ -704,32 +702,10 @@ mod tests {
         let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"3"},"title":{"S":"Old Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Old body"}}}"#;
         let update_item_response = r#"{}"#;
 
-        let http_client = StaticReplayClient::new(vec![
-            ReplayEvent::new(
-                axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
-                axum::http::Response::builder()
-                    .status(200)
-                    .body(SdkBody::from(get_item_response))
-                    .unwrap(),
-            ),
-            ReplayEvent::new(
-                axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
-                axum::http::Response::builder()
-                    .status(200)
-                    .body(SdkBody::from(update_item_response))
-                    .unwrap(),
-            ),
+        let client = test_dynamo_client(vec![
+            replay_ok(get_item_response),
+            replay_ok(update_item_response),
         ]);
-
-        let config = aws_sdk_dynamodb::Config::builder()
-            .http_client(http_client)
-            .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
-            .credentials_provider(aws_credential_types::Credentials::new(
-                "test", "test", None, None, "test"
-            ))
-            .behavior_version_latest()
-            .build();
-        let client = DynamoClient::from_conf(config);
 
         let app = Router::new()
             .route("/api/v1/notes/{note_id}", put(handle_edit_note))
@@ -751,11 +727,320 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["note"]["note_id"], "ab12cd34ef");
-        assert_eq!(json["note"]["title"], "New Title");
-        assert_eq!(json["note"]["body"], "New body");
         assert_eq!(json["note"]["version_id"], 4);
+        assert_eq!(json["note"]["title"], "New Title");
         assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00.000000000Z");
         assert_eq!(json["note"]["format"], "PlainText");
+        assert_eq!(json["note"]["body"], "New body");
+    }
+
+    // ===== Direct handler tests =====
+
+    /// Helper: build a DynamoClient backed by canned HTTP responses.
+    fn test_dynamo_client(events: Vec<ReplayEvent>) -> DynamoClient {
+        use aws_smithy_http_client::test_util::StaticReplayClient;
+        let http_client = StaticReplayClient::new(events);
+        let config = aws_sdk_dynamodb::Config::builder()
+            .http_client(http_client)
+            .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
+            .credentials_provider(aws_credential_types::Credentials::new(
+                "test", "test", None, None, "test"
+            ))
+            .behavior_version_latest()
+            .build();
+        DynamoClient::from_conf(config)
+    }
+
+    fn test_state(client: DynamoClient) -> State<AppState> {
+        State(AppState { dynamo_client: client, table_name: "test-table".to_string() })
+    }
+
+    fn replay_ok(response_body: &str) -> ReplayEvent {
+        ReplayEvent::new(
+            axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
+            axum::http::Response::builder()
+                .status(200)
+                .body(SdkBody::from(response_body.to_string()))
+                .unwrap(),
+        )
+    }
+
+    use aws_smithy_http_client::test_util::ReplayEvent;
+    use aws_smithy_types::body::SdkBody;
+
+    #[tokio::test]
+    async fn direct_handle_get_notes_happy_path() {
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"1"},"title":{"S":"My Note"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":1}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_get_notes(
+            test_state(client),
+            Query(GetNotesParams { continue_key: None }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0]["note_id"], "ab12cd34ef");
+        assert_eq!(headers[0]["title"], "My Note");
+        assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_new_note_happy_path() {
+        let put_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(put_response)]);
+
+        fn fake_id() -> String { "TESTID1234".to_string() }
+
+        let result = handle_new_note(
+            test_state(client),
+            CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
+            IdGenerator(fake_id),
+            Json(NewNoteFields {
+                title: "Test Title".to_string(),
+                body: "Test body".to_string(),
+                format: NoteFormat::PlainText,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["note"]["note_id"], "TESTID1234");
+        assert_eq!(json["note"]["version_id"], 0);
+        assert_eq!(json["note"]["title"], "Test Title");
+        assert_eq!(json["note"]["create_time"], "2026-03-15T12:00:00.000000000Z");
+        assert_eq!(json["note"]["modify_time"], "2026-03-15T12:00:00.000000000Z");
+        assert_eq!(json["note"]["format"], "PlainText");
+        assert_eq!(json["note"]["body"], "Test body");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_get_note_happy_path() {
+        let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"2"},"title":{"S":"Found Note"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Note body"}}}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_get_note(
+            test_state(client),
+            Path("ab12cd34ef".to_string()),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["note"]["note_id"], "ab12cd34ef");
+        assert_eq!(json["note"]["version_id"], 2);
+        assert_eq!(json["note"]["title"], "Found Note");
+        assert_eq!(json["note"]["body"], "Note body");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_note_happy_path() {
+        let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"3"},"title":{"S":"Old Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Old body"}}}"#;
+        let update_response = r#"{}"#;
+        let client = test_dynamo_client(vec![
+            replay_ok(get_item_response),
+            replay_ok(update_response),
+        ]);
+
+        let result = handle_edit_note(
+            test_state(client),
+            Path("ab12cd34ef".to_string()),
+            CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
+            Json(EditNoteFields {
+                title: "New Title".to_string(),
+                body: "New body".to_string(),
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["note"]["note_id"], "ab12cd34ef");
+        assert_eq!(json["note"]["version_id"], 4);
+        assert_eq!(json["note"]["title"], "New Title");
+        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00.000000000Z");
+        assert_eq!(json["note"]["body"], "New body");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_delete_note_happy_path() {
+        let delete_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(delete_response)]);
+
+        let result = handle_delete_note(
+            test_state(client),
+            Path("ab12cd34ef".to_string()),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json, json!({}));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_search_notes_happy_path() {
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"1"},"title":{"S":"Matching Note"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":1}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_search_notes(
+            test_state(client),
+            Query(SearchNotesParams {
+                search_string: "Matching".to_string(),
+                continue_key: None,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0]["note_id"], "ab12cd34ef");
+        assert_eq!(headers[0]["title"], "Matching Note");
+        assert!(json["continue_key"].is_null());
+    }
+
+    // ===== Additional direct handler tests =====
+
+    #[tokio::test]
+    async fn direct_handle_get_notes_with_continue_key() {
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"zz99yy88ww"},"version_id":{"N":"1"},"title":{"S":"Second Page Note"},"modify_time":{"S":"2026-03-05T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":1}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_get_notes(
+            test_state(client),
+            Query(GetNotesParams {
+                continue_key: Some("Xq3_mK8~pL|2026-03-10T00:00:00.000000000Z|ab12cd34ef".to_string()),
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0]["note_id"], "zz99yy88ww");
+        assert_eq!(headers[0]["title"], "Second Page Note");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_get_notes_empty_results() {
+        let query_response = r#"{"Items":[],"Count":0,"ScannedCount":0}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_get_notes(
+            test_state(client),
+            Query(GetNotesParams { continue_key: None }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 0);
+        assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_get_note_not_found() {
+        let get_item_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_get_note(
+            test_state(client),
+            Path("ab12cd34ef".to_string()),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json["error"], "note not found");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_note_not_found() {
+        let get_item_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_edit_note(
+            test_state(client),
+            Path("ab12cd34ef".to_string()),
+            CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
+            Json(EditNoteFields {
+                title: "New Title".to_string(),
+                body: "New body".to_string(),
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json["error"], "note not found");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_delete_note_nonexistent() {
+        // DynamoDB DeleteItem succeeds even when the item doesn't exist
+        let delete_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(delete_response)]);
+
+        let result = handle_delete_note(
+            test_state(client),
+            Path("ab12cd34ef".to_string()),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json, json!({}));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_search_notes_no_matches() {
+        let query_response = r#"{"Items":[],"Count":0,"ScannedCount":5}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_search_notes(
+            test_state(client),
+            Query(SearchNotesParams {
+                search_string: "nonexistent".to_string(),
+                continue_key: None,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 0);
+        assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_search_notes_pagination_finds_results_on_second_page() {
+        // First page: no matches but has a LastEvaluatedKey (loop continues)
+        let page1 = r#"{"Items":[],"Count":0,"ScannedCount":5,"LastEvaluatedKey":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"}}}"#;
+        // Second page: has a match and no LastEvaluatedKey (loop exits)
+        let page2 = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"zz99yy88ww"},"version_id":{"N":"1"},"title":{"S":"Found It"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":5}"#;
+        let client = test_dynamo_client(vec![replay_ok(page1), replay_ok(page2)]);
+
+        let result = handle_search_notes(
+            test_state(client),
+            Query(SearchNotesParams {
+                search_string: "Found".to_string(),
+                continue_key: None,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0]["note_id"], "zz99yy88ww");
+        assert_eq!(headers[0]["title"], "Found It");
+        assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_search_notes_pagination_exhausted_no_matches() {
+        // Single page: no matches and no LastEvaluatedKey (loop exits immediately)
+        let page1 = r#"{"Items":[],"Count":0,"ScannedCount":5}"#;
+        let client = test_dynamo_client(vec![replay_ok(page1)]);
+
+        let result = handle_search_notes(
+            test_state(client),
+            Query(SearchNotesParams {
+                search_string: "nothing".to_string(),
+                continue_key: None,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 0);
+        assert!(json["continue_key"].is_null());
     }
 
 }
