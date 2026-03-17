@@ -338,7 +338,9 @@ type HandlerOutput = Result<Json<serde_json::Value>, HandlerErrOutput>;
 #[derive(Clone)]
 struct AppState {
     dynamo_client: DynamoClient,
-    table_name: String,
+    notes_table_name: String,
+    users_table_name: String,
+    sessions_table_name: String,
 }
 
 /// Extractor for getting the time from the system clock.
@@ -389,7 +391,7 @@ async fn handle_get_notes(
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
-    info!(user_id, table = state.table_name, "fetching notes");
+    info!(user_id, table = state.notes_table_name, "fetching notes");
 
     // Parse the continuation key if provided
     let exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
@@ -403,7 +405,7 @@ async fn handle_get_notes(
     // Perform the query
     let result = state.dynamo_client
         .query()
-        .table_name(&state.table_name)
+        .table_name(&state.notes_table_name)
         .index_name("notes-by-modify-time")
         .key_condition_expression("user_id = :uid")
         .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
@@ -461,7 +463,7 @@ async fn handle_new_note(
 
     let note_id = generate_id();
 
-    info!(user_id, note_id, table = state.table_name, ?new_note_fields, "creating note");
+    info!(user_id, note_id, table = state.notes_table_name, ?new_note_fields, "creating note");
 
     let note: Note = Note {
         user_id: user_id.to_string(),
@@ -476,7 +478,7 @@ async fn handle_new_note(
 
     let result = state.dynamo_client
         .put_item()
-        .table_name(&state.table_name)
+        .table_name(&state.notes_table_name)
         .item("user_id", AttributeValue::S(note.user_id.clone()))
         .item("note_id", AttributeValue::S(note.note_id.clone()))
         .item("version_id", AttributeValue::N(note.version_id.to_string()))
@@ -509,11 +511,11 @@ async fn handle_get_note(
         return Err(http_error(404, "note_id has invalid characters"));
     }
 
-    info!(user_id, note_id, table = state.table_name, "fetching note");
+    info!(user_id, note_id, table = state.notes_table_name, "fetching note");
 
     let result = state.dynamo_client
         .get_item()
-        .table_name(&state.table_name)
+        .table_name(&state.notes_table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
@@ -559,12 +561,12 @@ async fn handle_edit_note(
         return Err(http_error(404, "note_id has invalid characters"));
     }
 
-    info!(user_id, note_id, table = state.table_name, ?edit_note_fields, "updating note");
+    info!(user_id, note_id, table = state.notes_table_name, ?edit_note_fields, "updating note");
 
     // --- Read the existing record (if any) ---
     let read_result = state.dynamo_client
         .get_item()
-        .table_name(&state.table_name)
+        .table_name(&state.notes_table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
@@ -597,7 +599,7 @@ async fn handle_edit_note(
     // --- Update the record ---
     let result = state.dynamo_client
         .update_item()
-        .table_name(&state.table_name)
+        .table_name(&state.notes_table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .update_expression("SET title = :t, body = :b, modify_time = :m, version_id = :v")
@@ -625,11 +627,11 @@ async fn handle_delete_note(
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
-    info!(user_id, note_id, table = state.table_name, "delete note");
+    info!(user_id, note_id, table = state.notes_table_name, "delete note");
 
     let result = state.dynamo_client
         .delete_item()
-        .table_name(&state.table_name)
+        .table_name(&state.notes_table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
@@ -662,7 +664,7 @@ async fn handle_search_notes(
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
 
-    info!(user_id, table = state.table_name, query_params.search_string, ?query_params.continue_key, "searching for notes");
+    info!(user_id, table = state.notes_table_name, query_params.search_string, ?query_params.continue_key, "searching for notes");
 
     // Parse the continuation key if provided
     let mut exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
@@ -680,7 +682,7 @@ async fn handle_search_notes(
         // Perform the query
         let result = state.dynamo_client
             .query()
-            .table_name(&state.table_name)
+            .table_name(&state.notes_table_name)
             .key_condition_expression("user_id = :uid")
             .filter_expression("contains(title, :search) OR contains(body, :search)")
             .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
@@ -744,7 +746,36 @@ async fn handle_user_login(
     IdGenerator(generate_id): IdGenerator,
     Json(user_login_body): Json<UserLoginBody>,
 ) -> HandlerOutput {
-    // TODO: Read user from user table using user_login_body.email against the GSI. Error if not found.
+    info!(email = user_login_body.email, "user login attempt");
+
+    // Look up the user by email using the GSI
+    let query_result = state.dynamo_client
+        .query()
+        .table_name(&state.users_table_name)
+        .index_name("users-by-email")
+        .key_condition_expression("email = :email")
+        .expression_attribute_values(":email", AttributeValue::S(user_login_body.email))
+        .limit(1)
+        .send()
+        .await;
+    let query_result = match query_result {
+        Ok(response) => response,
+        Err(err) => return Err(http_error(500, &err.to_string())),
+    };
+    let(Some(first_user)) = query_result
+        .items
+        .and_then(|mut items| if items.is_empty() { None } else { Some(items.remove(0)) })
+    else {
+        return Err(http_error(401, "invalid email or password"))
+    };
+    let user: User = match User::try_from(first_user) {
+        Ok(user) => user,
+        Err(err) => {
+            info!(err, "user record is invalid in DB");
+            return Err(http_error(500, "user record is invalid in DB"));
+        }
+    };
+
     // TODO: Add salt and encrypt user_login_body.password. Error if it doesn't match encrypted_password.
     // TODO: Create a Session. the session_id is created from generate_id. The user_id comes from the User we found. The expire_time is from current_time but add about 1 month.
     // TODO: Write the new Session to the Session table.
@@ -769,8 +800,8 @@ async fn main() -> Result<(), lambda_http::Error> {
     let client = DynamoClient::new(&config);
 
     // Read configuration from environment
-    let table_name = std::env::var("TABLE_NAME")
-        .expect("TABLE_NAME env var must be set");
+    let stage = std::env::var("STAGE")
+        .expect("STAGE env var must be set");
     let allowed_origin = std::env::var("ALLOWED_ORIGIN")
         .expect("ALLOWED_ORIGIN env var must be set");
 
@@ -781,7 +812,9 @@ async fn main() -> Result<(), lambda_http::Error> {
 
     let state = AppState {
         dynamo_client: client,
-        table_name,
+        notes_table_name: format!("mini-notes-notes-{stage}"),
+        users_table_name: format!("mini-notes-users-{stage}"),
+        sessions_table_name: format!("mini-notes-sessions-{stage}"),
     };
     let app = Router::new()
         .route("/api/v1/notes", get(handle_get_notes))
@@ -800,6 +833,14 @@ async fn main() -> Result<(), lambda_http::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Create a stub CurrentTime object from a string. Used for tests.
+    fn current_time_stub(s: &str) -> CurrentTime {
+        CurrentTime {
+            date_time: UtcDateTime::parse(s, &Iso8601::DEFAULT).unwrap(),
+            time_string: s.to_string(),
+        }
+    }
 
     #[test]
     fn parse_get_notes_params_ignores_extra_params() {
@@ -840,7 +881,9 @@ mod tests {
             .route("/api/v1/notes/{note_id}", put(handle_edit_note))
             .with_state(AppState {
                 dynamo_client: client,
-                table_name: "test-table".to_string(),
+                notes_table_name: "mini-notes-notes-test".to_string(),
+                users_table_name: "mini-notes-users-test".to_string(),
+                sessions_table_name: "mini-notes-sessions-test".to_string(),
             });
 
         let request = axum::http::Request::builder()
@@ -881,7 +924,12 @@ mod tests {
     }
 
     fn test_state(client: DynamoClient) -> State<AppState> {
-        State(AppState { dynamo_client: client, table_name: "test-table".to_string() })
+        State(AppState {
+            dynamo_client: client,
+            notes_table_name: "mini-notes-notes-test".to_string(),
+            users_table_name: "mini-notes-users-test".to_string(),
+            sessions_table_name: "mini-notes-sessions-test".to_string(),
+        })
     }
 
     fn replay_ok(response_body: &str) -> ReplayEvent {
@@ -924,7 +972,7 @@ mod tests {
 
         let result = handle_new_note(
             test_state(client),
-            CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
             Json(NewNoteBody {
                 title: "Test Title".to_string(),
@@ -972,7 +1020,7 @@ mod tests {
         let result = handle_edit_note(
             test_state(client),
             Path("ab12cd34ef".to_string()),
-            CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
             Json(EditNoteBody {
                 title: "New Title".to_string(),
                 body: "New body".to_string(),
@@ -1082,7 +1130,7 @@ mod tests {
         let result = handle_edit_note(
             test_state(client),
             Path("ab12cd34ef".to_string()),
-            CurrentTime("2026-03-15T12:00:00.000000000Z".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
             Json(EditNoteBody {
                 title: "New Title".to_string(),
                 body: "New body".to_string(),
