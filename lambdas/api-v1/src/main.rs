@@ -342,15 +342,22 @@ struct AppState {
 }
 
 /// Extractor for getting the time from the system clock.
-struct CurrentTime(String);
+struct CurrentTime{
+    date_time: UtcDateTime,
+    time_string: String,
+}
 
 /// Make CurrentTime into an extractor that can be used by handlers if declared as an argument.
 impl FromRequestParts<AppState> for CurrentTime {
     type Rejection = HandlerErrOutput;
 
     async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
-        match UtcDateTime::now().format(&Iso8601::DEFAULT) {
-            Ok(s) => Ok(CurrentTime(s)),
+        let date_time = UtcDateTime::now();
+        match date_time.format(&Iso8601::DEFAULT) {
+            Ok(time_string) => Ok(CurrentTime {
+                date_time,
+                time_string
+            }),
             Err(_) => Err(http_error(500, "cannot read system clock"))
         }
     }
@@ -446,7 +453,7 @@ struct NewNoteBody {
 #[axum::debug_handler]
 async fn handle_new_note(
     State(state): State<AppState>,
-    CurrentTime(current_time): CurrentTime,
+    current_time: CurrentTime,
     IdGenerator(generate_id): IdGenerator,
     Json(new_note_fields): Json<NewNoteBody>,
 ) -> HandlerOutput {
@@ -461,8 +468,8 @@ async fn handle_new_note(
         note_id,
         version_id: 0,
         title: new_note_fields.title,
-        create_time: current_time.clone(),
-        modify_time: current_time,
+        create_time: current_time.time_string.clone(),
+        modify_time: current_time.time_string,
         format: new_note_fields.format,
         body: new_note_fields.body,
     };
@@ -543,7 +550,7 @@ struct EditNoteBody {
 async fn handle_edit_note(
     State(state): State<AppState>,
     Path(note_id): Path<String>,
-    CurrentTime(current_time): CurrentTime,
+    current_time: CurrentTime,
     Json(edit_note_fields): Json<EditNoteBody>,
 ) -> HandlerOutput {
     let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
@@ -583,7 +590,7 @@ async fn handle_edit_note(
 
     // --- Apply the changes ---
     updated_note.version_id += 1;
-    updated_note.modify_time = current_time;
+    updated_note.modify_time = current_time.time_string;
     updated_note.title = edit_note_fields.title;
     updated_note.body = edit_note_fields.body;
 
@@ -733,12 +740,15 @@ struct UserLoginBody {
 #[axum::debug_handler]
 async fn handle_user_login(
     State(state): State<AppState>,
+    current_time: CurrentTime,
+    IdGenerator(generate_id): IdGenerator,
     Json(user_login_body): Json<UserLoginBody>,
 ) -> HandlerOutput {
-    // TODO: Read user from user table using user_login_body.email
-    // TODO: Error if not found
+    // TODO: Read user from user table using user_login_body.email against the GSI. Error if not found.
     // TODO: Add salt and encrypt user_login_body.password. Error if it doesn't match encrypted_password.
-    // TODO: Return a response that creates a cookie containing the session_id
+    // TODO: Create a Session. the session_id is created from generate_id. The user_id comes from the User we found. The expire_time is from current_time but add about 1 month.
+    // TODO: Write the new Session to the Session table.
+    // TODO: Return a response that creates a cookie containing the session_id.
     todo!()
 }
 
