@@ -20,6 +20,9 @@ axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1", features = ["derive"] }
 time = {  version = "0.3", features = ["formatting"] }
 tower-http = { version = "0.6", features = ["cors"] }
+argon2 = "0.5" # password hashing
+rand_core = { version = "0.6", features = ["getrandom"] } # needed for argon2's OsRng
+
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1", features = ["test-util"] }

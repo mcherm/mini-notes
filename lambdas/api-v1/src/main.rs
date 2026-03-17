@@ -1,3 +1,5 @@
+mod passwords;
+
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use aws_sdk_dynamodb::Client as DynamoClient;
@@ -98,8 +100,7 @@ struct NoteHeader {
 struct User {
     user_id: String,
     email: String,
-    salt: String,
-    encrypted_password: String,
+    password_hash: String,
     user_type: UserType,
 }
 
@@ -225,8 +226,7 @@ impl TryFrom<DynamoDBRecord> for User {
         Ok(User {
             user_id: get_s(&item, "user_id")?,
             email: get_s(&item, "email")?,
-            salt: get_s(&item, "salt")?,
-            encrypted_password: get_s(&item, "encrypted_password")?,
+            password_hash: get_s(&item, "password_hash")?,
             user_type: parse_user_type(&get_s(&item, "user_type")?)?,
         })
     }
@@ -238,8 +238,7 @@ impl From<User> for JsonValue {
         json!({
             "user_id": user.user_id,
             "email": user.email,
-            "salt": user.salt,
-            "encrypted_password": user.encrypted_password,
+            "password_hash": user.password_hash,
             "user_type": user.user_type.to_string(),
         })
     }
@@ -762,7 +761,7 @@ async fn handle_user_login(
         Ok(response) => response,
         Err(err) => return Err(http_error(500, &err.to_string())),
     };
-    let(Some(first_user)) = query_result
+    let Some(first_user) = query_result
         .items
         .and_then(|mut items| if items.is_empty() { None } else { Some(items.remove(0)) })
     else {
@@ -776,7 +775,18 @@ async fn handle_user_login(
         }
     };
 
-    // TODO: Add salt and encrypt user_login_body.password. Error if it doesn't match encrypted_password.
+    // Verify the password
+    let password_valid = match passwords::verify_password(&user_login_body.password, &user.password_hash) {
+        Ok(valid) => valid,
+        Err(err) => {
+            info!(%err, "password hash verification failed");
+            return Err(http_error(500, "password verification error"));
+        }
+    };
+    if !password_valid {
+        return Err(http_error(401, "invalid email or password"));
+    }
+
     // TODO: Create a Session. the session_id is created from generate_id. The user_id comes from the User we found. The expire_time is from current_time but add about 1 month.
     // TODO: Write the new Session to the Session table.
     // TODO: Return a response that creates a cookie containing the session_id.

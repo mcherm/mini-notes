@@ -8,7 +8,8 @@
       "Bash(cargo test:*)",
       "WebSearch",
       "WebFetch(domain:docs.rs)",
-      "WebFetch(domain:crates.io)"
+      "WebFetch(domain:crates.io)",
+      "Bash(cargo metadata:*)"
     ]
   }
 }
