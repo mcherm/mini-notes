@@ -787,8 +787,32 @@ async fn handle_user_login(
         return Err(http_error(401, "invalid email or password"));
     }
 
-    // TODO: Create a Session. the session_id is created from generate_id. The user_id comes from the User we found. The expire_time is from current_time but add about 1 month.
-    // TODO: Write the new Session to the Session table.
+    // Create a session
+    let session_id = generate_id();
+    let expire_time = current_time.date_time + time::Duration::days(30);
+    let expire_time_string = match expire_time.format(&Iso8601::DEFAULT) {
+        Ok(s) => s,
+        Err(_) => return Err(http_error(500, "cannot format expire time")),
+    };
+    let session = Session {
+        session_id,
+        user_id: user.user_id,
+        expire_time: expire_time_string,
+    };
+
+    // Write the new session to the Sessions table
+    let result = state.dynamo_client
+        .put_item()
+        .table_name(&state.sessions_table_name)
+        .item("session_id", AttributeValue::S(session.session_id.clone()))
+        .item("user_id", AttributeValue::S(session.user_id.clone()))
+        .item("expire_time", AttributeValue::S(session.expire_time.clone()))
+        .send()
+        .await;
+    if result.is_err() {
+        return Err(http_error(500, "unable to create session"));
+    }
+
     // TODO: Return a response that creates a cookie containing the session_id.
     todo!()
 }
