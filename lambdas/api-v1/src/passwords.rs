@@ -1,4 +1,4 @@
-/// This file contains code for hashing passwords.
+//! This file contains code for hashing passwords.
 
 use std::fmt::Formatter;
 

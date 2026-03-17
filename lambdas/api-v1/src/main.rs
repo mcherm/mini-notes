@@ -376,6 +376,26 @@ impl FromRequestParts<AppState> for IdGenerator {
     }
 }
 
+/// Extractor for accessing the cryptographic functions. In production, axum uses
+/// the functions from the passwords module; in tests callers can place in stubs.
+struct CryptographicOps {
+    generate_password_hash: fn(&str) -> Result<String, passwords::HashFailedError>,
+    verify_password: fn(&str, &str) -> Result<bool, passwords::HashFailedError>,
+}
+
+impl FromRequestParts<AppState> for CryptographicOps {
+    type Rejection = HandlerErrOutput;
+
+    async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
+        Ok(CryptographicOps {
+            generate_password_hash: passwords::generate_password_hash,
+            verify_password: passwords::verify_password,
+        })
+    }
+}
+
+
+
 /// Query parameter extractor for get_notes.
 #[derive(Deserialize)]
 struct GetNotesParams {
@@ -743,8 +763,9 @@ async fn handle_user_login(
     State(state): State<AppState>,
     current_time: CurrentTime,
     IdGenerator(generate_id): IdGenerator,
+    cryptographic_ops: CryptographicOps,
     Json(user_login_body): Json<UserLoginBody>,
-) -> HandlerOutput {
+) -> Result<([(header::HeaderName, header::HeaderValue); 1], Json<serde_json::Value>), HandlerErrOutput> {
     info!(email = user_login_body.email, "user login attempt");
 
     // Look up the user by email using the GSI
@@ -776,7 +797,7 @@ async fn handle_user_login(
     };
 
     // Verify the password
-    let password_valid = match passwords::verify_password(&user_login_body.password, &user.password_hash) {
+    let password_valid = match (cryptographic_ops.verify_password)(&user_login_body.password, &user.password_hash) {
         Ok(valid) => valid,
         Err(err) => {
             info!(%err, "password hash verification failed");
@@ -813,8 +834,15 @@ async fn handle_user_login(
         return Err(http_error(500, "unable to create session"));
     }
 
-    // TODO: Return a response that creates a cookie containing the session_id.
-    todo!()
+    // Return a response with a Set-Cookie header containing the session_id
+    let cookie_value = format!(
+        "session_id={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
+        session.session_id,
+        30 * 24 * 60 * 60, // 30 days in seconds
+    );
+    let headers = [(header::SET_COOKIE, cookie_value.parse().unwrap())];
+    let body = Json(json!({"session_id": session.session_id}));
+    Ok((headers, body))
 }
 
 // ========== Routing and Framework ==========
@@ -1252,6 +1280,113 @@ mod tests {
         let headers = json["note_headers"].as_array().unwrap();
         assert_eq!(headers.len(), 0);
         assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_user_login_happy_path() {
+        // First call: query users-by-email GSI returns a user
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"email":{"S":"test@example.com"},"password_hash":{"S":"fake_hash"},"user_type":{"S":"Earlybird"}}],"Count":1,"ScannedCount":1}"#;
+        // Second call: put_item to sessions table succeeds
+        let put_response = r#"{}"#;
+        let client = test_dynamo_client(vec![
+            replay_ok(query_response),
+            replay_ok(put_response),
+        ]);
+
+        fn fake_id() -> String { "SESS123456".to_string() }
+        fn stub_generate_hash(_password: &str) -> Result<String, passwords::HashFailedError> {
+            Ok("stub_hash".to_string())
+        }
+        fn stub_verify(_password: &str, _hash: &str) -> Result<bool, passwords::HashFailedError> {
+            Ok(true)
+        }
+
+        let result = handle_user_login(
+            test_state(client),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            CryptographicOps {
+                generate_password_hash: stub_generate_hash,
+                verify_password: stub_verify,
+            },
+            Json(UserLoginBody {
+                email: "test@example.com".to_string(),
+                password: "testpass".to_string(),
+            }),
+        ).await;
+
+        let (headers, Json(json)) = result.unwrap();
+        assert_eq!(json["session_id"], "SESS123456");
+        let cookie = headers[0].1.to_str().unwrap();
+        assert!(cookie.starts_with("session_id=SESS123456;"));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("Secure"));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_user_login_user_not_found() {
+        // GSI query returns no items
+        let query_response = r#"{"Items":[],"Count":0,"ScannedCount":0}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        fn fake_id() -> String { "SESS123456".to_string() }
+        fn stub_generate_hash(_password: &str) -> Result<String, passwords::HashFailedError> {
+            Ok("stub_hash".to_string())
+        }
+        fn stub_verify(_password: &str, _hash: &str) -> Result<bool, passwords::HashFailedError> {
+            Ok(true)
+        }
+
+        let result = handle_user_login(
+            test_state(client),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            CryptographicOps {
+                generate_password_hash: stub_generate_hash,
+                verify_password: stub_verify,
+            },
+            Json(UserLoginBody {
+                email: "nobody@example.com".to_string(),
+                password: "testpass".to_string(),
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "invalid email or password");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_user_login_wrong_password() {
+        // GSI query returns a user
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"email":{"S":"test@example.com"},"password_hash":{"S":"fake_hash"},"user_type":{"S":"Earlybird"}}],"Count":1,"ScannedCount":1}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        fn fake_id() -> String { "SESS123456".to_string() }
+        fn stub_generate_hash(_password: &str) -> Result<String, passwords::HashFailedError> {
+            Ok("stub_hash".to_string())
+        }
+        fn stub_verify(_password: &str, _hash: &str) -> Result<bool, passwords::HashFailedError> {
+            Ok(false)
+        }
+
+        let result = handle_user_login(
+            test_state(client),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            CryptographicOps {
+                generate_password_hash: stub_generate_hash,
+                verify_password: stub_verify,
+            },
+            Json(UserLoginBody {
+                email: "test@example.com".to_string(),
+                password: "wrongpass".to_string(),
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "invalid email or password");
     }
 
 }
