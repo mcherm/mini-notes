@@ -226,6 +226,23 @@ async function login() {
     }
 }
 
+/** Sends new account request to the API with the entered email and password. */
+async function createUser() {
+    const email = document.querySelector("#email-entry").value;
+    const password = document.querySelector("#password-entry").value;
+    const url = `${getApiBaseUrl()}/api/v1/user_create`;
+    const response = await apiFetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({email: email, password: password}),
+    });
+    const data = await response.json();
+    console.log("Create account response:", JSON.stringify(data, null, 2));
+    if (response.ok) {
+        await stateUpdateForLogin();
+    }
+}
+
 /**
  * Fetches note headers from the API and renders the note list. continueKey is
  * optional; omit it to get the first block of values.
@@ -361,6 +378,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadNoteHeaders();
 
     document.querySelector("#login-btn").addEventListener("click", login);
+    document.querySelector("#new-account-btn").addEventListener("click", createUser);
     document.querySelector("#logout-btn").addEventListener("click", logout);
     document.querySelector("#new-note").addEventListener("click", createNewNote);
     document.querySelector("#delete-note").addEventListener("click", deleteCurrentNote);

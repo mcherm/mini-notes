@@ -118,7 +118,7 @@ mod tests {
     #[tokio::test]
     async fn direct_handle_user_login_happy_path() {
         // First call: query users-by-email GSI returns a user
-        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"email":{"S":"test@example.com"},"password_hash":{"S":"fake_hash"},"user_type":{"S":"Earlybird"}}],"Count":1,"ScannedCount":1}"#;
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"email":{"S":"test@example.com"},"password_hash":{"S":"fake_hash"},"user_type":{"S":"Earlybird"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"}}],"Count":1,"ScannedCount":1}"#;
         // Second call: put_item to sessions table succeeds
         let put_response = r#"{}"#;
         let client = test_dynamo_client(vec![
@@ -192,7 +192,7 @@ mod tests {
     #[tokio::test]
     async fn direct_handle_user_login_wrong_password() {
         // GSI query returns a user
-        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"email":{"S":"test@example.com"},"password_hash":{"S":"fake_hash"},"user_type":{"S":"Earlybird"}}],"Count":1,"ScannedCount":1}"#;
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"email":{"S":"test@example.com"},"password_hash":{"S":"fake_hash"},"user_type":{"S":"Earlybird"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"}}],"Count":1,"ScannedCount":1}"#;
         let client = test_dynamo_client(vec![replay_ok(query_response)]);
 
         fn fake_id() -> String { "SESS123456".to_string() }

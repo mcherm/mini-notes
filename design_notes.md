@@ -13,6 +13,7 @@ I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 * salt: string
 * encrypted_password: string
 * user_type: enum [earlybird]
+* create_time: timestamp
 
 ### Note
 **Fields:**

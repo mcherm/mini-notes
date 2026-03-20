@@ -115,7 +115,6 @@ impl FromRequestParts<AppState> for IdGenerator {
 
 /// Extractor for accessing the cryptographic functions. In production, axum uses
 /// the functions from the passwords module; in tests callers can place in stubs.
-#[allow(dead_code)] // FIXME: because generate_password_hash() isn't used yet.
 pub struct CryptographicOps {
     pub generate_password_hash: fn(&str) -> Result<String, passwords::HashFailedError>,
     pub verify_password: fn(&str, &str) -> Result<bool, passwords::HashFailedError>,

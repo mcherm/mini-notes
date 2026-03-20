@@ -6,3 +6,4 @@ pub mod handle_delete_note;
 pub mod handle_search_notes;
 pub mod handle_user_login;
 pub mod handle_user_logout;
+pub mod handle_user_create;

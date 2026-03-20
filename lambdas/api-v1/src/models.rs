@@ -85,6 +85,7 @@ pub struct User {
     pub email: String,
     pub password_hash: String,
     pub user_type: UserType,
+    pub create_time: String,
 }
 
 /// A struct for a session.
@@ -198,6 +199,7 @@ impl TryFrom<DynamoDBRecord> for User {
             email: get_s(&item, "email")?,
             password_hash: get_s(&item, "password_hash")?,
             user_type: parse_user_type(&get_s(&item, "user_type")?)?,
+            create_time: get_s(&item, "create_time")?,
         })
     }
 }

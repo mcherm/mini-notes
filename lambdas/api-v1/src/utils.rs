@@ -18,3 +18,21 @@ pub fn generate_id() -> String {
         .map(|_| ID_ALPHABET[rng.random_range(0..64)] as char)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_id() {
+        let id = generate_id();
+        assert!(is_valid_id(&id), "generated id '{id}' should be valid");
+    }
+
+    #[test]
+    fn test_generate_id_uniqueness() {
+        let id1 = generate_id();
+        let id2 = generate_id();
+        assert_ne!(id1, id2, "two generated ids should differ");
+    }
+}
