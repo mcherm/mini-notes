@@ -48,7 +48,8 @@ async fn main() -> Result<(), lambda_http::Error> {
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::PUT, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
-        .allow_origin([allowed_origin.parse().expect("Invalid ALLOWED_ORIGIN")]);
+        .allow_origin([allowed_origin.parse().expect("Invalid ALLOWED_ORIGIN")])
+        .allow_credentials(true);
 
     let state = AppState {
         dynamo_client: client,

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
-use crate::extractors::{AppState, HandlerOutput, CurrentTime, http_error};
+use crate::extractors::{AppState, HandlerOutput, CurrentTime, http_error, UserSession};
 use crate::models::Note;
 use crate::utils::is_valid_id;
 
@@ -22,11 +22,15 @@ pub struct EditNoteBody {
 #[axum::debug_handler]
 pub async fn handle_edit_note(
     State(state): State<AppState>,
+    user_session: UserSession,
     Path(note_id): Path<String>,
     current_time: CurrentTime,
     Json(edit_note_fields): Json<EditNoteBody>,
 ) -> HandlerOutput {
-    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+    let Some(session) = user_session.0 else {
+        return Err(http_error(401, "not logged in"));
+    };
+    let user_id = session.user_id;
 
     if ! is_valid_id(&note_id) {
         return Err(http_error(404, "note_id has invalid characters"));
@@ -103,11 +107,13 @@ mod tests {
         use tower::ServiceExt;
         use http_body_util::BodyExt;
 
-        // Canned DynamoDB responses: first GetItem (existing note), then UpdateItem (success)
+        // Canned DynamoDB responses: session lookup, GetItem (existing note), UpdateItem (success)
+        let session_response = r#"{"Item":{"session_id":{"S":"test-session-id"},"user_id":{"S":"Xq3_mK8~pL"},"expire_time":{"S":"2099-12-31T00:00:00.000000000Z"}}}"#;
         let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"3"},"title":{"S":"Old Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Old body"}}}"#;
         let update_item_response = r#"{}"#;
 
         let client = test_dynamo_client(vec![
+            replay_ok(session_response),
             replay_ok(get_item_response),
             replay_ok(update_item_response),
         ]);
@@ -120,6 +126,7 @@ mod tests {
             .method("PUT")
             .uri("/api/v1/notes/ab12cd34ef")
             .header("content-type", "application/json")
+            .header("cookie", "session_id=test-session-id")
             .body(axum::body::Body::from(r#"{"title":"New Title","body":"New body"}"#))
             .unwrap();
 
@@ -147,6 +154,7 @@ mod tests {
 
         let result = handle_edit_note(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Path("ab12cd34ef".to_string()),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             Json(EditNoteBody {
@@ -170,6 +178,7 @@ mod tests {
 
         let result = handle_edit_note(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Path("ab12cd34ef".to_string()),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             Json(EditNoteBody {
@@ -181,5 +190,26 @@ mod tests {
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json["error"], "note not found");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_note_not_logged_in() {
+        let get_item_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_edit_note(
+            test_state(client),
+            test_no_user_session(),
+            Path("ab12cd34ef".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            Json(EditNoteBody {
+                title: "New Title".to_string(),
+                body: "New body".to_string(),
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "not logged in");
     }
 }

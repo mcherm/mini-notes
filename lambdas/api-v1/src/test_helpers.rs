@@ -4,7 +4,9 @@ use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient};
 use aws_smithy_types::body::SdkBody;
 use time::{UtcDateTime, format_description::well_known::Iso8601};
 
-use crate::extractors::{AppState, CurrentTime};
+use crate::extractors::{AppState, CurrentTime, UserSession};
+use crate::models::{Session};
+
 
 /// Helper: build a DynamoClient backed by canned HTTP responses.
 pub fn test_dynamo_client(events: Vec<ReplayEvent>) -> DynamoClient {
@@ -28,6 +30,21 @@ pub fn test_state(client: DynamoClient) -> State<AppState> {
         sessions_table_name: "mini-notes-sessions-test".to_string(),
     })
 }
+
+/// Returns a stub UserSession with the given user_id.
+pub fn test_user_session(s: &str) -> UserSession {
+    UserSession(Some(Session{
+        session_id: "test-session-id".to_string(),
+        user_id: s.to_string(),
+        expire_time: "2026-03-10T00:00:00.000000000Z".to_string(),
+    }))
+}
+
+/// Returns a stub UserSession which is not logged in.
+pub fn test_no_user_session() -> UserSession {
+    UserSession(None)
+}
+
 
 pub fn replay_ok(response_body: &str) -> ReplayEvent {
     ReplayEvent::new(

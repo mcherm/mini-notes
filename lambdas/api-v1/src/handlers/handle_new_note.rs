@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
-use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error};
+use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error, UserSession};
 use crate::models::{Note, NoteFormat};
 
 /// A struct for the things that are passed in as part of the body when a new note is created.
@@ -22,11 +22,15 @@ pub struct NewNoteBody {
 #[axum::debug_handler]
 pub async fn handle_new_note(
     State(state): State<AppState>,
+    user_session: UserSession,
     current_time: CurrentTime,
     IdGenerator(generate_id): IdGenerator,
     Json(new_note_fields): Json<NewNoteBody>,
 ) -> HandlerOutput {
-    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+    let Some(session) = user_session.0 else {
+        return Err(http_error(401, "not logged in"));
+    };
+    let user_id = session.user_id;
 
     let note_id = generate_id();
 
@@ -80,6 +84,7 @@ mod tests {
 
         let result = handle_new_note(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
             Json(NewNoteBody {
@@ -97,5 +102,29 @@ mod tests {
         assert_eq!(json["note"]["modify_time"], "2026-03-15T12:00:00.000000000Z");
         assert_eq!(json["note"]["format"], "PlainText");
         assert_eq!(json["note"]["body"], "Test body");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_new_note_not_logged_in() {
+        let put_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(put_response)]);
+
+        fn fake_id() -> String { "TESTID1234".to_string() }
+
+        let result = handle_new_note(
+            test_state(client),
+            test_no_user_session(),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            Json(NewNoteBody {
+                title: "Test Title".to_string(),
+                body: "Test body".to_string(),
+                format: NoteFormat::PlainText,
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "not logged in");
     }
 }

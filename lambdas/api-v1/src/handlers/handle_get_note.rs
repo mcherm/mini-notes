@@ -6,7 +6,7 @@ use axum::{
 use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
-use crate::extractors::{AppState, HandlerOutput, http_error};
+use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
 use crate::models::{DynamoDBRecord, Note};
 use crate::utils::is_valid_id;
 
@@ -14,9 +14,13 @@ use crate::utils::is_valid_id;
 #[axum::debug_handler]
 pub async fn handle_get_note(
     State(state): State<AppState>,
+    user_session: UserSession,
     Path(note_id): Path<String>,
 ) -> HandlerOutput {
-    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+    let Some(session) = user_session.0 else {
+        return Err(http_error(401, "not logged in"));
+    };
+    let user_id = session.user_id;
 
     if ! is_valid_id(&note_id) {
         return Err(http_error(404, "note_id has invalid characters"));
@@ -65,6 +69,7 @@ mod tests {
 
         let result = handle_get_note(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Path("ab12cd34ef".to_string()),
         ).await;
 
@@ -82,11 +87,28 @@ mod tests {
 
         let result = handle_get_note(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Path("ab12cd34ef".to_string()),
         ).await;
 
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json["error"], "note not found");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_get_note_not_logged_in() {
+        let get_item_response = r#"{}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_get_note(
+            test_state(client),
+            test_no_user_session(),
+            Path("ab12cd34ef".to_string()),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "not logged in");
     }
 }

@@ -169,7 +169,7 @@ async function loadNoteHeaders(continueKey) {
         if (continueKey) {
             url += `?continue_key=${encodeURIComponent(continueKey)}`;
         }
-        const response = await fetch(url);
+        const response = await fetch(url, {credentials: "include"});
         const data = await response.json();
         console.log("API response data:", JSON.stringify(data, null, 2));
         const newHeaders = data.note_headers;
@@ -200,7 +200,7 @@ async function searchNotes(searchString, continueKey) {
         if (continueKey) {
             url += `&continue_key=${encodeURIComponent(continueKey)}`;
         }
-        const response = await fetch(url);
+        const response = await fetch(url, {credentials: "include"});
         const data = await response.json();
         const newHeaders = data.note_headers;
         continuationKey = data.continue_key || null;
@@ -239,6 +239,7 @@ async function saveNoteIfChanged() {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({title: newTitle, body: newBody}),
+        credentials: "include",
     });
     const data = await response.json();
     applyNoteToUI(data.note, { replaceNoteId: noteId });
@@ -252,6 +253,7 @@ async function createNewNote() {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({title: "New Note", body: "", format: "PlainText"}),
+        credentials: "include",
     });
     const data = await response.json();
     applyNoteToUI(data.note, { deactivateOld: true });
@@ -263,7 +265,7 @@ async function deleteCurrentNote() {
     if (!currentNote) return;
     const noteId = currentNote.note_id;
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    await fetch(url, { method: "DELETE" });
+    await fetch(url, { method: "DELETE", credentials: "include" });
 
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
     if (oldIndex !== -1) {
@@ -281,7 +283,7 @@ async function deleteCurrentNote() {
 /** Fetches a single note from the API and renders it. */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    const response = await fetch(url);
+    const response = await fetch(url, {credentials: "include"});
     const data = await response.json();
     currentNote = data.note;
     renderNote();

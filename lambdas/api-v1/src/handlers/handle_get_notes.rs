@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
-use crate::extractors::{AppState, HandlerOutput, http_error};
+use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
 use crate::models::{DynamoDBRecord, NoteHeader, get_s};
 use crate::utils::NOTES_PER_BATCH;
 
@@ -46,9 +46,13 @@ pub struct GetNotesParams {
 #[axum::debug_handler]
 pub async fn handle_get_notes(
     State(state): State<AppState>,
+    user_session: UserSession,
     Query(query_params): Query<GetNotesParams>
 ) -> HandlerOutput {
-    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+    let Some(session) = user_session.0 else {
+        return Err(http_error(401, "not logged in"));
+    };
+    let user_id = session.user_id;
 
     info!(user_id, table = state.notes_table_name, "fetching notes");
 
@@ -135,6 +139,7 @@ mod tests {
 
         let result = handle_get_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(GetNotesParams { continue_key: None }),
         ).await;
 
@@ -153,6 +158,7 @@ mod tests {
 
         let result = handle_get_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(GetNotesParams {
                 continue_key: Some("Xq3_mK8~pL|2026-03-10T00:00:00.000000000Z|ab12cd34ef".to_string()),
             }),
@@ -172,6 +178,7 @@ mod tests {
 
         let result = handle_get_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(GetNotesParams { continue_key: None }),
         ).await;
 
@@ -179,5 +186,22 @@ mod tests {
         let headers = json["note_headers"].as_array().unwrap();
         assert_eq!(headers.len(), 0);
         assert!(json["continue_key"].is_null());
+    }
+
+
+    #[tokio::test]
+    async fn direct_handle_get_notes_not_logged_in() {
+        let query_response = r#"{"Items":[],"Count":0,"ScannedCount":0}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_get_notes(
+            test_state(client),
+            test_no_user_session(),
+            Query(GetNotesParams { continue_key: None }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "not logged in");
     }
 }

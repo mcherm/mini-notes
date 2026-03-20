@@ -1,4 +1,5 @@
 use aws_sdk_dynamodb::Client as DynamoClient;
+use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{
     extract::FromRequestParts,
     response::Json,
@@ -9,6 +10,7 @@ use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::passwords;
 use crate::utils::generate_id;
+use crate::models::Session;
 
 pub type HandlerErrOutput = (StatusCode, Json<serde_json::Value>);
 pub type HandlerOutput = Result<Json<serde_json::Value>, HandlerErrOutput>;
@@ -28,6 +30,53 @@ pub struct AppState {
     pub notes_table_name: String,
     pub users_table_name: String,
     pub sessions_table_name: String,
+}
+
+
+/// Extractor for getting the user session from a cookie
+pub struct UserSession(pub Option<Session>);
+
+impl FromRequestParts<AppState> for UserSession {
+    type Rejection = HandlerErrOutput;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let Some(session_id) = parts.headers
+            .get_all(axum::http::header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|s| s.split(';'))
+            .map(|s| s.trim())
+            .find_map(|cookie| {
+                cookie.strip_prefix("session_id=").map(|v| v.to_string())
+            })
+        else {
+            return Ok(UserSession(None))
+        };
+        let result = state.dynamo_client
+            .get_item()
+            .table_name(&state.sessions_table_name)
+            .key("session_id", AttributeValue::S(session_id))
+            .send()
+            .await;
+        let session: Session = match result {
+            Ok(output) => match output.item {
+                Some(item) => match Session::try_from(item) {
+                    Ok(session) => session,
+                    Err(_) => return Ok(UserSession(None)),
+                },
+                None => return Ok(UserSession(None)),
+            },
+            Err(_) => return Ok(UserSession(None)),
+        };
+        let now = match UtcDateTime::now().format(&Iso8601::DEFAULT) {
+            Ok(now_string) => now_string,
+            Err(_) => return Err(http_error(500, "cannot read system clock")),
+        };
+        if session.expire_time <= now {
+            return Ok(UserSession(None));
+        }
+        Ok(UserSession(Some(session)))
+    }
 }
 
 /// Extractor for getting the time from the system clock.
@@ -66,6 +115,7 @@ impl FromRequestParts<AppState> for IdGenerator {
 
 /// Extractor for accessing the cryptographic functions. In production, axum uses
 /// the functions from the passwords module; in tests callers can place in stubs.
+#[allow(dead_code)] // FIXME: because generate_password_hash() isn't used yet.
 pub struct CryptographicOps {
     pub generate_password_hash: fn(&str) -> Result<String, passwords::HashFailedError>,
     pub verify_password: fn(&str, &str) -> Result<bool, passwords::HashFailedError>,

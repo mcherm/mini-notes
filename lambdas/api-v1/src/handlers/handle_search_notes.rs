@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
-use crate::extractors::{AppState, HandlerOutput, http_error};
+use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
 use crate::models::{DynamoDBRecord, NoteHeader, get_s};
 use crate::utils::NOTES_PER_BATCH;
 
@@ -49,9 +49,13 @@ pub struct SearchNotesParams {
 #[axum::debug_handler]
 pub async fn handle_search_notes(
     State(state): State<AppState>,
+    user_session: UserSession,
     Query(query_params): Query<SearchNotesParams>
 ) -> HandlerOutput {
-    let user_id = "Xq3_mK8~pL"; // FIXME: Hardcoded for now
+    let Some(session) = user_session.0 else {
+        return Err(http_error(401, "not logged in"));
+    };
+    let user_id = session.user_id;
 
     info!(user_id, table = state.notes_table_name, query_params.search_string, ?query_params.continue_key, "searching for notes");
 
@@ -131,6 +135,7 @@ mod tests {
 
         let result = handle_search_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(SearchNotesParams {
                 search_string: "Matching".to_string(),
                 continue_key: None,
@@ -152,6 +157,7 @@ mod tests {
 
         let result = handle_search_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(SearchNotesParams {
                 search_string: "nonexistent".to_string(),
                 continue_key: None,
@@ -174,6 +180,7 @@ mod tests {
 
         let result = handle_search_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(SearchNotesParams {
                 search_string: "Found".to_string(),
                 continue_key: None,
@@ -196,6 +203,7 @@ mod tests {
 
         let result = handle_search_notes(
             test_state(client),
+            test_user_session("Xq3_mK8~pL"),
             Query(SearchNotesParams {
                 search_string: "nothing".to_string(),
                 continue_key: None,
@@ -206,5 +214,24 @@ mod tests {
         let headers = json["note_headers"].as_array().unwrap();
         assert_eq!(headers.len(), 0);
         assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_search_notes_not_logged_in() {
+        let query_response = r#"{"Items":[],"Count":0,"ScannedCount":0}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_search_notes(
+            test_state(client),
+            test_no_user_session(),
+            Query(SearchNotesParams {
+                search_string: "test".to_string(),
+                continue_key: None,
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(json["error"], "not logged in");
     }
 }
