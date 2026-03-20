@@ -3,24 +3,44 @@
 <head>
     <title>Mini-Notes</title>
     <link rel="stylesheet" href="main.css" type="text/css"/>
-    <script src="index.js"></script>
+    <script src="main.js"></script>
 </head>
 <body>
-<body-content id="login">
-    <header>
-        <header-text>Mini-Notes</header-text>
-        <button>&#x1F464;</button>
-    </header>
-    <login-area>
-        <login-form>
-            <label for="email-entry">Email:</label>
-            <input type="text" id="email-entry">
-            <label for="password-entry">Password:</label>
-            <input type="text" id="password-entry">
-            <button id="login-btn">Login</button>
-            <button id="new-account-btn">New Account</button>
-        </login-form>
-    </login-area>
-</body-content>
+    <body-content id="main">
+        <header>
+            <header-text>Mini-Notes</header-text>
+            <button id="logout-btn">&#x1F464;</button>
+        </header>
+        <nav>
+            <nav-header>
+                <button id="new-note">New</button>
+                <input class="search" type="search" value="" placeholder="&#128269;">
+            </nav-header>
+            <note-list>
+            </note-list>
+        </nav>
+        <article>
+            <note-header>
+                <input class="title" type="text" value="">
+                <button id="delete-note">&#x1F5D1;</button>
+            </note-header>
+            <textarea class="note-body"></textarea>
+        </article>
+    </body-content>
+    <body-content id="login">
+        <header>
+            <header-text>Mini-Notes</header-text>
+        </header>
+        <login-area>
+            <login-form>
+                <label for="email-entry">Email:</label>
+                <input type="text" id="email-entry">
+                <label for="password-entry">Password:</label>
+                <input type="text" id="password-entry">
+                <button id="login-btn">Login</button>
+                <button id="new-account-btn">New Account</button>
+            </login-form>
+        </login-area>
+    </body-content>
 </body>
 </html>

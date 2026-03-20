@@ -40,6 +40,7 @@ body-content {
         grid-template-areas:
             "header"
             "login";
+        display: none;
     }
 }
 

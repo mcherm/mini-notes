@@ -83,6 +83,16 @@ Creates a new user, and a new session for that user (or fails).
 **Path:** /api/v1/user_login [POST]
 
 **Inputs:**
+
+**Outputs:**
+
+**Description**
+Ends the current session for a user (if there is one).
+
+### Logout
+**Path:** /api/v1/user_logout [POST]
+
+**Inputs:**
 * email: [body] string [restricted character set]
 * password: [body] string [restricted character set]
 

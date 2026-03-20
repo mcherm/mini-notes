@@ -14,7 +14,7 @@ function getApiBaseUrl() {
 
 // ========== State ==========
 
-
+let loggedIn = true; // we assume the user is logged in until proven otherwise.
 let noteHeaders = [];
 let currentNote = null;
 let continuationKey = null;
@@ -32,6 +32,35 @@ function createNoteSlug(noteHeader, isActive) {
         slug.className = "active";
     }
     return slug;
+}
+
+// ========== State Changes ==========
+
+/** Call this when the state of the application should change to "not logged in". */
+function stateUpdateForLogout() {
+    loggedIn = false;
+    document.getElementById("main").style.display = "none";
+    document.getElementById("login").style.display = "grid";
+    noteHeaders = [];
+    currentNote = null;
+    continuationKey = null;
+    isLoadingNotes = false;
+    searchDebounceTimer = null;
+    renderNote();
+    document.querySelector("input.search").value = "";
+}
+
+/**
+ * Call this when the state of the application should change to "logged in". Be sure
+ * that the cookie is also being set or it won't work.
+ */
+async function stateUpdateForLogin() {
+    loggedIn = true;
+    document.getElementById("main").style.display = "grid";
+    document.getElementById("login").style.display = "none";
+    document.querySelector("#email-entry").value = "";
+    document.querySelector("#password-entry").value = "";
+    await loadNoteHeaders();
 }
 
 // ========== Rendering ==========
@@ -161,7 +190,46 @@ function applyNoteToUI(note, { replaceNoteId = null, deactivateOld = false } = {
 
 // ========== API Calls ==========
 
-/** Fetches note headers from the API and renders the note list. */
+/** Wrapper around fetch that adds credentials and handles 401 by logging out. */
+async function apiFetch(url, options = {}) {
+    const response = await fetch(url, { credentials: "include", ...options });
+    if (response.status === 401) {
+        stateUpdateForLogout();
+    }
+    return response;
+}
+
+/** Logs out by calling the server to clear the cookie, then updates UI. */
+async function logout() {
+    try {
+        await apiFetch(`${getApiBaseUrl()}/api/v1/user_logout`, { method: "POST" });
+    } catch (e) {
+        // Ignore errors — logout should always proceed client-side
+    }
+    stateUpdateForLogout();
+}
+
+/** Sends login request to the API with the entered email and password. */
+async function login() {
+    const email = document.querySelector("#email-entry").value;
+    const password = document.querySelector("#password-entry").value;
+    const url = `${getApiBaseUrl()}/api/v1/user_login`;
+    const response = await apiFetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({email: email, password: password}),
+    });
+    const data = await response.json();
+    console.log("Login response:", JSON.stringify(data, null, 2));
+    if (response.ok) {
+        await stateUpdateForLogin();
+    }
+}
+
+/**
+ * Fetches note headers from the API and renders the note list. continueKey is
+ * optional; omit it to get the first block of values.
+ */
 async function loadNoteHeaders(continueKey) {
     isLoadingNotes = true;
     try {
@@ -169,7 +237,7 @@ async function loadNoteHeaders(continueKey) {
         if (continueKey) {
             url += `?continue_key=${encodeURIComponent(continueKey)}`;
         }
-        const response = await fetch(url, {credentials: "include"});
+        const response = await apiFetch(url);
         const data = await response.json();
         console.log("API response data:", JSON.stringify(data, null, 2));
         const newHeaders = data.note_headers;
@@ -200,7 +268,7 @@ async function searchNotes(searchString, continueKey) {
         if (continueKey) {
             url += `&continue_key=${encodeURIComponent(continueKey)}`;
         }
-        const response = await fetch(url, {credentials: "include"});
+        const response = await apiFetch(url);
         const data = await response.json();
         const newHeaders = data.note_headers;
         continuationKey = data.continue_key || null;
@@ -235,11 +303,10 @@ async function saveNoteIfChanged() {
 
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(currentNote.note_id)}`;
     const noteId = currentNote.note_id;
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({title: newTitle, body: newBody}),
-        credentials: "include",
     });
     const data = await response.json();
     applyNoteToUI(data.note, { replaceNoteId: noteId });
@@ -249,11 +316,10 @@ async function saveNoteIfChanged() {
 async function createNewNote() {
     await saveNoteIfChanged();
     const url = `${getApiBaseUrl()}/api/v1/notes`;
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({title: "New Note", body: "", format: "PlainText"}),
-        credentials: "include",
     });
     const data = await response.json();
     applyNoteToUI(data.note, { deactivateOld: true });
@@ -261,11 +327,10 @@ async function createNewNote() {
 
 /** Deletes the current note via the API and clears it from the UI. */
 async function deleteCurrentNote() {
-    console.log("Will delete note"); // FIXME: Remove
     if (!currentNote) return;
     const noteId = currentNote.note_id;
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    await fetch(url, { method: "DELETE", credentials: "include" });
+    await apiFetch(url, { method: "DELETE" });
 
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
     if (oldIndex !== -1) {
@@ -283,7 +348,7 @@ async function deleteCurrentNote() {
 /** Fetches a single note from the API and renders it. */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    const response = await fetch(url, {credentials: "include"});
+    const response = await apiFetch(url);
     const data = await response.json();
     currentNote = data.note;
     renderNote();
@@ -295,6 +360,8 @@ document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
     loadNoteHeaders();
 
+    document.querySelector("#login-btn").addEventListener("click", login);
+    document.querySelector("#logout-btn").addEventListener("click", logout);
     document.querySelector("#new-note").addEventListener("click", createNewNote);
     document.querySelector("#delete-note").addEventListener("click", deleteCurrentNote);
     document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
