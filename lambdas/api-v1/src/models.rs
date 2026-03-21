@@ -205,13 +205,16 @@ impl TryFrom<DynamoDBRecord> for User {
 }
 
 /// Convert a User into a JsonValue suitable to return to the caller.
+///
+/// Unlike most types, we do NOT expose all the fields of User to the JavaScript layer.
+/// The password_hash is sensitive and should not be included; the user_id is not usable
+/// by clients and is not included.
 impl From<User> for JsonValue {
     fn from(user: User) -> Self {
         json!({
-            "user_id": user.user_id,
             "email": user.email,
-            "password_hash": user.password_hash,
             "user_type": user.user_type.to_string(),
+            "create_time": user.create_time,
         })
     }
 }

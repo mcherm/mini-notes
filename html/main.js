@@ -416,6 +416,18 @@ async function deleteCurrentNote() {
     renderNote();
 }
 
+/** Fetches the current user's data from the API and populates the user display fields. */
+async function loadUser() {
+    const url = `${getApiBaseUrl()}/api/v1/user`;
+    const response = await apiFetch(url);
+    if (!response.ok) return;
+    const data = await response.json();
+    const user = data.user;
+    document.getElementById("user-email-display").value = user.email;
+    document.getElementById("user-type-display").value = user.user_type;
+    document.getElementById("user-create-date-display").value = user.create_time.substring(0, 10);
+}
+
 /** Fetches a single note from the API and renders it. */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
@@ -437,8 +449,9 @@ async function actionNewAccountBtn() {
     await createUser();
 }
 
-/** Handles the user button click by showing the user info shadow box. */
-function actionUserBtn() {
+/** Handles the user button click by loading user data and showing the user info shadow box. */
+async function actionUserBtn() {
+    await loadUser();
     showShadowBox("user-display");
 }
 
