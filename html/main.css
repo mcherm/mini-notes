@@ -89,7 +89,9 @@ nav {
 button {
     background-color: var(--brand-color-lt);
     border-radius: 4px;
-    font-size: 8pt;
+    font-size: 11pt;
+    min-height: 36px;
+    min-width: 36px;
 }
 
 nav-header, note-header {
@@ -127,7 +129,8 @@ note-slug {
     display: block;
     margin: 1px 2px;
     border: 1px solid var(--secondary-color-dk);
-    padding: 2px;
+    padding: 6px;
+    font-size: 11pt;
 }
 
 note-slug.active {
@@ -176,5 +179,40 @@ login-form {
 
     & button {
         justify-self: center;
+    }
+}
+
+#back-to-list {
+    display: none;
+}
+
+/* ========== Mobile Layout ========== */
+
+@media (max-width: 600px) {
+    body-content#main-page {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+            "header"
+            "nav";
+    }
+    body-content#main-page.showing-note {
+        grid-template-areas:
+            "header"
+            "article";
+    }
+    body-content#main-page.showing-note nav {
+        display: none;
+    }
+    body-content#main-page:not(.showing-note) article {
+        display: none;
+    }
+
+    #back-to-list {
+        display: inline;
+    }
+
+    header-text {
+        font-size: 20pt;
     }
 }

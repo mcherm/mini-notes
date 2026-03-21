@@ -51,13 +51,14 @@ function noteHeaderMatchesSlug(noteHeader, noteSlug) {
 /** Call this when the state of the application should change to "not logged in". */
 function stateUpdateForLogout() {
     loggedIn = false;
-    document.getElementById("main").style.display = "none";
-    document.getElementById("login").style.display = "grid";
+    document.getElementById("main-page").style.display = "none";
+    document.getElementById("login-page").style.display = "grid";
     noteHeaders = [];
     currentNote = null;
     continuationKey = null;
     isLoadingNotes = false;
     searchDebounceTimer = null;
+    document.getElementById("main-page").classList.remove("showing-note");
     renderNote();
     document.querySelector("input.search").value = "";
 }
@@ -68,8 +69,8 @@ function stateUpdateForLogout() {
  */
 async function stateUpdateForLogin() {
     loggedIn = true;
-    document.getElementById("main").style.display = "grid";
-    document.getElementById("login").style.display = "none";
+    document.getElementById("main-page").style.display = "grid";
+    document.getElementById("login-page").style.display = "none";
     document.querySelector("#email-entry").value = "";
     document.querySelector("#password-entry").value = "";
     await loadNoteHeaders();
@@ -400,49 +401,112 @@ async function loadNote(noteId) {
     renderNote();
 }
 
+// ========== Actions ==========
+
+/** Handles the login button click by sending credentials to the API. */
+async function actionLoginBtn() {
+    await login();
+}
+
+/** Handles the new account button click by creating a user account via the API. */
+async function actionNewAccountBtn() {
+    await createUser();
+}
+
+/** Handles the logout button click by logging out via the API and resetting UI. */
+async function actionLogoutBtn() {
+    await logout();
+}
+
+/** Handles the new note button click by creating a note and switching to note view. */
+async function actionNewNoteBtn() {
+    await createNewNote();
+    document.getElementById("main-page").classList.add("showing-note");
+}
+
+/** Handles the delete button click by deleting the current note and returning to list view. */
+async function actionDeleteNoteBtn() {
+    await deleteCurrentNote();
+    document.getElementById("main-page").classList.remove("showing-note");
+}
+
+/** Handles the back-to-list button click by switching from note view to list view. */
+function actionBackToListBtn() {
+    document.getElementById("main-page").classList.remove("showing-note");
+}
+
+/** Handles title input focus by entering note view for mobile layout. */
+function actionTitleFocus() {
+    document.getElementById("main-page").classList.add("showing-note");
+}
+
+/** Handles note body textarea focus by entering note view for mobile layout. */
+function actionBodyFocus() {
+    document.getElementById("main-page").classList.add("showing-note");
+}
+
+/** Handles title input blur by saving the note if it has changed. */
+async function actionTitleBlur() {
+    await saveNoteIfChanged();
+}
+
+/** Handles note body textarea blur by saving the note if it has changed. */
+async function actionBodyBlur() {
+    await saveNoteIfChanged();
+}
+
+/** Handles search input by debouncing and filtering the note list. */
+function actionSearchInput(event) {
+    clearTimeout(searchDebounceTimer);
+
+    // Immediately deselect current note, clear article, and exit note view
+    document.getElementById("main-page").classList.remove("showing-note");
+    currentNote = null;
+    renderNote();
+    const activeSlug = document.querySelector("note-slug.active");
+    if (activeSlug) activeSlug.classList.remove("active");
+
+    const searchString = event.target.value.trim();
+
+    if (searchString === "") {
+        // Empty search: reload full note list
+        loadNoteHeaders();
+    } else {
+        // Debounce: wait 300ms after typing stops, then search
+        searchDebounceTimer = setTimeout(() => {
+            searchNotes(searchString);
+        }, 300);
+    }
+}
+
+/** Handles a click on the note list by selecting and loading the clicked note. */
+async function actionNoteListClick(event) {
+    const slug = event.target.closest("note-slug");
+    if (!slug) return;
+    await saveNoteIfChanged();
+    const current = document.querySelector("note-slug.active");
+    if (current) current.classList.remove("active");
+    slug.classList.add("active");
+    await loadNote(slug.dataset.noteId);
+    document.getElementById("main-page").classList.add("showing-note");
+}
+
 // ========== Initialization ==========
 
 document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
     loadNoteHeaders();
 
-    document.querySelector("#login-btn").addEventListener("click", login);
-    document.querySelector("#new-account-btn").addEventListener("click", createUser);
-    document.querySelector("#logout-btn").addEventListener("click", logout);
-    document.querySelector("#new-note").addEventListener("click", createNewNote);
-    document.querySelector("#delete-note").addEventListener("click", deleteCurrentNote);
-    document.querySelector("article input.title").addEventListener("blur", saveNoteIfChanged);
-    document.querySelector("article textarea.note-body").addEventListener("blur", saveNoteIfChanged);
-
-    document.querySelector("input.search").addEventListener("input", (event) => {
-        clearTimeout(searchDebounceTimer);
-
-        // Immediately deselect current note and clear article
-        currentNote = null;
-        renderNote();
-        const activeSlug = document.querySelector("note-slug.active");
-        if (activeSlug) activeSlug.classList.remove("active");
-
-        const searchString = event.target.value.trim();
-
-        if (searchString === "") {
-            // Empty search: reload full note list
-            loadNoteHeaders();
-        } else {
-            // Debounce: wait 300ms after typing stops, then search
-            searchDebounceTimer = setTimeout(() => {
-                searchNotes(searchString);
-            }, 300);
-        }
-    });
-
-    document.querySelector("note-list").addEventListener("click", async (event) => {
-        const slug = event.target.closest("note-slug");
-        if (!slug) return;
-        await saveNoteIfChanged();
-        const current = document.querySelector("note-slug.active");
-        if (current) current.classList.remove("active");
-        slug.classList.add("active");
-        await loadNote(slug.dataset.noteId);
-    });
+    document.querySelector("#login-btn").addEventListener("click", actionLoginBtn);
+    document.querySelector("#new-account-btn").addEventListener("click", actionNewAccountBtn);
+    document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
+    document.querySelector("#new-note").addEventListener("click", actionNewNoteBtn);
+    document.querySelector("#delete-note").addEventListener("click", actionDeleteNoteBtn);
+    document.querySelector("#back-to-list").addEventListener("click", actionBackToListBtn);
+    document.querySelector("article input.title").addEventListener("focus", actionTitleFocus);
+    document.querySelector("article input.title").addEventListener("blur", actionTitleBlur);
+    document.querySelector("article textarea.note-body").addEventListener("focus", actionBodyFocus);
+    document.querySelector("article textarea.note-body").addEventListener("blur", actionBodyBlur);
+    document.querySelector("input.search").addEventListener("input", actionSearchInput);
+    document.querySelector("note-list").addEventListener("click", actionNoteListClick);
 });
