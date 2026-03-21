@@ -1,5 +1,9 @@
 "use strict";
 
+// ========== Constants ==========
+
+const DEFAULT_NOTE_TITLE = "New Note";
+
 // ========== Configuration ==========
 
 /** Returns the API base URL, choosing prod or dev based on the current hostname. */
@@ -32,6 +36,14 @@ function createNoteSlug(noteHeader, isActive) {
         slug.className = "active";
     }
     return slug;
+}
+
+/**
+ * Returns true if the given noteSlug currently matches the given noteHeader.
+ * This is used to avoid deleting and re-creating things that are already correct.
+ */
+function noteHeaderMatchesSlug(noteHeader, noteSlug) {
+    return noteSlug.textContent === noteHeader.title;
 }
 
 // ========== State Changes ==========
@@ -147,11 +159,11 @@ function updateSentinel() {
 
 /**
  * Updates currentNote, noteHeaders, and the DOM after receiving a note from the API.
- *   replaceNoteId: if set, removes the old header/slug for that note (used by save).
- *   deactivateOld: if true, deactivates the currently active slug (used by new note).
  */
-function applyNoteToUI(note, { replaceNoteId = null, deactivateOld = false } = {}) {
+function applyNoteToUI(note) {
     currentNote = note;
+    // NOTE: This does not currently update the title and note text because it is
+    // ALWAYS being called in places where those are already correct.
 
     const newHeader = {
         user_id: note.user_id,
@@ -162,28 +174,33 @@ function applyNoteToUI(note, { replaceNoteId = null, deactivateOld = false } = {
         format: note.format,
     };
 
-    if (replaceNoteId) {
-        const oldIndex = noteHeaders.findIndex(h => h.note_id === replaceNoteId);
-        if (oldIndex !== -1) {
-            noteHeaders.splice(oldIndex, 1);
-        }
+    // --- Update noteHeaders ---
+    const oldIndex = noteHeaders.findIndex(h => h.note_id === note.note_id);
+    if (oldIndex !== -1) {
+        noteHeaders.splice(oldIndex, 1);
     }
     noteHeaders.unshift(newHeader);
 
+    // --- Update displayed noteList ---
     const noteList = document.querySelector("note-list");
-
-    if (replaceNoteId) {
-        const oldSlug = noteList.querySelector(`note-slug[data-note-id="${replaceNoteId}"]`);
-        if (oldSlug) oldSlug.remove();
+    const activeSlug = noteList.querySelector("note-slug.active");
+    if (activeSlug) activeSlug.classList.remove("active");
+    let needNewSlug = true; // we may disprove this
+    const oldSlug = noteList.querySelector(`note-slug[data-note-id="${note.note_id}"]`);
+    if (oldSlug) {
+        const isFirstInList = oldSlug.previousElementSibling === null;
+        const isActive = oldSlug.classList.contains("active");
+        const isCorrect = noteHeaderMatchesSlug(newHeader, oldSlug);
+        if (isFirstInList && isActive && isCorrect) {
+            needNewSlug = false;
+        } else {
+            oldSlug.remove();
+        }
     }
-
-    if (deactivateOld) {
-        const activeSlug = noteList.querySelector("note-slug.active");
-        if (activeSlug) activeSlug.classList.remove("active");
+    if (needNewSlug) {
+        const newSlug = createNoteSlug(newHeader, true);
+        noteList.insertBefore(newSlug, noteList.firstChild);
     }
-
-    const newSlug = createNoteSlug(newHeader, true);
-    noteList.insertBefore(newSlug, noteList.firstChild);
 
     renderNote();
 }
@@ -250,10 +267,8 @@ async function createUser() {
 async function loadNoteHeaders(continueKey) {
     isLoadingNotes = true;
     try {
-        let url = `${getApiBaseUrl()}/api/v1/notes`;
-        if (continueKey) {
-            url += `?continue_key=${encodeURIComponent(continueKey)}`;
-        }
+        const queryParams = continueKey ? `?continue_key=${encodeURIComponent(continueKey)}` : "";
+        const url = `${getApiBaseUrl()}/api/v1/notes${queryParams}`;
         const response = await apiFetch(url);
         const data = await response.json();
         console.log("API response data:", JSON.stringify(data, null, 2));
@@ -281,10 +296,8 @@ async function loadNoteHeaders(continueKey) {
 async function searchNotes(searchString, continueKey) {
     isLoadingNotes = true;
     try {
-        let url = `${getApiBaseUrl()}/api/v1/note_search?search_string=${encodeURIComponent(searchString)}`;
-        if (continueKey) {
-            url += `&continue_key=${encodeURIComponent(continueKey)}`;
-        }
+        const extraQueryParams = continueKey ? `&continue_key=${encodeURIComponent(continueKey)}` : "";
+        const url = `${getApiBaseUrl()}/api/v1/note_search?search_string=${encodeURIComponent(searchString)}${extraQueryParams}`;
         const response = await apiFetch(url);
         const data = await response.json();
         const newHeaders = data.note_headers;
@@ -311,35 +324,51 @@ async function searchNotes(searchString, continueKey) {
 
 /** Saves the current note if the title or body has changed. */
 async function saveNoteIfChanged() {
-    if (!currentNote) return;
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
     const newTitle = titleInput.value;
     const newBody = bodyTextarea.value;
-    if (newTitle === currentNote.title && newBody === currentNote.body) return;
 
+
+    if (currentNote === null) {
+        // User started editing when there wasn't a note displayed: create a new one
+        if (newTitle === "" && newBody === "") return;
+        await createNewNote(newTitle, newBody)
+    } else {
+        // User was editing an existing note
+        if (newTitle === currentNote.title && newBody === currentNote.body) return;
+        await saveNote(newTitle, newBody);
+    }
+}
+
+/** Saves the current note. */
+async function saveNote(title, body) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(currentNote.note_id)}`;
-    const noteId = currentNote.note_id;
     const response = await apiFetch(url, {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title: newTitle, body: newBody}),
+        body: JSON.stringify({title: title, body: body}),
     });
     const data = await response.json();
-    applyNoteToUI(data.note, { replaceNoteId: noteId });
+    applyNoteToUI(data.note);
 }
 
-/** Creates a new note via the API and switches to it. */
-async function createNewNote() {
-    await saveNoteIfChanged();
+/**
+ * Assigns a title and body if needed, creates a new note via the API, and
+ * switches to displaying it.
+ */
+async function createNewNote(newTitle = "", newBody = "") {
+    if (newTitle === "") {
+        newTitle = DEFAULT_NOTE_TITLE;
+    }
     const url = `${getApiBaseUrl()}/api/v1/notes`;
     const response = await apiFetch(url, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title: "New Note", body: "", format: "PlainText"}),
+        body: JSON.stringify({title: newTitle, body: newBody, format: "PlainText"}),
     });
     const data = await response.json();
-    applyNoteToUI(data.note, { deactivateOld: true });
+    applyNoteToUI(data.note);
 }
 
 /** Deletes the current note via the API and clears it from the UI. */
