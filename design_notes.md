@@ -103,18 +103,17 @@ Ends the current session for a user (if there is one).
 **Description**
 Creates a new session for a user (or fails).
 
-### Get User Data *[MAY NOT BE NEEDED FOR NOW]*
-**Path:** /api/v1/users/*{user_id}* [GET]
+### Get User Data (for logged in user)
+**Path:** /api/v1/user [GET]
 
 **Inputs:**
 * session_id: [header] string
-* user_id: [path] string
 
 **Outputs:**
 * user object fields: [body] object
 
 **Description**
-Obtain data about a user.
+Obtain data about the currently logged-in user.
 
 ### New Note
 **Path:** /api/v1/notes/ [POST]
