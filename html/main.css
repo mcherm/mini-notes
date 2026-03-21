@@ -38,15 +38,22 @@ body-content {
             "nav article";
         height: calc(100vh - 2 * (var(--body-margin) + var(--body-border))); /* Fill whole window. */
     }
+
     &#login-page {
         grid-template-areas:
             "header"
             "login";
         display: none;
     }
+
+    &#user-page {
+        grid-template-areas:
+            "header"
+            "user";
+    }
 }
 
-header, nav, article, login-area {
+header, nav, article, login-area, user-area {
     border: 1px solid var(--colorless-dk);
     padding: 4px;
 }
@@ -167,6 +174,22 @@ login-area {
     background-color: var(--interest-color-lt);
 }
 
+user-area {
+    display: grid;
+    grid-template-areas:
+        "form_1 form_1"
+        "button_1 button_2";
+    background-color: var(--interest-color-lt);
+
+    & > button {
+        justify-self: center;
+    }
+}
+
+#back-to-list {
+    display: none; /* it's only shown in mobile form */
+}
+
 login-form {
     justify-self: center;
     display: grid;
@@ -182,8 +205,37 @@ login-form {
     }
 }
 
-#back-to-list {
+user-form {
+    grid-area: form_1;
+    justify-self: center;
+    display: grid;
+    grid-template-areas:
+        "label_1 value_1"
+        "label_2 value_2"
+        "label_3 value_3";
+    gap: 5px;
+    padding: 5px;
+}
+
+/* ========== Shadow Box (modal overlay) ========== */
+
+shadow-box {
     display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.65);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+shadow-content {
+    background-color: var(--colorless-lt);
+    border: var(--body-border) solid var(--colorless-dk);
+    padding: 8px;
 }
 
 /* ========== Mobile Layout ========== */

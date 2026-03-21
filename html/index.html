@@ -14,7 +14,7 @@
     <body-content id="main-page">
         <header>
             <header-text>Mini-Notes</header-text>
-            <button id="logout-btn">&#x1F464;</button>
+            <button id="user-btn">&#x1F464;</button>
         </header>
         <nav>
             <nav-header>
@@ -43,10 +43,26 @@
                 <input type="text" id="email-entry">
                 <label for="password-entry">Password:</label>
                 <input type="password" id="password-entry">
-                <button id="login-btn">Login</button>
+                <button id="login-btn">Log In</button>
                 <button id="new-account-btn">New Account</button>
             </login-form>
         </login-area>
     </body-content>
+    <shadow-box id="user-display">
+        <shadow-content>
+            <user-area>
+                <user-form>
+                    <label for="email-display">Email:</label>
+                    <input type="text" id="email-display" disabled value="dummy">
+                    <label for="user-type-display">User Type:</label>
+                    <input type="text" id="user-type-display" disabled value="dummy">
+                    <label for="user-create-time-display">User Since:</label>
+                    <input type="text" id="user-create-time-display" disabled value="dummy">
+                </user-form>
+                <button id="close-user-shadowbox-btn">Cancel</button>
+                <button id="logout-btn">Log Out</button>
+            </user-area>
+        </shadow-content>
+    </shadow-box>
 </body>
 </html>

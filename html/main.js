@@ -25,6 +25,30 @@ let continuationKey = null;
 let isLoadingNotes = false;
 let searchDebounceTimer = null;
 
+// ========== Shadow Box ==========
+
+const shadowBoxDismissCallbacks = new Map();
+
+/** Shows a shadow-box modal by id. onDismiss is called when the box is dismissed. */
+function showShadowBox(id, onDismiss) {
+    const el = document.getElementById(id);
+    el.style.display = "flex";
+    if (onDismiss) {
+        shadowBoxDismissCallbacks.set(id, onDismiss);
+    }
+}
+
+/** Hides a shadow-box modal by id, invoking its dismiss callback if one was registered. */
+function hideShadowBox(id) {
+    const el = document.getElementById(id);
+    el.style.display = "none";
+    const callback = shadowBoxDismissCallbacks.get(id);
+    if (callback) {
+        shadowBoxDismissCallbacks.delete(id);
+        callback();
+    }
+}
+
 // ========== DOM Helpers ==========
 
 /** Creates a <note-slug> element from a NoteHeader object. */
@@ -413,8 +437,26 @@ async function actionNewAccountBtn() {
     await createUser();
 }
 
+/** Handles the user button click by showing the user info shadow box. */
+function actionUserBtn() {
+    showShadowBox("user-display");
+}
+
+/** Handles a click on a shadow-box; dismisses it if the click was on the backdrop. */
+function actionDismissShadowBox(event) {
+    if (event.target === event.currentTarget) {
+        hideShadowBox(event.currentTarget.id);
+    }
+}
+
+/** Handles the cancel button click in the user shadow box by dismissing it. */
+function actionCloseUserShadowboxBtn() {
+    hideShadowBox("user-display");
+}
+
 /** Handles the logout button click by logging out via the API and resetting UI. */
 async function actionLogoutBtn() {
+    hideShadowBox("user-display");
     await logout();
 }
 
@@ -497,9 +539,14 @@ document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
     loadNoteHeaders();
 
+    document.querySelector("#user-btn").addEventListener("click", actionUserBtn);
     document.querySelector("#login-btn").addEventListener("click", actionLoginBtn);
     document.querySelector("#new-account-btn").addEventListener("click", actionNewAccountBtn);
+    document.querySelector("#close-user-shadowbox-btn").addEventListener("click", actionCloseUserShadowboxBtn);
     document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
+    document.querySelectorAll("shadow-box").forEach(sb => {
+        sb.addEventListener("click", actionDismissShadowBox);
+    });
     document.querySelector("#new-note").addEventListener("click", actionNewNoteBtn);
     document.querySelector("#delete-note").addEventListener("click", actionDeleteNoteBtn);
     document.querySelector("#back-to-list").addEventListener("click", actionBackToListBtn);
