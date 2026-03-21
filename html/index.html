@@ -10,7 +10,7 @@
     <script src="main.js"></script>
 </head>
 <body>
-    <body-content id="main">
+    <body-content id="main-page">
         <header>
             <header-text>Mini-Notes</header-text>
             <button id="logout-btn">&#x1F464;</button>
@@ -25,13 +25,13 @@
         </nav>
         <article>
             <note-header>
-                <input class="title" type="text" value="">
+                <input class="title" type="text" value="" tabindex="1">
                 <button id="delete-note">&#x1F5D1;</button>
             </note-header>
-            <textarea class="note-body"></textarea>
+            <textarea class="note-body" tabindex="2"></textarea>
         </article>
     </body-content>
-    <body-content id="login">
+    <body-content id="login-page">
         <header>
             <header-text>Mini-Notes</header-text>
         </header>
