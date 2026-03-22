@@ -15,7 +15,7 @@
     --colorless-dk: #272727;
     --text-entry: #f0f0f0;
     --body-margin: 8px;
-    --body-border: 1px;
+    --body-border: 2px;
 }
 
 body {
@@ -60,12 +60,13 @@ body-content {
 }
 
 header, nav, article, login-area, user-area {
-    border: 1px solid var(--colorless-dk);
+    border: var(--body-border) solid var(--colorless-dk);
     padding: 4px;
 }
 
 header {
     grid-area: header;
+    border-bottom: none;
     background-color: var(--brand-color);
     display: grid; /* Make this a single-cell grid so we can use justify-self on the button */
     align-items: center;
@@ -73,7 +74,12 @@ header {
         grid-column: 1;
         grid-row: 1;
     }
-    & button {
+    & .settings-btn {
+        grid-column: 1;
+        grid-row: 1;
+        justify-self: start;
+    }
+    & #user-btn {
         grid-column: 1;
         grid-row: 1;
         justify-self: end;
@@ -91,9 +97,13 @@ header-text {
 
 nav {
     grid-area: nav;
+}
+
+nav, settings-nav {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    border-right: none;
     background-color: var(--secondary-color-lt);
     min-height: 0;
     padding: 0;
@@ -106,13 +116,17 @@ button {
     min-width: 36px;
 }
 
-nav-header, note-header {
+nav-header, note-header, settings-nav-footer {
     flex: none;
     display: flex;
     justify-content: space-between;
     gap: 5px;
     align-items: center;
     padding: 2px;
+}
+
+settings-nav-footer {
+    justify-content: center;
 }
 
 input.search {
@@ -132,21 +146,25 @@ input.title {
     font-weight: 600;
 }
 
-note-list {
+note-list, settings-nav-list {
     flex: 1;
     overflow-y: auto;
+}
+
+note-list {
     border-top: 1px solid var(--secondary-color-dk)
 }
 
-note-slug {
+note-slug, settings-nav-item {
     display: block;
     margin: 2px 2px;
+    cursor: pointer;
     border: 1px solid var(--secondary-color-dk);
     padding: 5px;
-}
 
-note-slug.active {
-    background-color: var(--interest-color-lt);
+    &.active {
+        background-color: var(--interest-color-lt);
+    }
 }
 
 article {
@@ -155,7 +173,6 @@ article {
     align-items: stretch;
     flex-direction: column;
     background-color: var(--interest-color-lt);
-    padding: 0 4px 4px 4px;
 }
 
 textarea.note-body {
@@ -233,6 +250,39 @@ shadow-content {
     background-color: var(--colorless-lt);
     border: var(--body-border) solid var(--colorless-dk);
     padding: 8px;
+}
+
+/* ========== App Settings ========== */
+
+app-settings {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 1fr;
+    width: 80vw;
+    max-width: 700px;
+    height: 80vh;
+}
+
+settings-nav {
+    border: var(--body-border) solid var(--colorless-dk);
+    border-right: none;
+    overflow-y: auto;
+}
+
+settings-display {
+    display: block;
+    background-color: var(--interest-color-lt);
+    border: var(--body-border) solid var(--colorless-dk);
+    padding: 5px;
+    overflow-y: auto;
+}
+
+settings-text {
+    display: none;
+
+    &.active {
+        display: block;
+    }
 }
 
 /* ========== Mobile Layout ========== */

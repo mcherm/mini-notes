@@ -143,6 +143,19 @@ function appendNoteHeaders(newHeaders) {
     });
 }
 
+/** Selects a settings nav item and shows its corresponding settings-text. */
+function selectSettingsNavItem(navItem) {
+    const currentActive = document.querySelector("settings-nav-item.active");
+    if (currentActive) currentActive.classList.remove("active");
+    navItem.classList.add("active");
+
+    const currentText = document.querySelector("settings-text.active");
+    if (currentText) currentText.classList.remove("active");
+    const targetId = navItem.dataset.target;
+    const targetText = document.getElementById(targetId);
+    if (targetText) targetText.classList.add("active");
+}
+
 // ========== Scroll Observer ==========
 
 let scrollObserver = null;
@@ -512,6 +525,23 @@ function actionCloseUserShadowboxBtn() {
     hideShadowBox("user-display");
 }
 
+/** Handles a settings button click by showing the app-settings shadow box. */
+function actionSettingsBtn() {
+    showShadowBox("app-settings");
+}
+
+/** Handles the close button click in the settings shadow box by dismissing it. */
+function actionCloseSettingsBtn() {
+    hideShadowBox("app-settings");
+}
+
+/** Handles a click on the settings nav list by selecting the clicked item. */
+function actionSettingsNavClick(event) {
+    const navItem = event.target.closest("settings-nav-item");
+    if (!navItem) return;
+    selectSettingsNavItem(navItem);
+}
+
 /** Handles the logout button click by logging out via the API and resetting UI. */
 async function actionLogoutBtn() {
     hideShadowBox("user-display");
@@ -629,6 +659,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#new-account-btn").addEventListener("click", actionNewAccountBtn);
     document.querySelector("#close-user-shadowbox-btn").addEventListener("click", actionCloseUserShadowboxBtn);
     document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
+    document.querySelectorAll(".settings-btn").forEach(btn => {
+        btn.addEventListener("click", actionSettingsBtn);
+    });
+    document.querySelector("#close-settings-btn").addEventListener("click", actionCloseSettingsBtn);
+    document.querySelector("settings-nav-list").addEventListener("click", actionSettingsNavClick);
     document.querySelectorAll("shadow-box").forEach(sb => {
         sb.addEventListener("click", actionDismissShadowBox);
     });

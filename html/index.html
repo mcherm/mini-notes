@@ -15,6 +15,7 @@
     <body-content id="main-page">
         <header>
             <header-text>Mini-Notes</header-text>
+            <button class="settings-btn">&#x2699;&#xFE0F;</button>
             <button id="user-btn">&#x1F464;</button>
         </header>
         <nav>
@@ -37,6 +38,7 @@
     <body-content id="login-page">
         <header>
             <header-text>Mini-Notes</header-text>
+            <button class="settings-btn">&#x2699;&#xFE0F;</button>
         </header>
         <login-area>
             <login-form>
@@ -63,6 +65,134 @@
                 <button id="close-user-shadowbox-btn">Cancel</button>
                 <button id="logout-btn">Log Out</button>
             </user-area>
+        </shadow-content>
+    </shadow-box>
+    <shadow-box id="app-settings">
+        <shadow-content>
+            <app-settings>
+                <settings-nav>
+                    <settings-nav-list>
+                        <settings-nav-item data-target="about-info" class="active">About</settings-nav-item>
+                        <settings-nav-item data-target="user-account-info">User Accounts</settings-nav-item>
+                        <settings-nav-item data-target="privacy-info">Privacy</settings-nav-item>
+                        <settings-nav-item data-target="usage-info">Usage Policy</settings-nav-item>
+                        <settings-nav-item data-target="installing-info">Installing</settings-nav-item>
+                        <settings-nav-item data-target="cost-info">Cost</settings-nav-item>
+                        <settings-nav-item data-target="tech-support-info">Tech Support</settings-nav-item>
+                        <settings-nav-item data-target="copyright-info">Copyright</settings-nav-item>
+                    </settings-nav-list>
+                    <settings-nav-footer>
+                        <button id="close-settings-btn">&#x2190;</button>
+                    </settings-nav-footer>
+                </settings-nav>
+                <settings-display>
+                    <settings-text id="about-info" class="active">
+                        Mini-Notes is a simple web application for keeping notes. It was written and is maintained by
+                        <a href="https://www.mcherm.com">Michael Chermside</a>, with significant use of
+                        <a href="https://claude.com/product/claude-code">Claude Code</a>.
+                    </settings-text>
+                    <settings-text id="user-account-info">
+                        Anyone may make an account by providing an email and a password. We do not currently verify
+                        or enforce that it is a valid email, but if we need to contact a user or start providing
+                        password resets, they won't work if that field isn't an email you have access to.
+
+                        <p>Mini-notes does not keep a record of your password, only a hash used to verify it. There is
+                        currently no way to reset your password &mdash; see the "Tech Support" section if needed.</p>
+                    </settings-text>
+                    <settings-text id="privacy-info">
+                        Mini-notes collects very little information about our users. We collect the email used to create
+                        an account, and we collect the content of your notes. We intend to deal with all of this
+                        information responsibly. But it is important to note that Mini-notes does not currently provide
+                        end-to-end encryption: the content of your notes is visible to system operators.
+
+                        <p>We do not normally reveal (or sell!) any of your information to any third party; only the
+                        people and services used to operate the site can see it. For instance, data is currently stored
+                        on Amazon's AWS cloud services. As a practice, we avoid reading the content of your notes, but
+                        we reserve the right to do so in the process of maintaining the site.</p>
+
+                        <p>If Mini-notes receives a legally enforceable request for information such as a warrant or
+                        subpoena we will release your information in accordance with applicable laws.</p>
+
+                        <p>Mini-notes generates a cookie which is used to enable login. There is no use of cookies
+                        for tracking and no third-party cookies.</p>
+                    </settings-text>
+                    <settings-text id="usage-info">
+                        Mini-notes is intended for personal notekeeping at a reasonable scale. Storing a few hundred
+                        notes, each one with hundreds of lines of text is certainly a reasonable scale. Storing
+                        a million notes would not be!
+                        <p>
+                            Mini-notes is intended for storing actual, human-readable notes, not for archiving
+                            blobs of encrypted or base-64 encoded data.
+                        </p>
+                        <p>
+                            Mini-notes does not permit the storage of notes which are illegal in the US or in your
+                            local jurisdiction.
+                        </p>
+                        <p>
+                            Any violation of these usage policies may result in your information being deleted.
+                            Mini-notes may enforce these policies in ways that are arbitrary or inconsistent.
+                        </p>
+                    </settings-text>
+                    <settings-text id="installing-info">
+                        On most phones and some other systems, Mini-notes can be installed as a PWA (a kind of app).
+                        This installation is done through your browser.
+
+                        <p>One of these guides might be helpful:
+                        </p>
+                        <ul>
+                            <li><a href="https://www.civicplus.help/community-development/docs/install-a-progressive-web-application-pwa">Instructions on CivicPlus</a></li>
+                            <li><a href="https://www.bitcot.com/how-to-install-a-pwa-to-your-device/#Installing_a_PWA_on_Android">Instructions on Bitcot</a></li>
+                            <li><a href="https://progressier.com/pwa-capabilities/installation">Instructions on Progressier</a></li>
+                        </ul>
+                    </settings-text>
+                    <settings-text id="cost-info">
+                        Mini-notes is free to use, in the spirit of making the world a better place. We do not ever
+                        intend to incorporate ads. If the operating costs ever become big enough to be a concern we
+                        might consider taking donations; in the meantime, enjoy!
+                    </settings-text>
+                    <settings-text id="tech-support-info">
+                        At the moment, Mini-notes is a one-person project. Tech support for users is limited, but
+                        if you reach out to <a href="mailto:mcherm@mcherm.com">mcherm@mcherm.com</a> we may be able
+                        to help you. The project comes with NO WARRANTIES (see license under "Copyright").
+                    </settings-text>
+                    <settings-text id="copyright-info">
+                        The content and implementation of this site are copyrighted by Michael Chermside, at the
+                        point when they were written (beginning in 2026). The parts that were generated by an AI
+                        are not copyrighted (see Thaler v. Perlmutter). The content and implementation are licensed
+                        under the MIT license (see below). They are also available at
+                        <a href="https://github.com/mcherm/mini-notes">https://github.com/mcherm/mini-notes</a>.
+                        Using this it would be possible for anyone to run their own copy of the Mini-notes site
+                        (under a different name).
+
+                        <p>Mini-notes is not currently making direct use of any libraries with their own copyright.</p>
+                        <p>
+<pre>
+MIT License
+
+Copyright (c) 2026 Michael Chermside
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</pre>
+                        </p>
+                    </settings-text>
+                </settings-display>
+            </app-settings>
         </shadow-content>
     </shadow-box>
     <script>
