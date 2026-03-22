@@ -20,6 +20,12 @@
 
 body {
     margin: var(--body-margin);
+    font-family: system-ui, sans-serif;
+}
+
+button, input, textarea, select {
+    font-family: inherit;
+    font-size: inherit;
 }
 
 body-content {
@@ -96,7 +102,6 @@ nav {
 button {
     background-color: var(--brand-color-lt);
     border-radius: 4px;
-    font-size: 11pt;
     min-height: 36px;
     min-width: 36px;
 }
@@ -111,7 +116,7 @@ nav-header, note-header {
 }
 
 input.search {
-    background-color: inherit;
+    background-color: var(--brand-color-lt);
     border: 1px solid var(--secondary-color-dk);
     flex: 1;
     &:focus {
@@ -123,7 +128,8 @@ input.title {
     background-color: inherit;
     flex: 1;
     border: 0;
-    font-weight: bold;
+    font-size: 1.125rem;
+    font-weight: 600;
 }
 
 note-list {
@@ -134,22 +140,13 @@ note-list {
 
 note-slug {
     display: block;
-    margin: 1px 2px;
+    margin: 2px 2px;
     border: 1px solid var(--secondary-color-dk);
-    padding: 6px;
-    font-size: 11pt;
+    padding: 5px;
 }
 
 note-slug.active {
-    background-color: var(--brand-color-lt);
-}
-
-note-list-sentinel {
-    display: block;
-    text-align: center;
-    font-size: 9pt;
-    color: var(--colorless-dk);
-    padding: 4px;
+    background-color: var(--interest-color-lt);
 }
 
 article {
