@@ -56,6 +56,18 @@ pub fn replay_ok(response_body: &str) -> ReplayEvent {
     )
 }
 
+/// Helper: build a ReplayEvent that returns a DynamoDB ConditionalCheckFailedException.
+pub fn replay_conditional_check_failed() -> ReplayEvent {
+    let body = r#"{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException","message":"The conditional request failed"}"#;
+    ReplayEvent::new(
+        axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
+        axum::http::Response::builder()
+            .status(400)
+            .body(SdkBody::from(body.to_string()))
+            .unwrap(),
+    )
+}
+
 /// Create a stub CurrentTime object from a string. Used for tests.
 pub fn current_time_stub(s: &str) -> CurrentTime {
     CurrentTime {

@@ -3,6 +3,7 @@
 // ========== Constants ==========
 
 const DEFAULT_NOTE_TITLE = "New Note";
+const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
 
 // ========== Configuration ==========
 
@@ -24,6 +25,7 @@ let currentNote = null;
 let continuationKey = null;
 let isLoadingNotes = false;
 let searchDebounceTimer = null;
+let lastActiveTime = Date.now();
 
 // ========== Shadow Box ==========
 
@@ -104,7 +106,6 @@ async function stateUpdateForLogin() {
 
 /** Clears the <note-list> element and repopulates it from the noteHeaders array. */
 function renderNoteList() {
-    // TODO: Special display for when the list is empty.
     const noteList = document.querySelector("note-list");
     noteList.innerHTML = "";
     noteHeaders.forEach((header) => {
@@ -372,10 +373,48 @@ async function saveNote(title, body) {
     const response = await apiFetch(url, {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title: title, body: body}),
+        body: JSON.stringify({title: title, body: body, source_version_id: currentNote.version_id}),
     });
     const data = await response.json();
-    applyNoteToUI(data.note);
+    if (response.status === 409) {
+        await handleConflict();
+    } else {
+        applyNoteToUI(data.note);
+    }
+}
+
+/** Handles an edit conflict by doing a full state refresh. */
+async function handleConflict() {
+    document.querySelector("input.search").value = "";
+    currentNote = null;
+    await loadNoteHeaders();
+    // Select the first note in the list (probably the conflict note, which likely has the newest modify_time)
+    if (noteHeaders.length > 0) {
+        await loadNote(noteHeaders[0].note_id);
+        const firstSlug = document.querySelector("note-list note-slug");
+        if (firstSlug) {
+            firstSlug.classList.add("active");
+        }
+        document.getElementById("main-page").classList.add("showing-note");
+    }
+}
+
+/** Refreshes state after the tab has been inactive for a long time. */
+async function refreshAfterStale() {
+    console.log("Refreshing stale tab");
+    await saveNoteIfChanged();
+    const selectedNoteId = currentNote ? currentNote.note_id : null;
+    await loadNoteHeaders();
+    if (selectedNoteId) {
+        const stillExists = noteHeaders.some(h => h.note_id === selectedNoteId);
+        if (stillExists) {
+            await loadNote(selectedNoteId);
+        } else {
+            currentNote = null;
+            renderNote();
+            document.getElementById("main-page").classList.remove("showing-note");
+        }
+    }
 }
 
 /**
@@ -546,6 +585,33 @@ async function actionNoteListClick(event) {
     document.getElementById("main-page").classList.add("showing-note");
 }
 
+// ========== Stale Tab Detection ==========
+
+/** Checks if enough time has passed since last active and refreshes if so. */
+async function checkAndRefreshIfStale() {
+    if (!loggedIn) return;
+    const elapsed = Date.now() - lastActiveTime;
+    if (elapsed > STALE_THRESHOLD_MS) {
+        await refreshAfterStale();
+    }
+}
+
+function handleVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+        lastActiveTime = Date.now();
+    } else if (document.visibilityState === "visible") {
+        checkAndRefreshIfStale();
+    }
+}
+
+function handleWindowFocus() {
+    checkAndRefreshIfStale();
+}
+
+function handleWindowBlur() {
+    lastActiveTime = Date.now();
+}
+
 // ========== Initialization ==========
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -569,4 +635,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("article textarea.note-body").addEventListener("blur", actionBodyBlur);
     document.querySelector("input.search").addEventListener("input", actionSearchInput);
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("blur", handleWindowBlur);
 });

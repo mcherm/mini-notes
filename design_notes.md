@@ -168,6 +168,7 @@ Returns all of the fields of a single note.
 * session_id: [header] string
 * note_id: [path] string
 * note object: [body] object
+* source_version_id [body] number
 
 **Outputs:**
 * note object: [body] object
@@ -175,11 +176,13 @@ Returns all of the fields of a single note.
 **Description:**
 Accepts in the body all of the editable fields of the note_id. If non-editable
 fields like last-modified are provided they will be silently ignored. It updates
-the note to match this new value.
-
-**Design Note:**
-In the future we might want to find a way for the caller to specify a version ID
-it was based on, to address issues of edit collisions. Save that work for later.
+the note to match this new value. The source_version_id must be provided; if the
+note's current version_id differs from source_version_id, the edit is treated as
+a conflict. On conflict, a new note is created with "[CONFLICTED] " prepended to
+the title and a version_id of source_version_id + 1, and the response is 409 with
+that new note (which has a different note_id). The original note is left untouched.
+If the note was deleted (delete-edit conflict), the note is re-created at the
+original note_id without the "[CONFLICTED] " prefix, and the response is 200.
 
 
 ### Delete Note

@@ -10,7 +10,8 @@
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:crates.io)",
       "Bash(cargo metadata:*)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "Bash(grep:*)"
     ]
   }
 }
