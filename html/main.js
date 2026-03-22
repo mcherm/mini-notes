@@ -1,5 +1,10 @@
 "use strict";
 
+/** Thrown by apiFetch when a 401 triggers logout, to abort the caller's flow. */
+class LoggedOutError extends Error {
+    constructor() { super("Session expired — logged out"); }
+}
+
 // ========== Constants ==========
 
 const DEFAULT_NOTE_TITLE = "New Note";
@@ -238,6 +243,7 @@ async function apiFetch(url, options = {}) {
     const response = await fetch(url, { credentials: "include", ...options });
     if (response.status === 401) {
         stateUpdateForLogout();
+        throw new LoggedOutError();
     }
     return response;
 }
