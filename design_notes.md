@@ -221,3 +221,36 @@ string.
 ## URLs
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
 The API endpoints will be at https://api.mini-notes.com for production and https://dev-api.mini-notes.com for dev.
+
+## Import/Export of Notes
+
+**Design Ideation**:
+
+First idea is to mimic (more or less) what SimpleNotes does. I will allow the user to export their notes in
+the form of a zip file containing a bunch of text files. The content of the text files will be
+UTF-8-encoded note content; the filename will be a transform of the title. The transform is to:
+(1) remove any of the following characters: "/\:*?"<>|" also Nul and any control character;
+(2) truncate to 40 characters; (3) append ".txt".
+
+*Alternative* export as JSON. That way we could preserve data like the modification and creation
+times AND the version_id, all of which would be useful for diffing. AND it wouldn't lose any information.
+
+SimpleNote CAN export as JSON (I can do that on my phone) or as text files (I can do that on my mac).
+It does NOT have a title (title is simply the first line of the note). SimpleNote's JSON has the
+following fields:
+ * "id": "039e4b6f11356ac8b53a64556760ed09"
+ *  "content": "ING Info\nMy scopia #: 63463\nMy IP: 10.152.82.47 -- 7DK5BP1.ingdirect.com"
+ *  "creationDate": "2018-09-22T16:28:20.346Z"
+ *  "lastModified": "2018-09-22T16:28:27.721Z"
+
+With the flat text files I can import from most anything and the output is easy to use. Maybe I
+generate a zip file with the flat files AND a json file in it. The zip file COULD associate
+modification timestamps (in a different format) with the files.
+
+The zip file alone can't support synchronization... it can get close, but there's no way to
+uniquely associate a note in one system to another. The JSON file format COULD support synchronization:
+it has a modification_date, it has a unique-id; combine it with an id-to-id mapping and you could
+build synchronization.
+
+Import is simpler than sync, by quite a bit. We can just create new notes, ignoring anything that
+already exists.
