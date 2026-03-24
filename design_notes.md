@@ -218,6 +218,21 @@ off. The output includes a continuation_key if there might be more to retrieve a
 does not contain one when we've gotten all of the notes that contain the search
 string.
 
+### Export Notes
+**Path:** /api/v1/note_export
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+Unlike most of these APIs, this does NOT return a JSON document. Instead, it returns a zip
+file which contains the logged-in user's notes as text files. Specifically, the zip file
+contains one file for every note. The content of the file is UTF-8 encoded body of the note.
+The modify-date of the file is the modify-date of the note. And the title of the note is a
+transform of the title. The transform is to: (1) remove any of the following characters:
+"/\:*?"<>|" also Nul and any control character; (2) truncate to 40 characters; (3) append
+".txt".
+
 ## URLs
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
 The API endpoints will be at https://api.mini-notes.com for production and https://dev-api.mini-notes.com for dev.
