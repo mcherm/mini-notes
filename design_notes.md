@@ -219,7 +219,7 @@ does not contain one when we've gotten all of the notes that contain the search
 string.
 
 ### Export Notes
-**Path:** /api/v1/note_export
+**Path:** /api/v1/note_export [GET]
 
 **Inputs:**
 * session_id: [header] string
