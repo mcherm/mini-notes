@@ -15,6 +15,7 @@ use zip::DateTime as ZipDateTime;
 use crate::extractors::{AppState, HandlerErrOutput, http_error, UserSession};
 use crate::models::{DynamoDBRecord, Note};
 
+const DEFAULT_FILENAME: &str = "mini-notes.zip";
 
 /// Sanitize a note title for use as a filename.
 /// Removes: / \ : * ? " < > | NUL and control characters.
@@ -157,7 +158,7 @@ pub async fn handle_export_notes(
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/zip")
-        .header("Content-Disposition", "attachment; filename=\"notes.zip\"")
+        .header("Content-Disposition", format!("attachment; filename=\"{DEFAULT_FILENAME}\""))
         .body(Body::from(zip_bytes))
         .map_err(|err| http_error(500, &format!("response build error: {err}")))
 }
@@ -202,7 +203,7 @@ mod tests {
         );
         assert_eq!(
             response.headers().get("Content-Disposition").unwrap(),
-            "attachment; filename=\"notes.zip\""
+            format!("attachment; filename=\"{DEFAULT_FILENAME}\"").as_str()
         );
 
         // Read the zip and verify contents
