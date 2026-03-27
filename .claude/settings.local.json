@@ -11,7 +11,8 @@
       "WebFetch(domain:crates.io)",
       "Bash(cargo metadata:*)",
       "Bash(unzip:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cargo clippy:*)"
     ]
   }
 }

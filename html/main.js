@@ -681,7 +681,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("article textarea.note-body").addEventListener("blur", actionBodyBlur);
     document.querySelector("input.search").addEventListener("input", actionSearchInput);
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
-    document.querySelector("#export-notes-link").href = `${getApiBaseUrl()}/api/v1/note_export`;
+    document.querySelector("#export-notes-ziptext-link").href = `${getApiBaseUrl()}/api/v1/note_export?file_format=ziptext`;
+    document.querySelector("#export-notes-json-link").href = `${getApiBaseUrl()}/api/v1/note_export?file_format=json`;
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleWindowFocus);
     window.addEventListener("blur", handleWindowBlur);

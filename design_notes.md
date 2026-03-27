@@ -219,19 +219,24 @@ does not contain one when we've gotten all of the notes that contain the search
 string.
 
 ### Export Notes
-**Path:** /api/v1/note_export [GET]
+**Path:** /api/v1/note_export?file_format={file_format} [GET]
 
 **Inputs:**
 * session_id: [header] string
+* format: [query] One of "ziptext" or "json", defaulting to "ziptext"
 
 **Outputs:**
-Unlike most of these APIs, this does NOT return a JSON document. Instead, it returns a zip
+Unlike most of these APIs, this does NOT return a JSON document. Instead, it returns the
+content of a file containing the user's notes. There are two formats: "ziptext" is a zip
 file which contains the logged-in user's notes as text files. Specifically, the zip file
 contains one file for every note. The content of the file is UTF-8 encoded body of the note.
 The modify-date of the file is the modify-date of the note. And the title of the note is a
 transform of the title. The transform is to: (1) remove any of the following characters:
 "/\:*?"<>|" also Nul and any control character; (2) truncate to 40 characters; (3) append
-".txt".
+".txt". The second format is "json", which returns a single JSON file containing an object
+with a field named "notes" that has a list with an entry for each note. The entry will
+have JSON fields for note_id, version_id, title, create_time, modify_time, format, and
+body, which are all strings, except version_id.
 
 ## URLs
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
