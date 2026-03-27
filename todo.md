@@ -8,5 +8,4 @@
 * Ability to show your usage on the user screen.
 * Smarter auto-titles (first line rather than "New Note").
 * Support account deletion. Add it to the privacy section.
-* Hide "Export" if you aren't logged in.
 * Ability to export notes in JSON format.

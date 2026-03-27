@@ -24,13 +24,22 @@ function getApiBaseUrl() {
 
 // ========== State ==========
 
-let loggedIn = true; // we assume the user is logged in until proven otherwise.
 let noteHeaders = [];
 let currentNote = null;
 let continuationKey = null;
 let isLoadingNotes = false;
 let searchDebounceTimer = null;
 let lastActiveTime = Date.now();
+
+/** Returns true if the user is currently logged in. */
+function isLoggedIn() {
+    return document.body.classList.contains("logged-in");
+}
+
+/** Sets the logged-in state by toggling the body class. */
+function setLoggedIn(value) {
+    document.body.classList.toggle("logged-in", value);
+}
 
 // ========== Shadow Box ==========
 
@@ -81,9 +90,7 @@ function noteHeaderMatchesSlug(noteHeader, noteSlug) {
 
 /** Call this when the state of the application should change to "not logged in". */
 function stateUpdateForLogout() {
-    loggedIn = false;
-    document.getElementById("main-page").style.display = "none";
-    document.getElementById("login-page").style.display = "grid";
+    setLoggedIn(false);
     noteHeaders = [];
     currentNote = null;
     continuationKey = null;
@@ -99,9 +106,7 @@ function stateUpdateForLogout() {
  * that the cookie is also being set or it won't work.
  */
 async function stateUpdateForLogin() {
-    loggedIn = true;
-    document.getElementById("main-page").style.display = "grid";
-    document.getElementById("login-page").style.display = "none";
+    setLoggedIn(true);
     document.querySelector("#email-entry").value = "";
     document.querySelector("#password-entry").value = "";
     await loadNoteHeaders();
@@ -625,7 +630,7 @@ async function actionNoteListClick(event) {
 
 /** Checks if enough time has passed since last active and refreshes if so. */
 async function checkAndRefreshIfStale() {
-    if (!loggedIn) return;
+    if (!isLoggedIn()) return;
     const elapsed = Date.now() - lastActiveTime;
     if (elapsed > STALE_THRESHOLD_MS) {
         await refreshAfterStale();

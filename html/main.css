@@ -49,7 +49,6 @@ body-content {
         grid-template-areas:
             "header"
             "login";
-        display: none;
     }
 
     &#user-page {
@@ -284,6 +283,13 @@ settings-text {
         display: block;
     }
 }
+
+/* ========== Login State Visibility ========== */
+
+body.logged-in #login-page { display: none; }
+body:not(.logged-in) #main-page { display: none; }
+body:not(.logged-in) settings-nav-item[data-target="import-export"] { display: none; }
+body:not(.logged-in) #import-export { display: none; }
 
 /* ========== Mobile Layout ========== */
 
