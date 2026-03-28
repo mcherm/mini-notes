@@ -141,6 +141,12 @@
                             <li><a id="export-notes-ziptext-link" href="">Zip containing text files</a></li>
                             <li><a id="export-notes-json-link" href="">JSON</a></li>
                         </ul>
+                        <p>Import Notes (must be either a zip containing .txt files OR a JSON file):</p>
+                        <input type="file" id="import-notes-file" accept=".zip,.json">
+                        <import-actions>
+                            <button id="import-notes-btn">Import</button>
+                            <import-status id="import-notes-status"></import-status>
+                        </import-actions>
                     </settings-text>
                     <settings-text id="installing-info">
                         On most phones and some other systems, Mini-notes can be installed as a PWA (a kind of app).

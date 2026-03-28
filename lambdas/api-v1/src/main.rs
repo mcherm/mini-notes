@@ -27,6 +27,7 @@ use handlers::{
     handle_user_create::handle_user_create,
     handle_get_user::handle_get_user,
     handle_export_notes::handle_export_notes,
+    handle_import_notes::handle_import_notes,
 };
 
 /// Entry point for initializing the lambda's environment, invoked when the lambda is
@@ -73,6 +74,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/user_logout", post(handle_user_logout))
         .route("/api/v1/user_create", post(handle_user_create))
         .route("/api/v1/note_export", get(handle_export_notes))
+        .route("/api/v1/note_import", post(handle_import_notes))
         .with_state(state)
         .layer(cors);
     lambda_http::run(app).await

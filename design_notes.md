@@ -238,6 +238,40 @@ with a field named "notes" that has a list with an entry for each note. The entr
 have JSON fields for note_id, version_id, title, create_time, modify_time, format, and
 body, which are all strings, except version_id.
 
+### Import Notes
+**Path:** /api/v1/note_import [POST]
+
+**Inputs:**
+* session_id: [header] string
+* file: [body] binary
+
+**Outputs:**
+* notes_created: [body] number
+* notes_updated: [body] number
+
+**Description:**
+Accepts a file upload (the raw binary body of the request) containing notes to import.
+The format is determined by sniffing the content: zip files are identified by their
+magic bytes (beginning with `PK\x03\x04`); otherwise the content is parsed as JSON. If
+the content is not a valid zip OR JSON then a 400 error is returned.
+
+For **JSON format**: the file must match the format produced by the Export Notes endpoint
+(an object with a "notes" field containing a list of note objects). Each note object
+must have at least "title" and "body" fields. If a "note_id" is provided and matches
+an existing note belonging to the user, that note is updated (title, body, and format
+are overwritten; modify_time is set to now; version_id is incremented). If the "note_id"
+does not match an existing note, a new note is created using the provided note_id. If
+no "note_id" is provided, a new note is created with a generated id. In all cases for
+new notes, create_time and modify_time are set to now, version_id is set to 1, and
+format defaults to "PlainText" if not provided.
+
+For **zip-of-text-files format**: each `.txt` file in the zip is imported as a new note.
+The title is derived from the filename (with the `.txt` extension removed). The body is
+the UTF-8-decoded content of the file. Fields other than title and body are set the same
+way as the New Note endpoint (create_time and modify_time set to now, version_id set
+to 1, format set to "plain"). Files in the zip that do not end in `.txt` are ignored.
+Each file always creates a new note, even if a note with the same title already exists.
+
 ## URLs
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
 The API endpoints will be at https://api.mini-notes.com for production and https://dev-api.mini-notes.com for dev.

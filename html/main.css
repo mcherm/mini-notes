@@ -284,6 +284,18 @@ settings-text {
     }
 }
 
+import-actions {
+    display: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+
+    &.visible {
+        display: flex;
+    }
+}
+
 /* ========== Login State Visibility ========== */
 
 body.logged-in #login-page { display: none; }

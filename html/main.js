@@ -491,6 +491,32 @@ async function loadUser() {
     document.getElementById("user-create-date-display").value = user.create_time.substring(0, 10);
 }
 
+/** Imports notes from the selected file by POSTing its raw bytes to the API. */
+async function importNotes(file) {
+    const statusSpan = document.getElementById("import-notes-status");
+    statusSpan.textContent = "Importing...";
+    try {
+        const bytes = await file.arrayBuffer();
+        const url = `${getApiBaseUrl()}/api/v1/note_import`;
+        const response = await apiFetch(url, {
+            method: "POST",
+            body: bytes,
+        });
+        if (response.ok) {
+            const data = await response.json();
+            statusSpan.textContent = `Done: ${data.notes_created} created, ${data.notes_updated} updated.`;
+            await loadNoteHeaders();
+        } else {
+            const data = await response.json();
+            statusSpan.textContent = `Error: ${data.error || "import failed"}`;
+        }
+    } catch (e) {
+        if (!(e instanceof LoggedOutError)) {
+            statusSpan.textContent = `Error: ${e.message}`;
+        }
+    }
+}
+
 /** Fetches a single note from the API and renders it. */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
@@ -626,6 +652,18 @@ async function actionNoteListClick(event) {
     document.getElementById("main-page").classList.add("showing-note");
 }
 
+/** Shows the import button when a file is selected; clears any prior status. */
+function actionImportFileChange(event) {
+    document.querySelector("import-actions").classList.toggle("visible", event.target.files.length > 0);
+    document.getElementById("import-notes-status").textContent = "";
+}
+
+/** Imports notes from the file currently selected in the file input. */
+async function actionImportNotesBtn() {
+    const file = document.querySelector("#import-notes-file").files[0];
+    if (file) await importNotes(file);
+}
+
 // ========== Stale Tab Detection ==========
 
 /** Checks if enough time has passed since last active and refreshes if so. */
@@ -683,6 +721,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
     document.querySelector("#export-notes-ziptext-link").href = `${getApiBaseUrl()}/api/v1/note_export?file_format=ziptext`;
     document.querySelector("#export-notes-json-link").href = `${getApiBaseUrl()}/api/v1/note_export?file_format=json`;
+    document.querySelector("#import-notes-file").addEventListener("change", actionImportFileChange);
+    document.querySelector("#import-notes-btn").addEventListener("click", actionImportNotesBtn);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleWindowFocus);
     window.addEventListener("blur", handleWindowBlur);

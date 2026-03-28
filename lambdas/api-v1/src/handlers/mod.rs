@@ -9,3 +9,4 @@ pub mod handle_user_logout;
 pub mod handle_user_create;
 pub mod handle_get_user;
 pub mod handle_export_notes;
+pub mod handle_import_notes;
