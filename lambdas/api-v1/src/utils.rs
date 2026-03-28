@@ -19,6 +19,16 @@ pub fn generate_id() -> String {
         .collect()
 }
 
+/// This implements the following algorithm for setting the title based on the body:
+/// Find the first non-blank line, and take the first 40 characters of that line. If
+/// there is no non-blank line, use the string "Note".
+pub fn get_title_from_body(body: &str) -> String {
+    body.lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.chars().take(40).collect())
+        .unwrap_or_else(|| "Note".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

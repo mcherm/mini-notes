@@ -11,6 +11,7 @@ use tracing::info;
 
 use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error, UserSession};
 use crate::models::{Note, NoteFormat, parse_note_format};
+use crate::utils::get_title_from_body;
 
 
 /// This is the common structure that all import formats convert into before using it to
@@ -156,16 +157,6 @@ fn extract_note_data_from_zip(
     }
 
     Ok(entries)
-}
-
-/// This implements the following algorithm for setting the title based on the body:
-/// Find the first non-blank line, and take the first 40 characters of that line. If
-/// there is no non-blank line, use the string "Note".
-fn get_title_from_body(body: &str) -> String {
-    body.lines()
-        .find(|line| !line.trim().is_empty())
-        .map(|line| line.chars().take(40).collect())
-        .unwrap_or_else(|| "Note".to_string())
 }
 
 // Given a collection of ImportedNoteData, go ahead and write the notes to the user's data.
