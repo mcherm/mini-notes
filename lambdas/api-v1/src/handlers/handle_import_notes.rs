@@ -13,6 +13,19 @@ use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_
 use crate::models::{Note, NoteFormat, parse_note_format};
 
 
+/// This is the common structure that all import formats convert into before using it to
+/// create a note. Every single field is optional other than that body of the note.
+#[derive(Default)]
+struct ImportedNoteData {
+    note_id: Option<String>,
+    #[allow(dead_code)] version_id: Option<u32>,
+    title: Option<String>,
+    create_time: Option<String>,
+    modify_time: Option<String>,
+    format: Option<String>, // format arrives as a string
+    body: String, // body isn't optional
+}
+
 /// Result of an import operation, tracking how many notes were created vs updated.
 struct ImportResult {
     notes_created: u32,
@@ -62,124 +75,62 @@ async fn get_existing_note_info(
     state: &AppState,
     user_id: &str,
     note_id: &str,
-) -> Result<Option<(u32, String)>, String> {
+) -> Result<Option<Note>, String> {
     let result = state.dynamo_client
         .get_item()
         .table_name(&state.notes_table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
-        .projection_expression("version_id, create_time")
         .send()
         .await
         .map_err(|err| err.to_string())?;
-
-    match result.item {
-        None => Ok(None),
-        Some(item) => {
-            let version_id: u32 = item.get("version_id")
-                .ok_or("missing version_id")?
-                .as_n()
-                .map_err(|_| "version_id is not a number")?
-                .parse()
-                .map_err(|_| "version_id is not a valid u32")?;
-            let create_time = item.get("create_time")
-                .ok_or("missing create_time")?
-                .as_s()
-                .map_err(|_| "create_time is not a string")?
-                .to_string();
-            Ok(Some((version_id, create_time)))
-        }
-    }
+    Ok(match result.item {
+        None => None,
+        Some(item) => Some(Note::try_from(item)?)
+    })
 }
 
-/// Import notes from a JSON body (same format as export).
-async fn import_from_json(
-    state: &AppState,
-    user_id: &str,
-    time_string: &str,
-    generate_id: fn() -> String,
-    body: &[u8],
-) -> Result<ImportResult, String> {
+/// Read the notes from a JSON file laid out like the file that mini-notes uses for export (but
+/// which may be missing some of the fields).
+///
+/// DESIGN NOTE: The code is currently ignoring any value of version_id that was provided by the
+/// imported JSON. That might or might not be the behavior we want in the long run.
+fn extract_note_data_from_json(body: &[u8]) -> Result<Vec<ImportedNoteData>, String> {
     let parsed: JsonValue = serde_json::from_slice(body)
         .map_err(|err| format!("invalid JSON: {err}"))?;
 
-    let notes_array = parsed.get("notes")
-        .and_then(|v| v.as_array())
-        .ok_or("JSON must contain a \"notes\" array")?;
-
-    let mut result = ImportResult::new();
-
-    for note_json in notes_array {
-        let title = note_json.get("title")
-            .and_then(|v| v.as_str())
-            .ok_or("each note must have a \"title\" string")?;
-        let body_text = note_json.get("body")
-            .and_then(|v| v.as_str())
-            .ok_or("each note must have a \"body\" string")?;
-        let format = match note_json.get("format").and_then(|v| v.as_str()) {
-            Some(f) => parse_note_format(f).map_err(|e| format!("invalid format: {e}"))?,
-            None => NoteFormat::PlainText,
-        };
-
-        let provided_note_id = note_json.get("note_id").and_then(|v| v.as_str());
-        let provided_create_time = note_json.get("create_time").and_then(|v| v.as_str());
-
-        // DESIGN NOTE: The code is currently ignoring any value of version_id that was
-        // provided by the imported JSON. That might or might not be the behavior we want
-        // in the long run.
-
-        let provided_modify_time = note_json.get("modify_time").and_then(|v| v.as_str());
-
-        // Determine note_id, version_id, and create_time from existing note (if any)
-        let (note_id, version_id, existing_create_time, is_update) = match provided_note_id {
-            Some(note_id) => {
-                match get_existing_note_info(state, user_id, note_id).await? {
-                    Some((current_version, create_time)) =>
-                        (note_id.to_string(), current_version + 1, Some(create_time), true),
-                    None =>
-                        (note_id.to_string(), 0, None, false),
-                }
-            }
-            None => (generate_id(), 0, None, false),
-        };
-
-        // create_time priority: JSON value > existing note's value > now
-        let create_time = provided_create_time
-            .map(|s| s.to_string())
-            .or(existing_create_time)
-            .unwrap_or_else(|| time_string.to_string());
-
-        // modify_time: use the provided value, or current time if one isn't provided
-        let modify_time = provided_modify_time.unwrap_or(time_string).to_string();
-
-        let note = Note {
-            user_id: user_id.to_string(),
-            note_id,
-            version_id,
-            title: title.to_string(),
-            create_time,
-            modify_time,
-            format,
-            body: body_text.to_string(),
-        };
-        put_note(state, note).await?;
-        if is_update {
-            result.notes_updated += 1;
-        } else {
-            result.notes_created += 1;
-        }
+    fn get_str_field(v: &JsonValue, field_name: &str) -> Option<String> {
+        v.get(field_name)
+            .and_then(JsonValue::as_str)
+            .map(ToOwned::to_owned)
     }
 
-    Ok(result)
+    Ok(parsed.get("notes")
+        .and_then(|v| v.as_array())
+        .ok_or("JSON must contain a \"notes\" array")?
+        .into_iter()
+        .map(|v: &JsonValue| ImportedNoteData {
+            note_id: get_str_field(v, "note_id"),
+            version_id: None,
+            title: get_str_field(v, "title"),
+            create_time: get_str_field(v, "create_time"),
+            modify_time: get_str_field(v, "modify_time"),
+            format: get_str_field(v, "format"),
+            body: get_str_field(v, "body").unwrap_or_default(), // default to empty body
+        })
+        .collect()
+    )
 }
 
-/// Extract (title, body) pairs from a zip file of text files. Synchronous.
-fn extract_notes_from_zip(body: &[u8]) -> Result<Vec<(String, String)>, String> {
+/// Import notes from a zip file of text files.
+fn extract_note_data_from_zip(
+    body: &[u8],
+) -> Result<Vec<ImportedNoteData>, String> {
     let reader = Cursor::new(body);
     let mut archive = zip::ZipArchive::new(reader)
         .map_err(|err| format!("invalid zip file: {err}"))?;
 
-    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut entries: Vec<ImportedNoteData> = Vec::new();
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)
@@ -193,40 +144,105 @@ fn extract_notes_from_zip(body: &[u8]) -> Result<Vec<(String, String)>, String> 
 
         let title = name.strip_suffix(".txt").unwrap_or(&name).to_string();
 
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)
+        let mut body = String::new();
+        file.read_to_string(&mut body)
             .map_err(|err| format!("error reading '{name}' from zip: {err}"))?;
 
-        entries.push((title, contents));
+        entries.push(ImportedNoteData {
+            title: Some(title),
+            body,
+            ..Default::default()
+        });
     }
 
     Ok(entries)
 }
 
-/// Import notes from a zip file of text files.
-async fn import_from_zip(
+/// This implements the following algorithm for setting the title based on the body:
+/// Find the first non-blank line, and take the first 40 characters of that line. If
+/// there is no non-blank line, use the string "Note".
+fn get_title_from_body(body: &str) -> String {
+    body.lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.chars().take(40).collect())
+        .unwrap_or_else(|| "Note".to_string())
+}
+
+// Given a collection of ImportedNoteData, go ahead and write the notes to the user's data.
+async fn create_imported_notes(
     state: &AppState,
     user_id: &str,
     time_string: &str,
     generate_id: fn() -> String,
-    body: &[u8],
+    imported_notes: Vec<ImportedNoteData>
 ) -> Result<ImportResult, String> {
-    let entries = extract_notes_from_zip(body)?;
-
     let mut result = ImportResult::new();
-    for (title, contents) in entries {
+
+    for note_data in imported_notes {
+
+        let existing_note = match note_data.note_id {
+            Some(ref note_id) => {
+                // Perform a lookup of the existing note
+                get_existing_note_info(state, user_id, note_id).await?
+            }
+            None => None
+        };
+
+        // user_id: always from environment (logged-in user)
+        let user_id = user_id.to_string();
+
+        // note_id: use provided or make one up
+        let note_id = note_data.note_id
+            .unwrap_or_else(generate_id);
+
+        // DESIGN NOTE: The code is currently ignoring any value of version_id that was
+        // provided by the imported JSON. That might or might not be the behavior we want
+        // in the long run.
+
+        // version_id: use existing version + 1, or 0 if there is no existing note
+        let version_id: u32 = match existing_note {
+            Some(ref note) => note.version_id + 1,
+            None => 0
+        };
+
+        // body: provided value
+        let body = note_data.body;
+
+        // title: provided value, else existing note's title, else first 40 chars of first non-blank line of body, else "note".
+        let title: String = note_data.title
+            .or(existing_note.as_ref().map(|x| x.title.clone()))
+            .unwrap_or_else(|| get_title_from_body(&body));
+
+        // create_time: provided value, else existing note's value, else now
+        let create_time = note_data.create_time
+            .or(existing_note.as_ref().map(|x| x.create_time.clone()))
+            .unwrap_or_else(|| time_string.to_string());
+
+        // modify_time: provided value, else now
+        let modify_time = note_data.modify_time
+            .unwrap_or_else(|| time_string.to_string());
+
+        // format: provided value as enum, else PlainText
+        let format: NoteFormat = match note_data.format {
+            Some(f) => parse_note_format(&f).unwrap_or(NoteFormat::PlainText),
+            None => NoteFormat::PlainText
+        };
+
         let note = Note {
-            user_id: user_id.to_string(),
-            note_id: generate_id(),
-            version_id: 0,
+            user_id,
+            note_id,
+            version_id,
             title,
-            create_time: time_string.to_string(),
-            modify_time: time_string.to_string(),
-            format: NoteFormat::PlainText,
-            body: contents,
+            create_time,
+            modify_time,
+            format,
+            body,
         };
         put_note(state, note).await?;
-        result.notes_created += 1;
+        match existing_note {
+            Some(_) => result.notes_updated += 1,
+            None => result.notes_created += 1,
+        }
     }
 
     Ok(result)
@@ -249,15 +265,15 @@ pub async fn handle_import_notes(
 
     info!(user_id, body_len = body.len(), table = state.notes_table_name, "importing notes");
 
-    let import_result = if body.starts_with(ZIP_MAGIC_BYTES) {
-        import_from_zip(&state, &user_id, &current_time.time_string, generate_id, &body)
-            .await
-            .map_err(|err| http_error(500, &err))?
+    let imported_notes: Vec<ImportedNoteData> = if body.starts_with(ZIP_MAGIC_BYTES) {
+        extract_note_data_from_zip(&body)
     } else {
-        import_from_json(&state, &user_id, &current_time.time_string, generate_id, &body)
-            .await
-            .map_err(|err| http_error(400, &err))?
-    };
+        extract_note_data_from_json(&body)
+    }.map_err(|err| http_error(400, &err))?;
+
+    let import_result = create_imported_notes(&state, &user_id, &current_time.time_string, generate_id, imported_notes)
+        .await
+        .map_err(|err| http_error(500, &err))?;
 
     info!(
         user_id,
@@ -358,7 +374,7 @@ mod tests {
     #[tokio::test]
     async fn test_import_json_updates_existing() {
         // get_item returns existing note, then put_item for update
-        let get_response = r#"{"Item":{"user_id":{"S":"user1"},"note_id":{"S":"existing1"},"version_id":{"N":"3"},"create_time":{"S":"2026-01-01T00:00:00.000000000Z"}}}"#;
+        let get_response = r#"{"Item":{"user_id":{"S":"user1"},"note_id":{"S":"existing1"},"version_id":{"N":"3"},"title":{"S":"Old Title"},"create_time":{"S":"2026-01-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-02-01T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Old body"}}}"#;
         let client = test_dynamo_client(vec![
             replay_ok(get_response),
             replay_ok(PUT_OK),
