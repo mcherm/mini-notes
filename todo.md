@@ -7,3 +7,4 @@
 * Ability to show your usage on the user screen.
 * Smarter auto-titles (first line rather than "New Note").
 * Support account deletion. Add it to the privacy section.
+* Delete note becomes an action within a sub-menu of things about the note
