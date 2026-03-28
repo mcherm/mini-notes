@@ -128,6 +128,8 @@ async fn import_from_json(
         // provided by the imported JSON. That might or might not be the behavior we want
         // in the long run.
 
+        let provided_modify_time = note_json.get("modify_time").and_then(|v| v.as_str());
+
         // Determine note_id, version_id, and create_time from existing note (if any)
         let (note_id, version_id, existing_create_time, is_update) = match provided_note_id {
             Some(note_id) => {
@@ -147,13 +149,16 @@ async fn import_from_json(
             .or(existing_create_time)
             .unwrap_or_else(|| time_string.to_string());
 
+        // modify_time: use the provided value, or current time if one isn't provided
+        let modify_time = provided_modify_time.unwrap_or(time_string).to_string();
+
         let note = Note {
             user_id: user_id.to_string(),
             note_id,
             version_id,
             title: title.to_string(),
             create_time,
-            modify_time: time_string.to_string(),
+            modify_time,
             format,
             body: body_text.to_string(),
         };

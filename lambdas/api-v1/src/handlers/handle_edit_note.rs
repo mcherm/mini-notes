@@ -134,7 +134,7 @@ async fn handle_conflict(
             body: edit_note_fields.body.clone(),
         };
 
-        write_note(&state, &conflict_note).await?;
+        write_note(state, &conflict_note).await?;
 
         let note_json: JsonValue = conflict_note.into();
         let body_json = json!({"note": note_json});
@@ -154,7 +154,7 @@ async fn handle_conflict(
             body: edit_note_fields.body.clone(),
         };
 
-        write_note(&state, &restored_note).await?;
+        write_note(state, &restored_note).await?;
 
         let note_json: JsonValue = restored_note.into();
         let body_json = json!({"note": note_json});
