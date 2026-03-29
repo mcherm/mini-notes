@@ -26,6 +26,7 @@ function getApiBaseUrl() {
 
 let noteHeaders = [];
 let currentNote = null;
+let intendedCurrentNoteId = null;
 let continuationKey = null;
 let isLoadingNotes = false;
 let searchDebounceTimer = null;
@@ -88,11 +89,33 @@ function noteHeaderMatchesSlug(noteHeader, noteSlug) {
 
 // ========== State Changes ==========
 
+/**
+ * Sets which note the UI intends to display. Call this synchronously in
+ * response to a user action (before any await). Never call this after an
+ * await without using setIntendedNoteIfUnchanged() instead.
+ */
+function setIntendedNote(noteId) {
+    intendedCurrentNoteId = noteId;
+}
+
+/**
+ * Sets the intended note only if no other action has changed it since the
+ * caller last checked. Use this after an await to avoid clobbering a user
+ * action that occurred during the async gap. Returns true if the value was
+ * set, false if it was stale (meaning the caller should stop updating the UI).
+ */
+function setIntendedNoteIfUnchanged(expectedValue, newNoteId) {
+    if (intendedCurrentNoteId !== expectedValue) return false;
+    intendedCurrentNoteId = newNoteId;
+    return true;
+}
+
 /** Call this when the state of the application should change to "not logged in". */
 function stateUpdateForLogout() {
     setLoggedIn(false);
     noteHeaders = [];
     currentNote = null;
+    setIntendedNote(null);
     continuationKey = null;
     isLoadingNotes = false;
     searchDebounceTimer = null;
@@ -207,9 +230,14 @@ function updateSentinel() {
 // ========== Note State Helpers ==========
 
 /**
- * Updates currentNote, noteHeaders, and the DOM after receiving a note from the API.
+ * Updates currentNote, noteHeaders, and the DOM after receiving a note
+ * from the API. This is a no-op if the note doesn't match
+ * intendedCurrentNoteId — meaning the user has navigated away and this
+ * data is stale. Safe to call from async completion handlers without
+ * external guards.
  */
 function applyNoteToUI(note) {
+    if (note.note_id !== intendedCurrentNoteId) return;
     currentNote = note;
     // NOTE: This does not currently update the title and note text because it is
     // ALWAYS being called in places where those are already correct.
@@ -393,11 +421,13 @@ async function saveNoteIfChanged() {
 
 /** Saves the current note. */
 async function saveNote(title, body) {
-    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(currentNote.note_id)}`;
+    const noteId = currentNote.note_id;
+    const versionId = currentNote.version_id;
+    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
     const response = await apiFetch(url, {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title: title, body: body, source_version_id: currentNote.version_id}),
+        body: JSON.stringify({title: title, body: body, source_version_id: versionId}),
     });
     const data = await response.json();
     if (response.status === 409) {
@@ -409,31 +439,37 @@ async function saveNote(title, body) {
 
 /** Handles an edit conflict by doing a full state refresh. */
 async function handleConflict() {
+    const conflictingNoteId = intendedCurrentNoteId;
     document.querySelector("input.search").value = "";
     currentNote = null;
     await loadNoteHeaders();
     // Select the first note in the list (probably the conflict note, which likely has the newest modify_time)
     if (noteHeaders.length > 0) {
-        await loadNote(noteHeaders[0].note_id);
-        const firstSlug = document.querySelector("note-list note-slug");
-        if (firstSlug) {
-            firstSlug.classList.add("active");
+        if (setIntendedNoteIfUnchanged(conflictingNoteId, noteHeaders[0].note_id)) {
+            await loadNote(noteHeaders[0].note_id);
+            const firstSlug = document.querySelector("note-list note-slug");
+            if (firstSlug) {
+                firstSlug.classList.add("active");
+            }
+            document.getElementById("main-page").classList.add("showing-note");
         }
-        document.getElementById("main-page").classList.add("showing-note");
     }
 }
 
 /** Refreshes state after the tab has been inactive for a long time. */
 async function refreshAfterStale() {
     console.log("Refreshing stale tab");
+    const priorIntended = intendedCurrentNoteId;
     await saveNoteIfChanged();
     const selectedNoteId = currentNote ? currentNote.note_id : null;
     await loadNoteHeaders();
     if (selectedNoteId) {
         const stillExists = noteHeaders.some(h => h.note_id === selectedNoteId);
         if (stillExists) {
-            await loadNote(selectedNoteId);
-        } else {
+            if (setIntendedNoteIfUnchanged(priorIntended, selectedNoteId)) {
+                await loadNote(selectedNoteId);
+            }
+        } else if (setIntendedNoteIfUnchanged(priorIntended, null)) {
             currentNote = null;
             renderNote();
             document.getElementById("main-page").classList.remove("showing-note");
@@ -456,7 +492,9 @@ async function createNewNote(newTitle = "", newBody = "") {
         body: JSON.stringify({title: newTitle, body: newBody, format: "PlainText"}),
     });
     const data = await response.json();
-    applyNoteToUI(data.note);
+    if (setIntendedNoteIfUnchanged(null, data.note.note_id)) {
+        applyNoteToUI(data.note);
+    }
 }
 
 /** Deletes the current note via the API and clears it from the UI. */
@@ -464,6 +502,7 @@ async function deleteCurrentNote() {
     if (!currentNote) return;
     const noteId = currentNote.note_id;
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
+    setIntendedNote(null);
     await apiFetch(url, { method: "DELETE" });
 
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
@@ -517,13 +556,19 @@ async function importNotes(file) {
     }
 }
 
-/** Fetches a single note from the API and renders it. */
+/**
+ * Fetches a single note from the API and renders it. The caller must set
+ * intendedCurrentNoteId before calling this. If intendedCurrentNoteId has
+ * changed by the time the fetch completes, the result is discarded.
+ */
 async function loadNote(noteId) {
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
     const response = await apiFetch(url);
     const data = await response.json();
-    currentNote = data.note;
-    renderNote();
+    if (intendedCurrentNoteId === noteId) {
+        currentNote = data.note;
+        renderNote();
+    }
 }
 
 /** Utility for use in updateNoteInfo(). */
@@ -658,6 +703,7 @@ function actionSearchInput(event) {
     // Immediately deselect current note, clear article, and exit note view
     document.getElementById("main-page").classList.remove("showing-note");
     currentNote = null;
+    setIntendedNote(null);
     renderNote();
     const activeSlug = document.querySelector("note-slug.active");
     if (activeSlug) activeSlug.classList.remove("active");
@@ -679,7 +725,7 @@ function actionSearchInput(event) {
 async function actionNoteListClick(event) {
     const slug = event.target.closest("note-slug");
     if (!slug) return;
-    await saveNoteIfChanged();
+    setIntendedNote(slug.dataset.noteId);
     const current = document.querySelector("note-slug.active");
     if (current) current.classList.remove("active");
     slug.classList.add("active");
