@@ -100,12 +100,39 @@ fn extract_note_data_from_json(body: &[u8]) -> Result<Vec<ImportedNoteData>, Str
     let parsed: JsonValue = serde_json::from_slice(body)
         .map_err(|err| format!("invalid JSON: {err}"))?;
 
-    fn get_str_field(v: &JsonValue, field_name: &str) -> Option<String> {
-        v.get(field_name)
-            .and_then(JsonValue::as_str)
-            .map(ToOwned::to_owned)
+    match sniff_json_format(&parsed) {
+        Some(JsonFormat::MiniNotes) => extract_note_data_from_mini_notes_json(&parsed),
+        Some(JsonFormat::SimpleNote) => extract_note_data_from_simplenote_json(&parsed),
+        None => Err("JSON format not recognized".to_string()),
     }
+}
 
+/// An enum for the list of known JSON formats we can read from.
+enum JsonFormat {
+    MiniNotes,
+    SimpleNote
+}
+
+/// Examine a parsed JSON file and decide which known format it matches (if any).
+fn sniff_json_format(parsed: &JsonValue) -> Option<JsonFormat> {
+    let mini_notes_array = parsed.get("notes").and_then(|v| v.as_array());
+    if mini_notes_array.is_some() {
+        return Some(JsonFormat::MiniNotes);
+    }
+    if let Some(simplenotes_array) = parsed.get("activeNotes").and_then(|v| v.as_array()) {
+        if simplenotes_array.iter().all(|note| {
+            note.get("content").is_some()
+                && note.get("creationDate").is_some()
+                && note.get("lastModified").is_some()
+        }) {
+            return Some(JsonFormat::SimpleNote);
+        }
+    }
+    None
+}
+
+/// Extract data from mini-notes own JSON format (allowing for any fields to be missing).
+fn extract_note_data_from_mini_notes_json(parsed: &JsonValue) -> Result<Vec<ImportedNoteData>, String> {
     Ok(parsed.get("notes")
         .and_then(|v| v.as_array())
         .ok_or("JSON must contain a \"notes\" array")?
@@ -122,6 +149,40 @@ fn extract_note_data_from_json(body: &[u8]) -> Result<Vec<ImportedNoteData>, Str
         .collect()
     )
 }
+
+/// Extract data from SimpleNote's JSON format.
+///
+/// This does a bunch of checking that shouldn't be needed: verifying that activeNotes exists,
+/// and dealing with missing fields. Currently, these things can't happen because our sniffer
+/// verifies those things.
+fn extract_note_data_from_simplenote_json(parsed: &JsonValue) -> Result<Vec<ImportedNoteData>, String> {
+    Ok(parsed.get("activeNotes")
+        .and_then(|v| v.as_array())
+        .ok_or("JSON must contain an \"activeNotes\" array")?
+        .into_iter()
+        .filter(|v| {
+            v.get("content").is_some()
+                && v.get("creationDate").is_some()
+                && v.get("lastModified").is_some()
+        })
+        .map(|v: &JsonValue| ImportedNoteData {
+            create_time: get_str_field(v, "creationDate"),
+            modify_time: get_str_field(v, "lastModified"),
+            body: get_str_field(v, "content").unwrap_or_default(),
+            ..Default::default()
+        })
+        .collect()
+    )
+}
+
+/// A utility function: gets a field in a JSON object and returns it as a String, or returns
+/// None if any of the assumptions fail.
+fn get_str_field(v: &JsonValue, field_name: &str) -> Option<String> {
+    v.get(field_name)
+        .and_then(JsonValue::as_str)
+        .map(ToOwned::to_owned)
+}
+
 
 /// Import notes from a zip file of text files.
 fn extract_note_data_from_zip(
