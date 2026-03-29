@@ -115,6 +115,19 @@ Creates a new session for a user (or fails).
 **Description**
 Obtain data about the currently logged-in user.
 
+### Delete User
+**Path:** /api/v1/user [DELETE]
+
+**Inputs:**
+* session_id: [header] string
+
+`**Outputs:**
+* If successful, this returns a 204 with no body.
+
+**Description:**
+This deletes the currently logged-in user, removing all of their notes, any
+sessions, and the user entry.
+
 ### New Note
 **Path:** /api/v1/notes/ [POST]
 

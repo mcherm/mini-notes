@@ -51,7 +51,7 @@
             </login-form>
         </login-area>
     </body-content>
-    <shadow-box id="user-display">
+    <shadow-box id="user-display-dialog">
         <shadow-content>
             <user-area>
                 <user-form>
@@ -64,10 +64,20 @@
                 </user-form>
                 <button id="close-user-shadowbox-btn">&#x2190;</button>
                 <button id="logout-btn">Log Out</button>
+                <button id="user-delete-dialog-btn">&#x1F5D1;&#xFE0F;</button>
             </user-area>
         </shadow-content>
     </shadow-box>
-    <shadow-box id="note-info">
+    <shadow-box id="user-delete-dialog">
+        <shadow-content>
+            <user-delete>
+                <p>WARNING: This will irreversibly delete your entire account and all information!</p>
+                <button id="close-user-delete-btn">&#x2190;</button>
+                <button id="delete-user-btn">Delete Account</button>
+            </user-delete>
+        </shadow-content>
+    </shadow-box>
+    <shadow-box id="note-info-dialog">
         <shadow-content>
             <note-info>
                 <!-- NOTE: Maybe <info-form> should be shared with <user-form>? -->
@@ -86,7 +96,7 @@
             </note-info>
         </shadow-content>
     </shadow-box>
-    <shadow-box id="app-settings">
+    <shadow-box id="app-settings-dialog">
         <shadow-content>
             <app-settings>
                 <settings-nav>
@@ -135,6 +145,9 @@
 
                         <p>Mini-notes generates a cookie which is used to enable login. There is no use of cookies
                         for tracking and no third-party cookies.</p>
+
+                        <p>If you choose to delete your account, all information (including the content of all notes
+                        is removed and cannot be recovered.</p>
                     </settings-text>
                     <settings-text id="usage-info">
                         Mini-notes is intended for personal notekeeping at a reasonable scale. Storing a few hundred

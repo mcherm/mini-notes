@@ -584,11 +584,22 @@ function countCharacters(str) {
 
 /** Populates the note-info section with information about the current note (if there is one). */
 function updateNoteInfo() {
-    if (!currentNote) return;
-    document.getElementById("create-time-display").value = currentNote.create_time.substring(0,10);
-    document.getElementById("modify-time-display").value = currentNote.modify_time.substring(0,10);
-    document.getElementById("word-count-display").value = countWords(currentNote.body).toString();
-    document.getElementById("character-count-display").value = countCharacters(currentNote.body).toString();
+    let create_time;
+    let modify_time;
+    if (currentNote) {
+        create_time = currentNote.create_time.substring(0,10);
+        modify_time = currentNote.modify_time.substring(0,10);
+    } else {
+        create_time = "new note";
+        modify_time = "new note";
+    }
+    const body = document.querySelector("article textarea.note-body").value
+    let word_count = countWords(body).toString();
+    let character_count = countCharacters(body).toString();
+    document.getElementById("create-time-display").value = create_time;
+    document.getElementById("modify-time-display").value = modify_time;
+    document.getElementById("word-count-display").value = word_count;
+    document.getElementById("character-count-display").value = character_count;
 }
 
 // ========== Actions ==========
@@ -606,13 +617,13 @@ async function actionNewAccountBtn() {
 /** Handles the user button click by loading user data and showing the user info shadow box. */
 async function actionUserBtn() {
     await loadUser();
-    showShadowBox("user-display");
+    showShadowBox("user-display-dialog");
 }
 
 /** Click this to show the note info. */
 async function actionNoteInfoBtn() {
     updateNoteInfo();
-    showShadowBox("note-info");
+    showShadowBox("note-info-dialog");
 }
 
 /** Handles a click on a shadow-box; dismisses it if the click was on the backdrop. */
@@ -624,22 +635,22 @@ function actionDismissShadowBox(event) {
 
 /** Handles the "back" button click in the user shadow box by dismissing it. */
 function actionCloseUserShadowboxBtn() {
-    hideShadowBox("user-display");
+    hideShadowBox("user-display-dialog");
 }
 
 /** Handles the "back" button click in the note info shadow box by dismissing it. */
 function actionCloseNoteInfoShadowboxBtn() {
-    hideShadowBox("note-info");
+    hideShadowBox("note-info-dialog");
 }
 
 /** Handles a settings button click by showing the app-settings shadow box. */
 function actionSettingsBtn() {
-    showShadowBox("app-settings");
+    showShadowBox("app-settings-dialog");
 }
 
 /** Handles the close button click in the settings shadow box by dismissing it. */
 function actionCloseSettingsBtn() {
-    hideShadowBox("app-settings");
+    hideShadowBox("app-settings-dialog");
 }
 
 /** Handles a click on the settings nav list by selecting the clicked item. */
@@ -651,8 +662,32 @@ function actionSettingsNavClick(event) {
 
 /** Handles the logout button click by logging out via the API and resetting UI. */
 async function actionLogoutBtn() {
-    hideShadowBox("user-display");
+    hideShadowBox("user-display-dialog");
     await logout();
+}
+
+/** Opens the user delete confirmation dialog. */
+function actionUserDeleteDialogBtn() {
+    showShadowBox("user-delete-dialog");
+}
+
+/** Handles the back button in the user delete dialog. */
+function actionCloseUserDeleteBtn() {
+    hideShadowBox("user-delete-dialog");
+}
+
+/** Handles the delete account button by calling the API and logging out. */
+async function actionDeleteUserBtn() {
+    try {
+        await apiFetch(`${getApiBaseUrl()}/api/v1/user`, { method: "DELETE" });
+    } catch (e) {
+        // If the delete fails, just close the dialog
+        hideShadowBox("user-delete-dialog");
+        return;
+    }
+    hideShadowBox("user-delete-dialog");
+    hideShadowBox("user-display-dialog");
+    stateUpdateForLogout();
 }
 
 /** Handles the new note button click by clearing the UI and focusing the body for editing. */
@@ -668,7 +703,7 @@ function actionNewNoteBtn() {
 /** Handles the delete button click by deleting the current note and returning to list view. */
 async function actionDeleteNoteBtn() {
     await deleteCurrentNote();
-    hideShadowBox("note-info");
+    hideShadowBox("note-info-dialog");
     document.getElementById("main-page").classList.remove("showing-note");
 }
 
@@ -800,11 +835,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#note-info-btn").addEventListener("click", actionNoteInfoBtn);
     document.querySelector("#new-account-btn").addEventListener("click", actionNewAccountBtn);
     document.querySelector("#close-user-shadowbox-btn").addEventListener("click", actionCloseUserShadowboxBtn);
-
     document.querySelector("#close-note-info-shadowbox-btn").addEventListener("click", actionCloseNoteInfoShadowboxBtn);
-
-
     document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
+    document.querySelector("#user-delete-dialog-btn").addEventListener("click", actionUserDeleteDialogBtn);
+    document.querySelector("#close-user-delete-btn").addEventListener("click", actionCloseUserDeleteBtn);
+    document.querySelector("#delete-user-btn").addEventListener("click", actionDeleteUserBtn);
     document.querySelectorAll(".settings-btn").forEach(btn => {
         btn.addEventListener("click", actionSettingsBtn);
     });

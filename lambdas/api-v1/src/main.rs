@@ -26,6 +26,7 @@ use handlers::{
     handle_user_logout::handle_user_logout,
     handle_user_create::handle_user_create,
     handle_get_user::handle_get_user,
+    handle_delete_user::handle_delete_user,
     handle_export_notes::handle_export_notes,
     handle_import_notes::handle_import_notes,
 };
@@ -68,13 +69,14 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/notes/{note_id}", get(handle_get_note))
         .route("/api/v1/notes/{note_id}", put(handle_edit_note))
         .route("/api/v1/notes/{note_id}", delete(handle_delete_note))
+        .route("/api/v1/note_export", get(handle_export_notes))
+        .route("/api/v1/note_import", post(handle_import_notes))
         .route("/api/v1/note_search", get(handle_search_notes))
         .route("/api/v1/user", get(handle_get_user))
+        .route("/api/v1/user", delete(handle_delete_user))
         .route("/api/v1/user_login", post(handle_user_login))
         .route("/api/v1/user_logout", post(handle_user_logout))
         .route("/api/v1/user_create", post(handle_user_create))
-        .route("/api/v1/note_export", get(handle_export_notes))
-        .route("/api/v1/note_import", post(handle_import_notes))
         .with_state(state)
         .layer(cors);
     lambda_http::run(app).await
