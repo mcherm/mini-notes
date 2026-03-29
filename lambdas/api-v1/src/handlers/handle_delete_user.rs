@@ -70,6 +70,9 @@ pub async fn handle_delete_user(
 
     // --- Delete all sessions for this user ---
     // The sessions table has session_id as PK, so we scan with a filter on user_id.
+    // DESIGN NOTE: As long as the number of users isn't too big, doing a scan is
+    // probably just fine. But if the number of users ever gets big, we'll need to
+    // create an index (LSI or GSI) to support lookup of sessions by user_id.
     let mut exclusive_start_key = None;
     loop {
         let mut scan_builder = state.dynamo_client
