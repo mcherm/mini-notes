@@ -1,5 +1,4 @@
 # Things to do
-* Smarter auto-titles (first line rather than "New Note").
 * Support account deletion. Add it to the privacy section.
 * When the list of notes is empty, show the words "click "New" to create a note".
 * Ability to show your usage on the user screen.

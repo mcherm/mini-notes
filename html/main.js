@@ -7,7 +7,6 @@ class LoggedOutError extends Error {
 
 // ========== Constants ==========
 
-const DEFAULT_NOTE_TITLE = "New Note";
 const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
 
 // ========== Configuration ==========
@@ -31,6 +30,7 @@ let continuationKey = null;
 let isLoadingNotes = false;
 let searchDebounceTimer = null;
 let lastActiveTime = Date.now();
+let autoTitleActive = false;
 
 /** Returns true if the user is currently logged in. */
 function isLoggedIn() {
@@ -482,9 +482,6 @@ async function refreshAfterStale() {
  * switches to displaying it.
  */
 async function createNewNote(newTitle = "", newBody = "") {
-    if (newTitle === "") {
-        newTitle = DEFAULT_NOTE_TITLE;
-    }
     const url = `${getApiBaseUrl()}/api/v1/notes`;
     const response = await apiFetch(url, {
         method: "POST",
@@ -658,10 +655,14 @@ async function actionLogoutBtn() {
     await logout();
 }
 
-/** Handles the new note button click by creating a note and switching to note view. */
-async function actionNewNoteBtn() {
-    await createNewNote();
+/** Handles the new note button click by clearing the UI and focusing the body for editing. */
+function actionNewNoteBtn() {
+    setIntendedNote(null);
+    currentNote = null;
+    renderNote();
+    autoTitleActive = true;
     document.getElementById("main-page").classList.add("showing-note");
+    document.querySelector("article textarea.note-body").focus();
 }
 
 /** Handles the delete button click by deleting the current note and returning to list view. */
@@ -673,11 +674,13 @@ async function actionDeleteNoteBtn() {
 
 /** Handles the back-to-list button click by switching from note view to list view. */
 function actionBackToListBtn() {
+    autoTitleActive = false;
     document.getElementById("main-page").classList.remove("showing-note");
 }
 
-/** Handles title input focus by entering note view for mobile layout. */
+/** Handles title input focus by entering note view and exiting auto-title mode. */
 function actionTitleFocus() {
+    autoTitleActive = false;
     document.getElementById("main-page").classList.add("showing-note");
 }
 
@@ -691,6 +694,18 @@ async function actionTitleBlur() {
     await saveNoteIfChanged();
 }
 
+/** Handles note body input by auto-populating the title from the first line. */
+function actionBodyInput() {
+    if (!autoTitleActive && currentNote === null) {
+        autoTitleActive = true;
+    }
+    if (!autoTitleActive) return;
+    const bodyTextarea = document.querySelector("article textarea.note-body");
+    const titleInput = document.querySelector("article input.title");
+    const firstLine = bodyTextarea.value.split("\n")[0];
+    titleInput.value = firstLine.substring(0, 40);
+}
+
 /** Handles note body textarea blur by saving the note if it has changed. */
 async function actionBodyBlur() {
     await saveNoteIfChanged();
@@ -699,6 +714,7 @@ async function actionBodyBlur() {
 /** Handles search input by debouncing and filtering the note list. */
 function actionSearchInput(event) {
     clearTimeout(searchDebounceTimer);
+    autoTitleActive = false;
 
     // Immediately deselect current note, clear article, and exit note view
     document.getElementById("main-page").classList.remove("showing-note");
@@ -725,6 +741,7 @@ function actionSearchInput(event) {
 async function actionNoteListClick(event) {
     const slug = event.target.closest("note-slug");
     if (!slug) return;
+    autoTitleActive = false;
     setIntendedNote(slug.dataset.noteId);
     const current = document.querySelector("note-slug.active");
     if (current) current.classList.remove("active");
@@ -802,6 +819,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("article input.title").addEventListener("focus", actionTitleFocus);
     document.querySelector("article input.title").addEventListener("blur", actionTitleBlur);
     document.querySelector("article textarea.note-body").addEventListener("focus", actionBodyFocus);
+    document.querySelector("article textarea.note-body").addEventListener("input", actionBodyInput);
     document.querySelector("article textarea.note-body").addEventListener("blur", actionBodyBlur);
     document.querySelector("input.search").addEventListener("input", actionSearchInput);
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
