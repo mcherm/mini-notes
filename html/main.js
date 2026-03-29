@@ -526,6 +526,29 @@ async function loadNote(noteId) {
     renderNote();
 }
 
+/** Utility for use in updateNoteInfo(). */
+function countWords(str) {
+    // Trim leading/trailing spaces and split by one or more whitespace characters
+    const words = str.trim().split(/\s+/);
+    // Filter out any potential empty strings from extra spaces and return the count
+    return words.filter(word => word.length > 0).length;
+}
+
+/** Utility for use in updateNoteInfo(). */
+function countCharacters(str) {
+    const segmenter = new Intl.Segmenter("en-US", { granularity: "grapheme" });
+    return [...segmenter.segment(str)].length;
+}
+
+/** Populates the note-info section with information about the current note (if there is one). */
+function updateNoteInfo() {
+    if (!currentNote) return;
+    document.getElementById("create-time-display").value = currentNote.create_time.substring(0,10);
+    document.getElementById("modify-time-display").value = currentNote.modify_time.substring(0,10);
+    document.getElementById("word-count-display").value = countWords(currentNote.body).toString();
+    document.getElementById("character-count-display").value = countCharacters(currentNote.body).toString();
+}
+
 // ========== Actions ==========
 
 /** Handles the login button click by sending credentials to the API. */
@@ -544,6 +567,12 @@ async function actionUserBtn() {
     showShadowBox("user-display");
 }
 
+/** Click this to show the note info. */
+async function actionNoteInfoBtn() {
+    updateNoteInfo();
+    showShadowBox("note-info");
+}
+
 /** Handles a click on a shadow-box; dismisses it if the click was on the backdrop. */
 function actionDismissShadowBox(event) {
     if (event.target === event.currentTarget) {
@@ -551,9 +580,14 @@ function actionDismissShadowBox(event) {
     }
 }
 
-/** Handles the cancel button click in the user shadow box by dismissing it. */
+/** Handles the "back" button click in the user shadow box by dismissing it. */
 function actionCloseUserShadowboxBtn() {
     hideShadowBox("user-display");
+}
+
+/** Handles the "back" button click in the note info shadow box by dismissing it. */
+function actionCloseNoteInfoShadowboxBtn() {
+    hideShadowBox("note-info");
 }
 
 /** Handles a settings button click by showing the app-settings shadow box. */
@@ -588,6 +622,7 @@ async function actionNewNoteBtn() {
 /** Handles the delete button click by deleting the current note and returning to list view. */
 async function actionDeleteNoteBtn() {
     await deleteCurrentNote();
+    hideShadowBox("note-info");
     document.getElementById("main-page").classList.remove("showing-note");
 }
 
@@ -675,7 +710,7 @@ async function checkAndRefreshIfStale() {
     }
 }
 
-function handleVisibilityChange() {
+function actionOnVisibilityChange() {
     if (document.visibilityState === "hidden") {
         lastActiveTime = Date.now();
     } else if (document.visibilityState === "visible") {
@@ -683,11 +718,11 @@ function handleVisibilityChange() {
     }
 }
 
-function handleWindowFocus() {
+function actionOnWindowFocus() {
     checkAndRefreshIfStale();
 }
 
-function handleWindowBlur() {
+function actionOnWindowBlur() {
     lastActiveTime = Date.now();
 }
 
@@ -699,8 +734,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.querySelector("#user-btn").addEventListener("click", actionUserBtn);
     document.querySelector("#login-btn").addEventListener("click", actionLoginBtn);
+    document.querySelector("#note-info-btn").addEventListener("click", actionNoteInfoBtn);
     document.querySelector("#new-account-btn").addEventListener("click", actionNewAccountBtn);
     document.querySelector("#close-user-shadowbox-btn").addEventListener("click", actionCloseUserShadowboxBtn);
+
+    document.querySelector("#close-note-info-shadowbox-btn").addEventListener("click", actionCloseNoteInfoShadowboxBtn);
+
+
     document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
     document.querySelectorAll(".settings-btn").forEach(btn => {
         btn.addEventListener("click", actionSettingsBtn);
@@ -719,11 +759,16 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("article textarea.note-body").addEventListener("blur", actionBodyBlur);
     document.querySelector("input.search").addEventListener("input", actionSearchInput);
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
-    document.querySelector("#export-notes-ziptext-link").href = `${getApiBaseUrl()}/api/v1/note_export?file_format=ziptext`;
-    document.querySelector("#export-notes-json-link").href = `${getApiBaseUrl()}/api/v1/note_export?file_format=json`;
     document.querySelector("#import-notes-file").addEventListener("change", actionImportFileChange);
     document.querySelector("#import-notes-btn").addEventListener("click", actionImportNotesBtn);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleWindowFocus);
-    window.addEventListener("blur", handleWindowBlur);
+    document.addEventListener("visibilitychange", actionOnVisibilityChange);
+    window.addEventListener("focus", actionOnWindowFocus);
+    window.addEventListener("blur", actionOnWindowBlur);
+
+    // Fix any links to work in both dev & prod environments
+    document.querySelectorAll("a").forEach(a => {
+        if (a.href.startsWith("https://api.mini-notes.com/")) {
+            a.href = a.href.replace("https://api.mini-notes.com", getApiBaseUrl());
+        }
+    });
 });

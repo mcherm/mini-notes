@@ -30,7 +30,7 @@
             <note-header>
                 <button id="back-to-list">&#x2713;</button>
                 <input class="title" type="text" value="" tabindex="1">
-                <button id="delete-note">&#x1F5D1;</button>
+                <button id="note-info-btn">&#x1F4DD;</button>
             </note-header>
             <textarea class="note-body" tabindex="2"></textarea>
         </article>
@@ -65,6 +65,25 @@
                 <button id="close-user-shadowbox-btn">&#x2190;</button>
                 <button id="logout-btn">Log Out</button>
             </user-area>
+        </shadow-content>
+    </shadow-box>
+    <shadow-box id="note-info">
+        <shadow-content>
+            <note-info>
+                <!-- NOTE: Maybe <info-form> should be shared with <user-form>? -->
+                <info-form id="note-info-form">
+                    <label for="create-time-display">Created:</label>
+                    <input type="text" id="create-time-display" disabled value="dummy">
+                    <label for="modify-time-display">Modified:</label>
+                    <input type="text" id="modify-time-display" disabled value="dummy">
+                    <label for="word-count-display">Words:</label>
+                    <input type="text" id="word-count-display" disabled value="dummy">
+                    <label for="character-count-display">Characters:</label>
+                    <input type="text" id="character-count-display" disabled value="dummy">
+                </info-form>
+                <button id="close-note-info-shadowbox-btn">&#x2190;</button>
+                <button id="delete-note">Delete Note</button>
+            </note-info>
         </shadow-content>
     </shadow-box>
     <shadow-box id="app-settings">
@@ -138,8 +157,8 @@
                         You can export your notes as a zip file containing text files.
                         <p>Export Notes as:</p>
                         <ul>
-                            <li><a id="export-notes-ziptext-link" href="">Zip containing text files</a></li>
-                            <li><a id="export-notes-json-link" href="">JSON</a></li>
+                            <li><a id="export-notes-ziptext-link" href="https://api.mini-notes.com/api/v1/note_export?file_format=ziptext">Zip containing text files</a></li>
+                            <li><a id="export-notes-json-link" href="https://api.mini-notes.com/api/v1/note_export?file_format=json">JSON</a></li>
                         </ul>
                         <p>Import Notes (must be either a zip containing .txt files OR a JSON file):</p>
                         <input type="file" id="import-notes-file" accept=".zip,.json">
