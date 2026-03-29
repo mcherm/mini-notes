@@ -166,6 +166,13 @@ note-slug, settings-nav-item {
     }
 }
 
+note-list-empty {
+    display: block;
+    padding: 16px 8px;
+    text-align: center;
+    color: var(--secondary-color-dk);
+}
+
 article {
     grid-area: article;
     display: flex;

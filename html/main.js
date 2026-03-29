@@ -145,6 +145,14 @@ function renderNoteList() {
         const isActive = currentNote !== null && header.note_id === currentNote.note_id;
         noteList.appendChild(createNoteSlug(header, isActive));
     });
+    if (noteHeaders.length === 0) {
+        const emptyMessage = document.createElement("note-list-empty");
+        emptyMessage.textContent = "No notes yet. Click \"New\" to create one.";
+        noteList.appendChild(emptyMessage);
+    } else {
+        const emptyMessage = noteList.querySelector("note-list-empty");
+        if (emptyMessage) emptyMessage.remove();
+    }
     setupScrollObserver();
 }
 
@@ -168,6 +176,8 @@ function appendNoteHeaders(newHeaders) {
     newHeaders.forEach((header) => {
         const isActive = currentNote !== null && header.note_id === currentNote.note_id;
         noteList.insertBefore(createNoteSlug(header, isActive), sentinel);
+        const emptyMessage = noteList.querySelector("note-list-empty");
+        if (emptyMessage) emptyMessage.remove();
     });
 }
 
@@ -278,6 +288,8 @@ function applyNoteToUI(note) {
         const newSlug = createNoteSlug(newHeader, true);
         noteList.insertBefore(newSlug, noteList.firstChild);
     }
+    const emptyMessage = noteList.querySelector("note-list-empty");
+    if (emptyMessage) emptyMessage.remove();
 
     renderNote();
 }
@@ -510,6 +522,12 @@ async function deleteCurrentNote() {
     const noteList = document.querySelector("note-list");
     const oldSlug = noteList.querySelector(`note-slug[data-note-id="${noteId}"]`);
     if (oldSlug) oldSlug.remove();
+
+    if (noteHeaders.length === 0) {
+        const emptyMessage = document.createElement("note-list-empty");
+        emptyMessage.textContent = "No notes yet. Click \"New\" to create one.";
+        noteList.insertBefore(emptyMessage, noteList.firstChild);
+    }
 
     currentNote = null;
     renderNote();
