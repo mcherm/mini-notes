@@ -90,6 +90,7 @@ pub async fn handle_user_login(
         .item("session_id", AttributeValue::S(session.session_id.clone()))
         .item("user_id", AttributeValue::S(session.user_id.clone()))
         .item("expire_time", AttributeValue::S(session.expire_time.clone()))
+        .item("ttl_expire", AttributeValue::N(expire_time.unix_timestamp().to_string()))
         .send()
         .await;
     if result.is_err() {

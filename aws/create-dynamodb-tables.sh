@@ -47,3 +47,9 @@ aws dynamodb create-table \
     --tags Key=mini-notes,Value=
 
 echo "Table 'mini-notes-sessions-${STAGE}' created."
+
+aws dynamodb update-time-to-live \
+    --table-name "mini-notes-sessions-${STAGE}" \
+    --time-to-live-specification "Enabled=true, AttributeName=ttl_expire"
+
+echo "TTL enabled on 'mini-notes-sessions-${STAGE}' using attribute 'ttl_expire'."
