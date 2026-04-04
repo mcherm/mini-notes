@@ -29,6 +29,25 @@ pub async fn handle_user_create(
 ) -> Result<([(header::HeaderName, header::HeaderValue); 1], Json<serde_json::Value>), HandlerErrOutput> {
     info!(email = user_create_body.email, "user create attempt");
 
+    // Check that the email isn't already in use
+    let email_check = state.dynamo_client
+        .query()
+        .table_name(&state.users_table_name)
+        .index_name("users-by-email")
+        .key_condition_expression("email = :email")
+        .expression_attribute_values(":email", AttributeValue::S(user_create_body.email.clone()))
+        .limit(1)
+        .send()
+        .await;
+    let email_check = match email_check {
+        Ok(response) => response,
+        Err(_) => return Err(http_error(500, "unable to check email availability")),
+    };
+    if email_check.items.map(|items| !items.is_empty()).unwrap_or(false) {
+        info!(email = user_create_body.email, "user create rejected: email already in use");
+        return Err(http_error(409, "email already in use"));
+    }
+
     // Generate user_id and password hash
     let user_id = generate_id();
     let password_hash = match (cryptographic_ops.generate_password_hash)(&user_create_body.password) {
@@ -79,13 +98,16 @@ mod tests {
 
     #[tokio::test]
     async fn direct_handle_user_create_happy_path() {
-        // First call: put_item to users table succeeds
+        // First call: query users-by-email GSI to check email uniqueness (no match)
+        let email_check_response = r#"{"Items":[],"Count":0,"ScannedCount":0}"#;
+        // Second call: put_item to users table succeeds
         let put_user_response = r#"{}"#;
-        // Second call: query users-by-email GSI returns the newly created user
+        // Third call: query users-by-email GSI returns the newly created user (for login)
         let query_response = r#"{"Items":[{"user_id":{"S":"D9G1NIkGan"},"email":{"S":"new@example.com"},"password_hash":{"S":"stub_hash"},"user_type":{"S":"Earlybird"},"create_time":{"S":"2026-03-15T12:00:00.000000000Z"}}],"Count":1,"ScannedCount":1}"#;
-        // Third call: put_item to sessions table succeeds
+        // Fourth call: put_item to sessions table succeeds
         let put_session_response = r#"{}"#;
         let client = test_dynamo_client(vec![
+            replay_ok(email_check_response),
             replay_ok(put_user_response),
             replay_ok(query_response),
             replay_ok(put_session_response),
@@ -119,6 +141,40 @@ mod tests {
         assert!(cookie.starts_with("session_id=D9G1NIkGan;"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("Secure"));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_user_create_duplicate_email() {
+        // Query users-by-email GSI returns an existing user
+        let email_check_response = r#"{"Items":[{"user_id":{"S":"EXISTING123"},"email":{"S":"taken@example.com"},"password_hash":{"S":"some_hash"},"user_type":{"S":"Earlybird"},"create_time":{"S":"2026-01-01T00:00:00.000000000Z"}}],"Count":1,"ScannedCount":1}"#;
+        let client = test_dynamo_client(vec![
+            replay_ok(email_check_response),
+        ]);
+
+        fn fake_id() -> String { "D9G1NIkGan".to_string() }
+        fn stub_generate_hash(_password: &str) -> Result<String, passwords::HashFailedError> {
+            Ok("stub_hash".to_string())
+        }
+        fn stub_verify(_password: &str, _hash: &str) -> Result<bool, passwords::HashFailedError> {
+            Ok(true)
+        }
+
+        let result = handle_user_create(
+            test_state(client),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            CryptographicOps {
+                generate_password_hash: stub_generate_hash,
+                verify_password: stub_verify,
+            },
+            Json(UserCreateBody {
+                email: "taken@example.com".to_string(),
+                password: "newpass123".to_string(),
+            }),
+        ).await;
+
+        let err = result.unwrap_err();
+        assert_eq!(err.0, axum::http::StatusCode::CONFLICT);
     }
 
 }
