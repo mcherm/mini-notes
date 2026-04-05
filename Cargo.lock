@@ -34,6 +34,7 @@ dependencies = [
  "aws-smithy-http-client",
  "aws-smithy-types",
  "axum",
+ "dissimilar",
  "http-body-util",
  "lambda_http",
  "rand",
@@ -899,6 +900,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "dissimilar"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
 
 [[package]]
 name = "dunce"

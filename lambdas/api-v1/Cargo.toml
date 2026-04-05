@@ -23,6 +23,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 argon2 = "0.5" # password hashing
 rand_core = { version = "0.6", features = ["getrandom"] } # needed for argon2's OsRng
 zip = { version = "2", default-features = false, features = ["deflate"] }
+dissimilar = "1"
 
 
 [dev-dependencies]

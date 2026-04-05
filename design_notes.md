@@ -290,6 +290,18 @@ when outputting in JSON format. Only notes that are NOT in the trash will be imp
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
 The API endpoints will be at https://api.mini-notes.com for production and https://dev-api.mini-notes.com for dev.
 
+## Diff Format
+
+To support undo, we will want to store "diff"s -- a block of text that describes a change to a note. These are
+character-based, not line based. I didn't find an existing format that was standard so I invented my own. The format
+is as follows:
+
+A block of text containing sections
+ * digits: interpret this as a number in base 10 telling some number of characters to leave as-is.
+ * [text-to-delete|text-to-insert]: a block defining an edit. "text-to-delete" is expected at this location and should
+be deleted, then "text-to-insert" should be inserted. Both text strings are escaped: any "]", "|" or "\" character
+will be escaped by placing a "\" in front of it.
+
 ## Import/Export of Notes
 
 **Design Ideation**:

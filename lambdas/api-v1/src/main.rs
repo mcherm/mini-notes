@@ -3,6 +3,7 @@ mod utils;
 mod extractors;
 mod passwords;
 mod handlers;
+pub mod diff;
 #[cfg(test)]
 mod test_helpers;
 
