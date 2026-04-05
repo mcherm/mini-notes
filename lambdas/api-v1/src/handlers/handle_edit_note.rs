@@ -9,8 +9,9 @@ use serde::Deserialize;
 use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
-use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error, UserSession};
+use crate::extractors::{AppState, HandlerOutput, HandlerErrOutput, CurrentTime, IdGenerator, http_error, UserSession};
 use crate::models::{Note, NoteFormat};
+use crate::diff;
 use crate::utils::is_valid_id;
 
 
@@ -43,10 +44,31 @@ pub async fn handle_edit_note(
         return Err(http_error(404, "note_id has invalid characters"));
     }
 
-    let expected_version = edit_note_fields.source_version_id.to_string();
-    let new_version_id = edit_note_fields.source_version_id + 1;
+    let expected_version = edit_note_fields.source_version_id;
+    let new_version_id = expected_version + 1;
 
     info!(user_id, note_id, table = state.notes_table_name, ?edit_note_fields, "updating note");
+
+    // --- Read existing note ---
+    let existing_note: Option<Note> = get_existing_note(&state, &note_id, &user_id).await?;
+
+    // --- Bail now if we find that it's not the right version ---
+    if let Some(note) = existing_note.as_ref() && note.version_id != edit_note_fields.source_version_id {
+        return handle_conflict(
+            &state, &user_id, &note_id, &edit_note_fields, &current_time, generate_id, new_version_id,
+        ).await;
+    }
+
+    // --- Generate diffs ---
+    let (title_diff, note_diff) = match existing_note {
+        None => (None, None),
+        Some(note) => (
+            diff::diff(&note.title, &edit_note_fields.title),
+            diff::diff(&note.body, &edit_note_fields.body)
+        ),
+    };
+
+    info!(title_diff, note_diff, "Reviewing diffs for a note");
 
     // --- Attempt conditional update ---
     let result = state.dynamo_client
@@ -60,7 +82,7 @@ pub async fn handle_edit_note(
         .expression_attribute_values(":b", AttributeValue::S(edit_note_fields.body.clone()))
         .expression_attribute_values(":m", AttributeValue::S(current_time.time_string.clone()))
         .expression_attribute_values(":v", AttributeValue::N(new_version_id.to_string()))
-        .expression_attribute_values(":expected_version", AttributeValue::N(expected_version))
+        .expression_attribute_values(":expected_version", AttributeValue::N(expected_version.to_string()))
         .return_values(ReturnValue::AllNew)
         .send()
         .await;
@@ -93,6 +115,32 @@ pub async fn handle_edit_note(
     }
 }
 
+/// Looks for an existing note in the database. Returns a HandlerErrOutput if accessing the database
+/// fails, Ok(None) if it succeeds but there is no note, and Ok(Some(Note)) if there IS an existing
+/// note.
+async fn get_existing_note(state: &AppState, note_id: &String, user_id: &String)
+    -> Result<Option<Note>, HandlerErrOutput>
+{
+    let result = state.dynamo_client.get_item()
+        .table_name(&state.notes_table_name)
+        .key("user_id", AttributeValue::S(user_id.to_string()))
+        .key("note_id", AttributeValue::S(note_id.to_string()))
+        .send()
+        .await;
+    match result {
+        Err(err) => Err(http_error(500, &err.to_string())),
+        Ok(response) => match response.item {
+            Some(item) => match Note::try_from(item) {
+                Err(err) => {
+                    info!(err, "note is invalid in DB");
+                    Err(http_error(500, "note is invalid in DB"))
+                }
+                Ok(note) => Ok(Some(note)), // there was an existing note
+            }
+            None => Ok(None), // there wasn't a note
+        }
+    }
+}
 
 /// Handles the conflict case after a ConditionalCheckFailedException.
 /// Checks if the original note still exists to distinguish true edit conflicts from delete-edit conflicts.

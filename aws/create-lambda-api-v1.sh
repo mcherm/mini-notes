@@ -26,7 +26,7 @@ aws lambda create-function \
     --handler bootstrap \
     --role "arn:aws:iam::${ACCOUNT_ID}:role/mini-notes-lambda-role" \
     --zip-file "fileb://${ZIP}" \
-    --environment "Variables={STAGE=${STAGE},ALLOWED_ORIGIN=https://${FRONTEND_DOMAIN}}" \
+    --environment "Variables={STAGE=${STAGE},ALLOWED_ORIGIN=https://${FRONTEND_DOMAIN}},RUST_LOG=info" \
     --architectures "${ARCH}" \
     --tags mini-notes=
 
