@@ -136,7 +136,7 @@ fn extract_note_data_from_mini_notes_json(parsed: &JsonValue) -> Result<Vec<Impo
     Ok(parsed.get("notes")
         .and_then(|v| v.as_array())
         .ok_or("JSON must contain a \"notes\" array")?
-        .into_iter()
+        .iter()
         .map(|v: &JsonValue| ImportedNoteData {
             note_id: get_str_field(v, "note_id"),
             version_id: None,
@@ -159,7 +159,7 @@ fn extract_note_data_from_simplenote_json(parsed: &JsonValue) -> Result<Vec<Impo
     Ok(parsed.get("activeNotes")
         .and_then(|v| v.as_array())
         .ok_or("JSON must contain an \"activeNotes\" array")?
-        .into_iter()
+        .iter()
         .filter(|v| {
             v.get("content").is_some()
                 && v.get("creationDate").is_some()
@@ -280,6 +280,9 @@ async fn create_imported_notes(
             None => NoteFormat::PlainText
         };
 
+        // undo_stack: no undo history
+        let undo_stack: Vec<String> = Vec::new();
+
         let note = Note {
             user_id,
             note_id,
@@ -289,6 +292,7 @@ async fn create_imported_notes(
             modify_time,
             format,
             body,
+            undo_stack,
         };
         put_note(state, note).await?;
         match existing_note {

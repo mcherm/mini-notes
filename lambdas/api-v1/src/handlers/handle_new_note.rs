@@ -8,6 +8,7 @@ use serde_json::{json, value::Value as JsonValue};
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error, UserSession};
+use crate::handlers::common::verify_size;
 use crate::models::{Note, NoteFormat};
 
 /// A struct for the things that are passed in as part of the body when a new note is created.
@@ -36,6 +37,11 @@ pub async fn handle_new_note(
 
     info!(user_id, note_id, table = state.notes_table_name, ?new_note_fields, "creating note");
 
+
+    if let Err(err_msg) = verify_size(&new_note_fields.title, &new_note_fields.body) {
+        return Err(http_error(400, err_msg.as_str()));
+    }
+
     let note: Note = Note {
         user_id: user_id.to_string(),
         note_id,
@@ -45,6 +51,7 @@ pub async fn handle_new_note(
         modify_time: current_time.time_string,
         format: new_note_fields.format,
         body: new_note_fields.body,
+        undo_stack: Vec::new(),
     };
 
     let result = state.dynamo_client
@@ -58,6 +65,7 @@ pub async fn handle_new_note(
         .item("modify_time", AttributeValue::S(note.modify_time.clone()))
         .item("format", AttributeValue::S(note.format.to_string()))
         .item("body", AttributeValue::S(note.body.clone()))
+        .item("undo_stack", AttributeValue::L(Vec::new()))
         .send()
         .await;
     if result.is_err() {
@@ -126,5 +134,53 @@ mod tests {
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
         assert_eq!(json["error"], "not logged in");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_new_note_title_too_long() {
+        let client = test_dynamo_client(vec![]);
+        let long_title = "x".repeat(crate::handlers::common::MAX_TITLE_LEN + 1);
+
+        fn fake_id() -> String { "TESTID1234".to_string() }
+
+        let result = handle_new_note(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            Json(NewNoteBody {
+                title: long_title,
+                body: "Normal body".to_string(),
+                format: NoteFormat::PlainText,
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(json["error"].as_str().unwrap().contains("Title too long"));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_new_note_body_too_long() {
+        let client = test_dynamo_client(vec![]);
+        let long_body = "x".repeat(crate::handlers::common::MAX_BODY_LEN + 1);
+
+        fn fake_id() -> String { "TESTID1234".to_string() }
+
+        let result = handle_new_note(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            Json(NewNoteBody {
+                title: "Normal title".to_string(),
+                body: long_body,
+                format: NoteFormat::PlainText,
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(json["error"].as_str().unwrap().contains("Body too long"));
     }
 }

@@ -15,7 +15,7 @@ pub fn diff(s1: &str, s2: &str) -> Option<String> {
 
 /// Escape a string.
 fn escape_str<'a>(s: &'a str) -> Cow<'a, str> {
-    if !s.contains(&[']', '|', '\\']) {
+    if !s.contains([']', '|', '\\']) {
         Cow::Borrowed(s)
     } else {
         let mut escaped = String::with_capacity(s.len() + 3); // We'll add 3 bytes extra to reduce reallocation
@@ -125,10 +125,11 @@ impl <'a> DiffEncoder<'a> {
     }
 }
 
-impl <'a> Into<String> for DiffEncoder<'a> {
-    fn into(mut self) -> String {
-        self.complete_queued();
-        self.string
+/// Allow DiffEncoder.into() to convert to a String.
+impl <'a> From<DiffEncoder<'a>> for String {
+    fn from(mut val: DiffEncoder<'a>) -> Self {
+        val.complete_queued();
+        val.string
     }
 }
 

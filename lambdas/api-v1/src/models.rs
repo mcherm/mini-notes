@@ -67,6 +67,7 @@ pub struct Note {
     pub modify_time: String,
     pub format: NoteFormat,
     pub body: String,
+    pub undo_stack: Vec<String>,
 }
 
 /// A struct for the header of a note.
@@ -119,6 +120,19 @@ pub fn get_n_as_u32(item: &DynamoDBRecord, field: &str) -> Result<u32, String> {
         .map_err(|_| format!("field '{field}' is not a valid u32"))
 }
 
+/// Helper for reading list-of-string fields from DynamoDB.
+pub fn get_list_of_string(item: &DynamoDBRecord, field: &str) -> Result<Vec<String>, String> {
+    let Some(attr) = item.get(field) else {
+        return Ok(Vec::new()); // treat absent field as an empty list
+    };
+    let list = attr.as_l()
+        .map_err(|_| format!("field '{field}' is not a list"))?;
+    list.iter()
+        .map(|av| av.as_s()
+            .map(|s| s.to_string())
+            .map_err(|_| format!("field '{field}' contains a non-string element")))
+        .collect()
+}
 
 // ========== Conversions ==========
 
@@ -137,6 +151,7 @@ impl TryFrom<DynamoDBRecord> for Note {
             modify_time: get_s(&item, "modify_time")?,
             format: parse_note_format(&get_s(&item, "format")?)?,
             body: get_s(&item, "body")?,
+            undo_stack: get_list_of_string(&item, "undo_stack")?,
         })
     }
 }
@@ -153,6 +168,7 @@ impl From<Note> for JsonValue {
             "modify_time": note.modify_time,
             "format": note.format.to_string(),
             "body": note.body,
+            "undo_stack": note.undo_stack,
         })
     }
 }

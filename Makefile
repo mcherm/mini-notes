@@ -5,7 +5,7 @@ LAMBDA_DIR := target/lambda
 STAGE      ?= dev
 SENTINELS  := target/.sentinels
 
-.PHONY: build build-api-v1 zip zip-api-v1 deploy clean
+.PHONY: build build-api-v1 zip zip-api-v1 deploy test clean
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +50,11 @@ $(SENTINELS)/deploy-frontend-$(STAGE): $(HTML_SOURCES)
 deploy-api-v1: $(SENTINELS)/deploy-api-v1-$(STAGE)
 deploy-frontend: $(SENTINELS)/deploy-frontend-$(STAGE)
 deploy: deploy-api-v1 deploy-frontend
+
+# ── Test ─────────────────────────────────────────────────────────────────────
+
+test:
+	cargo test --package api-v1
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 
