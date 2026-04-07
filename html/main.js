@@ -25,6 +25,7 @@ function getApiBaseUrl() {
 
 let noteHeaders = [];
 let currentNote = null;
+let redo_stack = [];
 let intendedCurrentNoteId = null;
 let continuationKey = null;
 let isLoadingNotes = false;
@@ -90,6 +91,16 @@ function noteHeaderMatchesSlug(noteHeader, noteSlug) {
 // ========== State Changes ==========
 
 /**
+ * Sets the current note to be displayed (set to null to display no note). Does
+ * not automatically render it, you have to call renderNote() separately. DOES
+ * set the redo_stack to [] every time.
+ */
+function setCurrentNote(note) {
+    currentNote = note;
+    redo_stack = [];
+}
+
+/**
  * Sets which note the UI intends to display. Call this synchronously in
  * response to a user action (before any await). Never call this after an
  * await without using setIntendedNoteIfUnchanged() instead.
@@ -114,7 +125,7 @@ function setIntendedNoteIfUnchanged(expectedValue, newNoteId) {
 function stateUpdateForLogout() {
     setLoggedIn(false);
     noteHeaders = [];
-    currentNote = null;
+    setCurrentNote(null);
     setIntendedNote(null);
     continuationKey = null;
     isLoadingNotes = false;
@@ -158,12 +169,18 @@ function renderNoteList() {
 
 /** Populates the article area with the current note's title and body. */
 function renderNote() {
+    console.log("renderNote()"); // FIXME: Remove
+    const noteElem = document.getElementById("note");
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
     if (currentNote) {
+        noteElem.classList.toggle("can-redo", redo_stack.length > 0);
+        noteElem.classList.toggle("can-undo", currentNote.undo_stack.length > 0);
         titleInput.value = currentNote.title;
         bodyTextarea.value = currentNote.body;
     } else {
+        noteElem.classList.toggle("can-redo", false);
+        noteElem.classList.toggle("can-undo", false);
         titleInput.value = "";
         bodyTextarea.value = "";
     }
@@ -248,9 +265,8 @@ function updateSentinel() {
  */
 function applyNoteToUI(note) {
     if (note.note_id !== intendedCurrentNoteId) return;
-    currentNote = note;
-    // NOTE: This does not currently update the title and note text because it is
-    // ALWAYS being called in places where those are already correct.
+    setCurrentNote(note);
+    renderNote(note);
 
     const newHeader = {
         user_id: note.user_id,
@@ -291,7 +307,7 @@ function applyNoteToUI(note) {
     const emptyMessage = noteList.querySelector("note-list-empty");
     if (emptyMessage) emptyMessage.remove();
 
-    renderNote();
+    renderNoteList();
 }
 
 // ========== API Calls ==========
@@ -453,7 +469,9 @@ async function saveNote(title, body) {
 async function handleConflict() {
     const conflictingNoteId = intendedCurrentNoteId;
     document.querySelector("input.search").value = "";
-    currentNote = null;
+    setIntendedNote(null);
+    setCurrentNote(null);
+    renderNote();
     await loadNoteHeaders();
     // Select the first note in the list (probably the conflict note, which likely has the newest modify_time)
     if (noteHeaders.length > 0) {
@@ -482,7 +500,7 @@ async function refreshAfterStale() {
                 await loadNote(selectedNoteId);
             }
         } else if (setIntendedNoteIfUnchanged(priorIntended, null)) {
-            currentNote = null;
+            setCurrentNote(null);
             renderNote();
             document.getElementById("main-page").classList.remove("showing-note");
         }
@@ -529,7 +547,7 @@ async function deleteCurrentNote() {
         noteList.insertBefore(emptyMessage, noteList.firstChild);
     }
 
-    currentNote = null;
+    setCurrentNote(null);
     renderNote();
 }
 
@@ -581,7 +599,7 @@ async function loadNote(noteId) {
     const response = await apiFetch(url);
     const data = await response.json();
     if (intendedCurrentNoteId === noteId) {
-        currentNote = data.note;
+        setCurrentNote(data.note);
         renderNote();
     }
 }
@@ -612,12 +630,193 @@ function updateNoteInfo() {
         modify_time = "new note";
     }
     const body = document.querySelector("article textarea.note-body").value
-    let word_count = countWords(body).toString();
-    let character_count = countCharacters(body).toString();
+    const word_count = countWords(body).toString();
+    const character_count = countCharacters(body).toString();
     document.getElementById("create-time-display").value = create_time;
     document.getElementById("modify-time-display").value = modify_time;
     document.getElementById("word-count-display").value = word_count;
     document.getElementById("character-count-display").value = character_count;
+}
+
+// ========== Apply Diff ==========
+
+/**
+ * This applies the given diff (in the format described below) to the title and body of the
+ * currently-displayed note.
+ *
+ * The format of the diff is one if these ("{" and "}" enclose descriptive text describing content;
+ * other characters are literal). It can be any of three forms: "b:{body-diff}", or "t:{title-diff},
+ * or "t:{title-diff}|b:{body-diff}". In each case, {body-diff} is a string diff (as processed by
+ * applyStringDiff).
+ */
+function applyNoteDiff(diff, reverse=false) {
+    const titleInput = document.querySelector("article input.title");
+    const bodyTextarea = document.querySelector("article textarea.note-body");
+
+    let section = diff;
+    while (section.length > 0) {
+        const colonPos = section.indexOf(":");
+        if (colonPos === -1) break;
+        const key = section.substring(0, colonPos);
+        const sectionDiff = section.substring(colonPos + 1);
+
+        if (key === "t") {
+            const result = applyStringDiff(titleInput.value, sectionDiff, reverse);
+            titleInput.value = result.asApplied;
+            currentNote.title = result.asApplied; // FIXME: Not so sure I should do this!
+            section = result.remaining;
+        } else if (key === "b") {
+            const result = applyStringDiff(bodyTextarea.value, sectionDiff, reverse);
+            bodyTextarea.value = result.asApplied;
+            currentNote.body = result.asApplied; // FIXME: Not so sure I should do this!
+            section = result.remaining;
+        } else {
+            break; // unknown key
+        }
+
+        // Strip leading '|' separator before next section
+        if (section.startsWith("|")) {
+            section = section.substring(1);
+        }
+    }
+}
+
+/**
+ * This is passed a string and a "diff" in the format described below, and it returns a string made by
+ * applying the diff. Alternately, if reverse=true is provided it will reverse the effect of the diff.
+ * Actually, it is slightly more complex than that, because instead of being passed a diff, it can be
+ * passed a diff followed by a "|" and other characters, and it will return the unparsed portion of
+ * the string. So it ACTUALLY returns an object with three fields: "asApplied" (a string with the
+ * result of applying the diff to s), "remaining" (a string containing the rest of the diff string
+ * that was NOT part of the leading diff), and "appliesCleanly" (a boolean which is true normally, but
+ * false if there was an error applying the diff.
+ *
+ * The format of the diff is a series of entries, where each entry is (1) an 'unedited range', which is
+ * a series of 1 or more digits ("0".."9"), or (2) a 'change' which looks like
+ * "[{text-to-remove}|{text-to-add}]" (note: "{" and "}" wrap descriptive text, "[", "|", and "]" are
+ * literals).
+ *
+ * An 'unedited range' is interpreted as a number in base 10 and it means that many characters in the
+ * original string should be left as-is (starting from the beginning, or wherever the last bit left off).
+ * A 'change' expects to find the literal text-to-remove next, and it will remove that and replace it
+ * with the text-to-add. Both text-to-remove and text-to-add allow escaped characters: a "\|" means a
+ * single "|", a "\]" means a single "]", and a "\\" means a single "\".
+ *
+ * If at any point, the next bit of text does NOT perfectly match the text-to-remove, then the diff
+ * does not apply cleanly. Instead of deleting anything, it will skip forward that many characters and
+ * insert the text-to-add. If we reach the end of the source string without reaching the end of the
+ * characters in the diff that also means it did not apply cleanly.
+ *
+ * Notice that a diff can contain a "|" character inside a 'change', and within a text-to-remove or
+ * text-to-add if the "|" is preceeded by a "\", but it CANNOT contain a "|" outside of a 'change'.
+ * If a "|" is encountered outside of a 'change' then that indicates the end of the diff and the
+ * remainder of the diff input (including the "|") are returned in the "remaining" field.
+ */
+function applyStringDiff(s, diff, reverse=false) {
+    const srcChars = Array.from(s); // split into Unicode code points
+    let srcPos = 0;
+    let diffPos = 0;
+    let asApplied = "";
+    let appliesCleanly = true;
+
+    while (diffPos < diff.length) {
+        const ch = diff[diffPos];
+
+        if (ch >= "0" && ch <= "9") {
+            // Unedited range: read all consecutive digits as a base-10 number
+            let numStr = "";
+            while (diffPos < diff.length && diff[diffPos] >= "0" && diff[diffPos] <= "9") {
+                numStr += diff[diffPos];
+                diffPos++;
+            }
+            const count = parseInt(numStr, 10);
+            for (let i = 0; i < count; i++) {
+                if (srcPos < srcChars.length) {
+                    asApplied += srcChars[srcPos];
+                    srcPos++;
+                } else {
+                    appliesCleanly = false;
+                }
+            }
+        } else if (ch === "[") {
+            // Change: parse [text-to-remove|text-to-add]
+            diffPos++; // skip '['
+            const textToRemove = readEscaped("|");
+            const textToAdd = readEscaped("]");
+
+            const expectedText = reverse ? textToAdd : textToRemove;
+            const insertText = reverse ? textToRemove : textToAdd;
+
+            // Check if source matches the expected text
+            const expectedChars = Array.from(expectedText);
+            let matches = true;
+            if (srcPos + expectedChars.length > srcChars.length) {
+                matches = false;
+            } else {
+                for (let i = 0; i < expectedChars.length; i++) {
+                    if (srcChars[srcPos + i] !== expectedChars[i]) {
+                        matches = false;
+                        break;
+                    }
+                }
+            }
+
+            if (matches) {
+                srcPos += expectedChars.length; // skip the matched text
+            } else {
+                appliesCleanly = false;
+                // Copy over expectedChars.length characters from source, then insert
+                const copyCount = Math.min(expectedChars.length, srcChars.length - srcPos);
+                for (let i = 0; i < copyCount; i++) {
+                    asApplied += srcChars[srcPos];
+                    srcPos++;
+                }
+            }
+            asApplied += insertText;
+        } else if (ch === "|") {
+            // Bare '|' outside a change: end of this diff
+            break;
+        } else {
+            throw new Error(`Invalid diff: unexpected character '${ch}' at position ${diffPos}`);
+        }
+    }
+
+    // Any remaining source characters
+    if (srcPos < srcChars.length) {
+        for (let i = srcPos; i < srcChars.length; i++) {
+            asApplied += srcChars[i];
+        }
+        appliesCleanly = false;
+    }
+
+    const remaining = diff.substring(diffPos);
+    return { asApplied, remaining, appliesCleanly };
+
+    /** Helper: read characters from diff until unescaped terminator, advancing diffPos. */
+    function readEscaped(terminator) {
+        let result = "";
+        while (diffPos < diff.length) {
+            const c = diff[diffPos];
+            if (c === "\\") {
+                diffPos++;
+                if (diffPos < diff.length) {
+                    const escaped = diff[diffPos];
+                    if (escaped !== "\\" && escaped !== "]" && escaped !== "|") {
+                        throw new Error(`Invalid diff: unexpected escape sequence '\\${escaped}' at position ${diffPos - 1}`);
+                    }
+                    result += escaped;
+                    diffPos++;
+                }
+            } else if (c === terminator) {
+                diffPos++; // skip the terminator
+                return result;
+            } else {
+                result += c;
+                diffPos++;
+            }
+        }
+        return result; // reached end without finding terminator
+    }
 }
 
 // ========== Actions ==========
@@ -708,10 +907,37 @@ async function actionDeleteUserBtn() {
     stateUpdateForLogout();
 }
 
+/** Handles the undo button by applying a diff from the undo stack. */
+function actionUndoBtn() {
+    if (!currentNote || !currentNote.undo_stack) {
+        return;
+    }
+    // FIXME: Still under development
+    const diff = currentNote.undo_stack.pop();
+    console.log("SHOULD UNDO: " + diff); // FIXME: Remove
+    applyNoteDiff(diff);
+    redo_stack.push(diff);
+    renderNote();
+}
+
+/** Handles the redo button by applying a diff from the redo stack. */
+function actionRedoBtn() {
+    // FIXME: Still under development
+    if (!currentNote || !Array.isArray(currentNote.undo_stack) ) {
+        return;
+    }
+    const diff = redo_stack.pop();
+    console.log("SHOULD REDO: " + diff); // FIXME: Remove
+    applyNoteDiff(diff, true);
+    currentNote.undo_stack.push(diff);
+    renderNote();
+}
+
+
 /** Handles the new note button click by clearing the UI and focusing the body for editing. */
 function actionNewNoteBtn() {
     setIntendedNote(null);
-    currentNote = null;
+    setCurrentNote(null);
     renderNote();
     autoTitleActive = true;
     document.getElementById("main-page").classList.add("showing-note");
@@ -771,8 +997,8 @@ function actionSearchInput(event) {
 
     // Immediately deselect current note, clear article, and exit note view
     document.getElementById("main-page").classList.remove("showing-note");
-    currentNote = null;
     setIntendedNote(null);
+    setCurrentNote(null);
     renderNote();
     const activeSlug = document.querySelector("note-slug.active");
     if (activeSlug) activeSlug.classList.remove("active");
@@ -858,6 +1084,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#user-delete-dialog-btn").addEventListener("click", actionUserDeleteDialogBtn);
     document.querySelector("#close-user-delete-btn").addEventListener("click", actionCloseUserDeleteBtn);
     document.querySelector("#delete-user-btn").addEventListener("click", actionDeleteUserBtn);
+    document.querySelector("#undo-btn").addEventListener("click", actionUndoBtn);
+    document.querySelector("#redo-btn").addEventListener("click", actionRedoBtn);
     document.querySelectorAll(".settings-btn").forEach(btn => {
         btn.addEventListener("click", actionSettingsBtn);
     });
@@ -869,11 +1097,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#new-note").addEventListener("click", actionNewNoteBtn);
     document.querySelector("#delete-note").addEventListener("click", actionDeleteNoteBtn);
     document.querySelector("#back-to-list").addEventListener("click", actionBackToListBtn);
-    document.querySelector("article input.title").addEventListener("focus", actionTitleFocus);
-    document.querySelector("article input.title").addEventListener("blur", actionTitleBlur);
-    document.querySelector("article textarea.note-body").addEventListener("focus", actionBodyFocus);
-    document.querySelector("article textarea.note-body").addEventListener("input", actionBodyInput);
-    document.querySelector("article textarea.note-body").addEventListener("blur", actionBodyBlur);
+    document.querySelector("#note input.title").addEventListener("focus", actionTitleFocus);
+    document.querySelector("#note input.title").addEventListener("blur", actionTitleBlur);
+    document.querySelector("#note textarea.note-body").addEventListener("focus", actionBodyFocus);
+    document.querySelector("#note textarea.note-body").addEventListener("input", actionBodyInput);
+    document.querySelector("#note textarea.note-body").addEventListener("blur", actionBodyBlur);
     document.querySelector("input.search").addEventListener("input", actionSearchInput);
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
     document.querySelector("#import-notes-file").addEventListener("change", actionImportFileChange);

@@ -70,8 +70,8 @@ pub async fn handle_edit_note(
         None => (None, Vec::new()),
         Some(note) => (
             format_note_diff(
-                diff::diff(&note.title, &edit_note_fields.title),
-                diff::diff(&note.body, &edit_note_fields.body)
+                diff::diff(&edit_note_fields.title, &note.title),
+                diff::diff(&edit_note_fields.body, &note.body)
             ),
             note.undo_stack
         )

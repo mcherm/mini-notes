@@ -181,6 +181,19 @@ article {
     background-color: var(--interest-color-lt);
 }
 
+#note #redo-btn {
+    display: none;
+}
+#note.can-redo #redo-btn {
+    display: block;
+}
+#note #undo-btn {
+    display: none;
+}
+#note.can-undo #undo-btn {
+    display: block;
+}
+
 textarea.note-body {
     flex: 1;
     border: 1px solid var(--secondary-color-dk);

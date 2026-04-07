@@ -25,6 +25,7 @@ I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 * modify_time: timestamp
 * format: enum [plain]
 * body: string
+* undo_stack: list[string] a list of diff strings for undo
 
 (In DynamoDB the PK is "user_id" and the sort key is "note_id". I will also generate an LSI where the sort key is "modify_time". The LSI will project the fields that are part of NoteHeader.)
 
