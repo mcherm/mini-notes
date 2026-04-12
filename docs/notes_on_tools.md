@@ -1,6 +1,7 @@
 # Notes on Tools
 This file contains some notes (mostly for the human users of this repository)
 on tools and environment.
+
 ## Command Line tools:
 
 `% cargo outdated --depth 1`\

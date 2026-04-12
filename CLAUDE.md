@@ -17,7 +17,7 @@ Requires `cargo-lambda` (`cargo install cargo-lambda`).
 - `lambdas/api-v1/src/main.rs` — single Lambda handling all API endpoints via path-based routing
 - `html/` — static frontend (served from S3 via CloudFront)
 - `aws/` — infrastructure setup scripts (source `aws/env.sh` first)
-- `design_notes.md` — planned API endpoints and data structures
+- `docs/design_notes.md` — planned API endpoints and data structures
 
 ## Key Details
 

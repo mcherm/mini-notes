@@ -1,3 +1,184 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" type="text/css"?>
-<svg id="graph-7143" width="100%" xmlns="http://www.w3.org/2000/svg" class="statediagram" style="overflow: hidden; max-width: 100%; touch-action: none; user-select: none; background-color: rgb(255, 255, 255);" role="graphics-document document" aria-roledescription="stateDiagram" height="100%" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ev="http://www.w3.org/2001/xml-events"><defs><filter id="graph-7143-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><defs><filter id="graph-7143-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><g id="viewport-20260412115123433" class="svg-pan-zoom_viewport" transform="matrix(1.8195018768310547,0,0,1.8195018768310547,258.3215026855469,152.73309326171875)" style="transform: matrix(1.8195, 0, 0, 1.8195, 258.322, 152.733);"><style>#graph-7143{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#333;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#graph-7143 .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#graph-7143 .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#graph-7143 .error-icon{fill:#552222;}#graph-7143 .error-text{fill:#552222;stroke:#552222;}#graph-7143 .edge-thickness-normal{stroke-width:1px;}#graph-7143 .edge-thickness-thick{stroke-width:3.5px;}#graph-7143 .edge-pattern-solid{stroke-dasharray:0;}#graph-7143 .edge-thickness-invisible{stroke-width:0;fill:none;}#graph-7143 .edge-pattern-dashed{stroke-dasharray:3;}#graph-7143 .edge-pattern-dotted{stroke-dasharray:2;}#graph-7143 .marker{fill:#333333;stroke:#333333;}#graph-7143 .marker.cross{stroke:#333333;}#graph-7143 svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#graph-7143 p{margin:0;}#graph-7143 defs [id$="-barbEnd"]{fill:#333333;stroke:#333333;}#graph-7143 g.stateGroup text{fill:#9370DB;stroke:none;font-size:10px;}#graph-7143 g.stateGroup text{fill:#333;stroke:none;font-size:10px;}#graph-7143 g.stateGroup .state-title{font-weight:bolder;fill:#131300;}#graph-7143 g.stateGroup rect{fill:#ECECFF;stroke:#9370DB;}#graph-7143 g.stateGroup line{stroke:#333333;stroke-width:1;}#graph-7143 .transition{stroke:#333333;stroke-width:1;fill:none;}#graph-7143 .stateGroup .composit{fill:white;border-bottom:1px;}#graph-7143 .stateGroup .alt-composit{fill:#e0e0e0;border-bottom:1px;}#graph-7143 .state-note{stroke:#aaaa33;fill:#fff5ad;}#graph-7143 .state-note text{fill:black;stroke:none;font-size:10px;}#graph-7143 .stateLabel .box{stroke:none;stroke-width:0;fill:#ECECFF;opacity:0.5;}#graph-7143 .edgeLabel .label rect{fill:#ECECFF;opacity:0.5;}#graph-7143 .edgeLabel{background-color:rgba(232,232,232, 0.8);text-align:center;}#graph-7143 .edgeLabel p{background-color:rgba(232,232,232, 0.8);}#graph-7143 .edgeLabel rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232, 0.8);}#graph-7143 .edgeLabel .label text{fill:#333;}#graph-7143 .label div .edgeLabel{color:#333;}#graph-7143 .stateLabel text{fill:#131300;font-size:10px;font-weight:bold;}#graph-7143 .node circle.state-start{fill:#333333;stroke:#333333;}#graph-7143 .node .fork-join{fill:#333333;stroke:#333333;}#graph-7143 .node circle.state-end{fill:#9370DB;stroke:white;stroke-width:1.5;}#graph-7143 .end-state-inner{fill:white;stroke-width:1.5;}#graph-7143 .node rect{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#graph-7143 .node polygon{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#graph-7143 [id$="-barbEnd"]{fill:#333333;}#graph-7143 .statediagram-cluster rect{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#graph-7143 .cluster-label,#graph-7143 .nodeLabel{color:#131300;}#graph-7143 .statediagram-cluster rect.outer{rx:5px;ry:5px;}#graph-7143 .statediagram-state .divider{stroke:#9370DB;}#graph-7143 .statediagram-state .title-state{rx:5px;ry:5px;}#graph-7143 .statediagram-cluster.statediagram-cluster .inner{fill:white;}#graph-7143 .statediagram-cluster.statediagram-cluster-alt .inner{fill:#f0f0f0;}#graph-7143 .statediagram-cluster .inner{rx:0;ry:0;}#graph-7143 .statediagram-state rect.basic{rx:5px;ry:5px;}#graph-7143 .statediagram-state rect.divider{stroke-dasharray:10,10;fill:#f0f0f0;}#graph-7143 .note-edge{stroke-dasharray:5;}#graph-7143 .statediagram-note rect{fill:#fff5ad;stroke:#aaaa33;stroke-width:1px;rx:0;ry:0;}#graph-7143 .statediagram-note rect{fill:#fff5ad;stroke:#aaaa33;stroke-width:1px;rx:0;ry:0;}#graph-7143 .statediagram-note text{fill:black;}#graph-7143 .statediagram-note .nodeLabel{color:black;}#graph-7143 .statediagram .edgeLabel{color:red;}#graph-7143 [id$="-dependencyStart"],#graph-7143 [id$="-dependencyEnd"]{fill:#333333;stroke:#333333;stroke-width:1;}#graph-7143 .statediagramTitleText{text-anchor:middle;font-size:18px;fill:#333;}#graph-7143 [data-look="neo"].statediagram-cluster rect{fill:#ECECFF;stroke:#9370DB;stroke-width:1;}#graph-7143 [data-look="neo"].statediagram-cluster rect.outer{rx:5px;ry:5px;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 .node .neo-node{stroke:#9370DB;}#graph-7143 [data-look="neo"].node rect,#graph-7143 [data-look="neo"].cluster rect,#graph-7143 [data-look="neo"].node polygon{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 [data-look="neo"].node path{stroke:#9370DB;stroke-width:1px;}#graph-7143 [data-look="neo"].node .outer-path{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 [data-look="neo"].node .neo-line path{stroke:#9370DB;filter:none;}#graph-7143 [data-look="neo"].node circle{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 [data-look="neo"].node circle .state-start{fill:#000000;}#graph-7143 [data-look="neo"].icon-shape .icon{fill:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 [data-look="neo"].icon-shape .icon-neo path{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><defs><marker id="graph-7143_stateDiagram-barbEnd" refX="19" refY="7" markerWidth="20" markerHeight="14" markerUnits="userSpaceOnUse" orient="auto"><path d="M 19,7 L9,13 L14,7 L9,1 Z"></path></marker></defs><g class="root"><g class="clusters"></g><g class="edgePaths"></g><g class="edgeLabels"></g><g class="nodes"><g class="root" transform="translate(0, 0)"><g class="clusters"><g class="statediagram-state statediagram-cluster" id="graph-7143-state-App-0" data-id="App" data-look="classic"><g><rect class="outer" x="8" y="8" width="361.01666259765625" height="215" data-look="classic"></rect></g><g class="cluster-label" transform="translate(174.875, 9)"><foreignObject width="27.26666259765625" height="24"><div style="display: table-cell; white-space: nowrap; line-height: 1.5;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>App</p></span></div></foreignObject></g><rect class="inner" x="8" y="34" width="361.01666259765625" height="185"></rect></g></g><g class="edgePaths"></g><g class="edgeLabels"></g><g class="nodes"><g class="root" transform="translate(35, 37.5)"><g class="clusters"><g class="statediagram-state statediagram-cluster statediagram-cluster-alt" id="graph-7143-state-ModalStack-0" data-id="ModalStack" data-look="classic"><g><rect class="outer" x="8" y="8" width="291.01666259765625" height="140" data-look="classic"></rect></g><g class="cluster-label" transform="translate(113.30833435058594, 9)"><foreignObject width="80.39999389648438" height="24"><div style="display: table-cell; white-space: nowrap; line-height: 1.5;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>ModalStack</p></span></div></foreignObject></g><rect class="inner" x="8" y="34" width="291.01666259765625" height="110"></rect></g></g><g class="edgePaths"></g><g class="edgeLabels"></g><g class="nodes"><g class="node  statediagram-state" id="graph-7143-state-NoModals-0" data-look="classic" transform="translate(79.46666717529297, 78)"><rect class="basic label-container" style="" rx="5" ry="5" x="-36.46666717529297" y="-20" width="72.93333435058594" height="40"></rect><g class="label" style="" transform="translate(-28.46666717529297, -12)"><rect></rect><foreignObject width="56.93333435058594" height="24"><div style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel markdown-node-label"><p>(empty)</p></span></div></foreignObject></g></g><g class="node  statediagram-state" id="graph-7143-state-HasModals-0" data-look="classic" transform="translate(214.9749984741211, 78)"><rect class="basic label-container" style="" rx="5" ry="5" x="-49.041664123535156" y="-20" width="98.08332824707031" height="40"></rect><g class="label" style="" transform="translate(-41.041664123535156, -12)"><rect></rect><foreignObject width="82.08332824707031" height="24"><div style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel markdown-node-label"><p>[Modal, ...]</p></span></div></foreignObject></g></g></g></g></g></g></g></g></g></g></svg>
+<svg id="graph-7143" width="100%" xmlns="http://www.w3.org/2000/svg" class="statediagram"
+     style="overflow: hidden; max-width: 100%; touch-action: none; user-select: none; background-color: rgb(255, 255, 255);"
+     role="graphics-document document" aria-roledescription="stateDiagram" height="100%"
+     xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ev="http://www.w3.org/2001/xml-events">
+    <defs>
+        <filter id="graph-7143-drop-shadow" height="130%" width="130%">
+            <feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow>
+        </filter>
+    </defs>
+    <defs>
+        <filter id="graph-7143-drop-shadow-small" height="150%" width="150%">
+            <feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow>
+        </filter>
+    </defs>
+    <g id="viewport-20260412115123433" class="svg-pan-zoom_viewport"
+       transform="matrix(1.8195018768310547,0,0,1.8195018768310547,258.3215026855469,152.73309326171875)"
+       style="transform: matrix(1.8195, 0, 0, 1.8195, 258.322, 152.733);">
+        <style>#graph-7143{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#333;}@keyframes
+            edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#graph-7143
+            .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear
+            infinite;stroke-linecap:round;}#graph-7143
+            .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear
+            infinite;stroke-linecap:round;}#graph-7143 .error-icon{fill:#552222;}#graph-7143
+            .error-text{fill:#552222;stroke:#552222;}#graph-7143 .edge-thickness-normal{stroke-width:1px;}#graph-7143
+            .edge-thickness-thick{stroke-width:3.5px;}#graph-7143 .edge-pattern-solid{stroke-dasharray:0;}#graph-7143
+            .edge-thickness-invisible{stroke-width:0;fill:none;}#graph-7143
+            .edge-pattern-dashed{stroke-dasharray:3;}#graph-7143 .edge-pattern-dotted{stroke-dasharray:2;}#graph-7143
+            .marker{fill:#333333;stroke:#333333;}#graph-7143 .marker.cross{stroke:#333333;}#graph-7143
+            svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#graph-7143 p{margin:0;}#graph-7143
+            defs [id$="-barbEnd"]{fill:#333333;stroke:#333333;}#graph-7143 g.stateGroup
+            text{fill:#9370DB;stroke:none;font-size:10px;}#graph-7143 g.stateGroup
+            text{fill:#333;stroke:none;font-size:10px;}#graph-7143 g.stateGroup
+            .state-title{font-weight:bolder;fill:#131300;}#graph-7143 g.stateGroup
+            rect{fill:#ECECFF;stroke:#9370DB;}#graph-7143 g.stateGroup line{stroke:#333333;stroke-width:1;}#graph-7143
+            .transition{stroke:#333333;stroke-width:1;fill:none;}#graph-7143 .stateGroup
+            .composit{fill:white;border-bottom:1px;}#graph-7143 .stateGroup
+            .alt-composit{fill:#e0e0e0;border-bottom:1px;}#graph-7143
+            .state-note{stroke:#aaaa33;fill:#fff5ad;}#graph-7143 .state-note
+            text{fill:black;stroke:none;font-size:10px;}#graph-7143 .stateLabel
+            .box{stroke:none;stroke-width:0;fill:#ECECFF;opacity:0.5;}#graph-7143 .edgeLabel .label
+            rect{fill:#ECECFF;opacity:0.5;}#graph-7143 .edgeLabel{background-color:rgba(232,232,232,
+            0.8);text-align:center;}#graph-7143 .edgeLabel p{background-color:rgba(232,232,232, 0.8);}#graph-7143
+            .edgeLabel rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232, 0.8);}#graph-7143
+            .edgeLabel .label text{fill:#333;}#graph-7143 .label div .edgeLabel{color:#333;}#graph-7143 .stateLabel
+            text{fill:#131300;font-size:10px;font-weight:bold;}#graph-7143 .node
+            circle.state-start{fill:#333333;stroke:#333333;}#graph-7143 .node
+            .fork-join{fill:#333333;stroke:#333333;}#graph-7143 .node
+            circle.state-end{fill:#9370DB;stroke:white;stroke-width:1.5;}#graph-7143
+            .end-state-inner{fill:white;stroke-width:1.5;}#graph-7143 .node
+            rect{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#graph-7143 .node
+            polygon{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#graph-7143 [id$="-barbEnd"]{fill:#333333;}#graph-7143
+            .statediagram-cluster rect{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#graph-7143
+            .cluster-label,#graph-7143 .nodeLabel{color:#131300;}#graph-7143 .statediagram-cluster
+            rect.outer{rx:5px;ry:5px;}#graph-7143 .statediagram-state .divider{stroke:#9370DB;}#graph-7143
+            .statediagram-state .title-state{rx:5px;ry:5px;}#graph-7143 .statediagram-cluster.statediagram-cluster
+            .inner{fill:white;}#graph-7143 .statediagram-cluster.statediagram-cluster-alt
+            .inner{fill:#f0f0f0;}#graph-7143 .statediagram-cluster .inner{rx:0;ry:0;}#graph-7143 .statediagram-state
+            rect.basic{rx:5px;ry:5px;}#graph-7143 .statediagram-state
+            rect.divider{stroke-dasharray:10,10;fill:#f0f0f0;}#graph-7143 .note-edge{stroke-dasharray:5;}#graph-7143
+            .statediagram-note rect{fill:#fff5ad;stroke:#aaaa33;stroke-width:1px;rx:0;ry:0;}#graph-7143
+            .statediagram-note rect{fill:#fff5ad;stroke:#aaaa33;stroke-width:1px;rx:0;ry:0;}#graph-7143
+            .statediagram-note text{fill:black;}#graph-7143 .statediagram-note .nodeLabel{color:black;}#graph-7143
+            .statediagram .edgeLabel{color:red;}#graph-7143 [id$="-dependencyStart"],#graph-7143
+            [id$="-dependencyEnd"]{fill:#333333;stroke:#333333;stroke-width:1;}#graph-7143
+            .statediagramTitleText{text-anchor:middle;font-size:18px;fill:#333;}#graph-7143
+            [data-look="neo"].statediagram-cluster rect{fill:#ECECFF;stroke:#9370DB;stroke-width:1;}#graph-7143
+            [data-look="neo"].statediagram-cluster rect.outer{rx:5px;ry:5px;filter:drop-shadow(1px 2px 2px rgba(185,
+            185, 185, 1));}#graph-7143 .node .neo-node{stroke:#9370DB;}#graph-7143 [data-look="neo"].node
+            rect,#graph-7143 [data-look="neo"].cluster rect,#graph-7143 [data-look="neo"].node
+            polygon{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143
+            [data-look="neo"].node path{stroke:#9370DB;stroke-width:1px;}#graph-7143 [data-look="neo"].node
+            .outer-path{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143 [data-look="neo"].node
+            .neo-line path{stroke:#9370DB;filter:none;}#graph-7143 [data-look="neo"].node
+            circle{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143
+            [data-look="neo"].node circle .state-start{fill:#000000;}#graph-7143 [data-look="neo"].icon-shape
+            .icon{fill:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#graph-7143
+            [data-look="neo"].icon-shape .icon-neo path{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185,
+            185, 1));}#graph-7143 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}
+        </style>
+        <g>
+            <defs>
+                <marker id="graph-7143_stateDiagram-barbEnd" refX="19" refY="7" markerWidth="20" markerHeight="14"
+                        markerUnits="userSpaceOnUse" orient="auto">
+                    <path d="M 19,7 L9,13 L14,7 L9,1 Z"></path>
+                </marker>
+            </defs>
+            <g class="root">
+                <g class="clusters"></g>
+                <g class="edgePaths"></g>
+                <g class="edgeLabels"></g>
+                <g class="nodes">
+                    <g class="root" transform="translate(0, 0)">
+                        <g class="clusters">
+                            <g class="statediagram-state statediagram-cluster" id="graph-7143-state-App-0" data-id="App"
+                               data-look="classic">
+                                <g>
+                                    <rect class="outer" x="8" y="8" width="361.01666259765625" height="215"
+                                          data-look="classic"></rect>
+                                </g>
+                                <g class="cluster-label" transform="translate(174.875, 9)">
+                                    <foreignObject width="27.26666259765625" height="24">
+                                        <div style="display: table-cell; white-space: nowrap; line-height: 1.5;"
+                                             xmlns="http://www.w3.org/1999/xhtml">
+                                            <span class="nodeLabel">
+                                                <p>App</p>
+                                            </span>
+                                        </div>
+                                    </foreignObject>
+                                </g>
+                                <rect class="inner" x="8" y="34" width="361.01666259765625" height="185"></rect>
+                            </g>
+                        </g>
+                        <g class="edgePaths"></g>
+                        <g class="edgeLabels"></g>
+                        <g class="nodes">
+                            <g class="root" transform="translate(35, 37.5)">
+                                <g class="clusters">
+                                    <g class="statediagram-state statediagram-cluster statediagram-cluster-alt"
+                                       id="graph-7143-state-ModalStack-0" data-id="ModalStack" data-look="classic">
+                                        <g>
+                                            <rect class="outer" x="8" y="8" width="291.01666259765625" height="140"
+                                                  data-look="classic"></rect>
+                                        </g>
+                                        <g class="cluster-label" transform="translate(113.30833435058594, 9)">
+                                            <foreignObject width="80.39999389648438" height="24">
+                                                <div style="display: table-cell; white-space: nowrap; line-height: 1.5;"
+                                                     xmlns="http://www.w3.org/1999/xhtml">
+                                                    <span class="nodeLabel">
+                                                        <p>ModalStack</p>
+                                                    </span>
+                                                </div>
+                                            </foreignObject>
+                                        </g>
+                                        <rect class="inner" x="8" y="34" width="291.01666259765625" height="110"></rect>
+                                    </g>
+                                </g>
+                                <g class="edgePaths"></g>
+                                <g class="edgeLabels"></g>
+                                <g class="nodes">
+                                    <g class="node  statediagram-state" id="graph-7143-state-NoModals-0"
+                                       data-look="classic" transform="translate(79.46666717529297, 78)">
+                                        <rect class="basic label-container" style="" rx="5" ry="5"
+                                              x="-36.46666717529297" y="-20" width="72.93333435058594"
+                                              height="40"></rect>
+                                        <g class="label" style="" transform="translate(-28.46666717529297, -12)">
+                                            <rect></rect>
+                                            <foreignObject width="56.93333435058594" height="24">
+                                                <div style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"
+                                                     xmlns="http://www.w3.org/1999/xhtml">
+                                                    <span class="nodeLabel markdown-node-label">
+                                                        <p>(empty)</p>
+                                                    </span>
+                                                </div>
+                                            </foreignObject>
+                                        </g>
+                                    </g>
+                                    <g class="node  statediagram-state" id="graph-7143-state-HasModals-0"
+                                       data-look="classic" transform="translate(214.9749984741211, 78)">
+                                        <rect class="basic label-container" style="" rx="5" ry="5"
+                                              x="-49.041664123535156" y="-20" width="98.08332824707031"
+                                              height="40"></rect>
+                                        <g class="label" style="" transform="translate(-41.041664123535156, -12)">
+                                            <rect></rect>
+                                            <foreignObject width="82.08332824707031" height="24">
+                                                <div style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"
+                                                     xmlns="http://www.w3.org/1999/xhtml">
+                                                    <span class="nodeLabel markdown-node-label">
+                                                        <p>[Modal, ...]</p>
+                                                    </span>
+                                                </div>
+                                            </foreignObject>
+                                        </g>
+                                    </g>
+                                </g>
+                            </g>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

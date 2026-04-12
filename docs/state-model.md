@@ -53,8 +53,12 @@ Modal = Settings | UserInfo | UserDelete | NoteInfo
 
 ## Visual Diagram
 
-See `state-model.mmd` for a Mermaid stateDiagram-v2 source. Render it at
-https://mermaid.live or in any Mermaid-compatible viewer.
+![diagram](app-states.svg)
+
+An attempt to use `state-model.mmd` for a Mermaid stateDiagram-v2 source failed as it could not reliably render it at
+https://mermaid.live or elsewhere.
+
+The picture above is hand-drawn and comes from `app-states.excalidraw` and can be rendered using the site https://excalidraw.com/.
 
 ## Region Descriptions
 
