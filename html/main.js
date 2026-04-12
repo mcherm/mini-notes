@@ -7,7 +7,8 @@ class LoggedOutError extends Error {
 
 // ========== Constants ==========
 
-const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
+const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const STALE_UNFOCUSED_EDIT_MS = 60 * 1000; // 1 minute
 
 // ========== Configuration ==========
 
@@ -32,6 +33,8 @@ let isLoadingNotes = false;
 let searchDebounceTimer = null;
 let lastActiveTime = Date.now();
 let autoTitleActive = false;
+let unfocusedEditsPending = false;
+let unfocusedEditDebounceTimer = null;
 
 /** Returns true if the user is currently logged in. */
 function isLoggedIn() {
@@ -121,6 +124,27 @@ function setIntendedNoteIfUnchanged(expectedValue, newNoteId) {
     return true;
 }
 
+/** If unfocused edits are pending, save immediately and clear the timer. */
+function saveUnfocusedEditsIfPending() {
+    if (!unfocusedEditsPending) return;
+    unfocusedEditsPending = false;
+    clearTimeout(unfocusedEditDebounceTimer);
+    unfocusedEditDebounceTimer = null;
+    saveNoteIfChanged();
+}
+
+/** Starts or restarts the debounce timer for saving unfocused edits. */
+function restartUnfocusedEditTimer() {
+    clearTimeout(unfocusedEditDebounceTimer);
+    unfocusedEditDebounceTimer = setTimeout(() => {
+        unfocusedEditDebounceTimer = null;
+        if (unfocusedEditsPending) {
+            unfocusedEditsPending = false;
+            saveNoteIfChanged();
+        }
+    }, STALE_UNFOCUSED_EDIT_MS);
+}
+
 /** Call this when the state of the application should change to "not logged in". */
 function stateUpdateForLogout() {
     setLoggedIn(false);
@@ -130,6 +154,9 @@ function stateUpdateForLogout() {
     continuationKey = null;
     isLoadingNotes = false;
     searchDebounceTimer = null;
+    unfocusedEditsPending = false;
+    clearTimeout(unfocusedEditDebounceTimer);
+    unfocusedEditDebounceTimer = null;
     document.getElementById("main-page").classList.remove("showing-note");
     renderNote();
     document.querySelector("input.search").value = "";
@@ -169,7 +196,9 @@ function renderNoteList() {
 
 /** Populates the article area with the current note's title and body. */
 function renderNote() {
-    console.log("renderNote()"); // FIXME: Remove
+    unfocusedEditsPending = false;
+    clearTimeout(unfocusedEditDebounceTimer);
+    unfocusedEditDebounceTimer = null;
     const noteElem = document.getElementById("note");
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
@@ -663,12 +692,10 @@ function applyNoteDiff(diff, reverse=false) {
         if (key === "t") {
             const result = applyStringDiff(titleInput.value, sectionDiff, reverse);
             titleInput.value = result.asApplied;
-            currentNote.title = result.asApplied; // FIXME: Not so sure I should do this!
             section = result.remaining;
         } else if (key === "b") {
             const result = applyStringDiff(bodyTextarea.value, sectionDiff, reverse);
             bodyTextarea.value = result.asApplied;
-            currentNote.body = result.asApplied; // FIXME: Not so sure I should do this!
             section = result.remaining;
         } else {
             break; // unknown key
@@ -912,30 +939,29 @@ function actionUndoBtn() {
     if (!currentNote || !currentNote.undo_stack) {
         return;
     }
-    // FIXME: Still under development
     const diff = currentNote.undo_stack.pop();
-    console.log("SHOULD UNDO: " + diff); // FIXME: Remove
     applyNoteDiff(diff);
     redo_stack.push(diff);
-    renderNote();
+    unfocusedEditsPending = true;
+    restartUnfocusedEditTimer();
 }
 
 /** Handles the redo button by applying a diff from the redo stack. */
 function actionRedoBtn() {
-    // FIXME: Still under development
     if (!currentNote || !Array.isArray(currentNote.undo_stack) ) {
         return;
     }
     const diff = redo_stack.pop();
-    console.log("SHOULD REDO: " + diff); // FIXME: Remove
     applyNoteDiff(diff, true);
     currentNote.undo_stack.push(diff);
-    renderNote();
+    unfocusedEditsPending = true;
+    restartUnfocusedEditTimer();
 }
 
 
 /** Handles the new note button click by clearing the UI and focusing the body for editing. */
 function actionNewNoteBtn() {
+    saveUnfocusedEditsIfPending();
     setIntendedNote(null);
     setCurrentNote(null);
     renderNote();
@@ -959,12 +985,14 @@ function actionBackToListBtn() {
 
 /** Handles title input focus by entering note view and exiting auto-title mode. */
 function actionTitleFocus() {
+    saveUnfocusedEditsIfPending();
     autoTitleActive = false;
     document.getElementById("main-page").classList.add("showing-note");
 }
 
 /** Handles note body textarea focus by entering note view for mobile layout. */
 function actionBodyFocus() {
+    saveUnfocusedEditsIfPending();
     document.getElementById("main-page").classList.add("showing-note");
 }
 
@@ -992,6 +1020,7 @@ async function actionBodyBlur() {
 
 /** Handles search input by debouncing and filtering the note list. */
 function actionSearchInput(event) {
+    saveUnfocusedEditsIfPending();
     clearTimeout(searchDebounceTimer);
     autoTitleActive = false;
 
@@ -1018,6 +1047,7 @@ function actionSearchInput(event) {
 
 /** Handles a click on the note list by selecting and loading the clicked note. */
 async function actionNoteListClick(event) {
+    saveUnfocusedEditsIfPending();
     const slug = event.target.closest("note-slug");
     if (!slug) return;
     autoTitleActive = false;
