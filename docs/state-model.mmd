@@ -1,0 +1,76 @@
+stateDiagram-v2
+    state App {
+        state Auth {
+            [*] --> LoggedOut
+            LoggedOut --> LoggedIn : login
+            LoggedIn --> LoggedOut : logout
+
+            state LoggedIn {
+                state ActiveNote {
+                    [*] --> NoNote
+                    NoNote --> Loading : click note / type in fields
+                    Loading --> Displaying : fetch complete
+                    Loading --> Loading : click different note
+                    Displaying --> NoNote : delete / search started
+                    Displaying --> Loading : click different note
+
+                    state Displaying {
+                        state EditingStatus {
+                            [*] --> NoPendingEdits
+                            NoPendingEdits --> TitleEditsPending : type in title
+                            NoPendingEdits --> BodyEditsPending : type in body
+                            TitleEditsPending --> NoPendingEdits : blur → save
+                            BodyEditsPending --> NoPendingEdits : blur → save
+                            NoPendingEdits --> UnfocusedEditsPending : undo/redo
+                            TitleEditsPending --> UnfocusedEditsPending : undo/redo
+                            BodyEditsPending --> UnfocusedEditsPending : undo/redo
+                            UnfocusedEditsPending --> NoPendingEdits : timer → save
+                        }
+                        --
+                        state PendingRequest {
+                            [*] --> NoPendingRequest
+                            NoPendingRequest --> Saving : save initiated
+                            NoPendingRequest --> Reloading : reload
+                            Saving --> NoPendingRequest : response
+                            Reloading --> NoPendingRequest : response
+                        }
+                    }
+                }
+                --
+                state NoteList {
+                    state SearchInput {
+                        [*] --> NoSearch
+                        NoSearch --> SearchDebouncing : type in search
+                        SearchDebouncing --> Search : debounce fires
+                        SearchDebouncing --> NoSearch : clear search
+                        Search --> SearchDebouncing : type more
+                        Search --> NoSearch : clear search
+                    }
+                    --
+                    state ListLifecycle {
+                        [*] --> Idle
+                        Idle --> LoadingFirstPage : load triggered
+                        LoadingFirstPage --> Idle : page received
+                        Idle --> LoadingNextPage : scroll near bottom
+                        LoadingNextPage --> Idle : page received
+                    }
+                }
+                --
+                state ViewMode {
+                    ShowingList
+                    ShowingNote
+                    ShowingBoth
+                }
+                --
+                state AutoTitle {
+                    AT_Off : Off
+                    AT_On : On
+                }
+            }
+        }
+        --
+        state ModalStack {
+            NoModals : (empty)
+            HasModals : [Modal, ...]
+        }
+    }
