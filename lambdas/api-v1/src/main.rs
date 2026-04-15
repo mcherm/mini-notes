@@ -7,7 +7,6 @@ pub mod diff;
 #[cfg(test)]
 mod test_helpers;
 
-use aws_sdk_dynamodb::Client as DynamoClient;
 use axum::{
     Router,
     http::{Method, header},
@@ -41,14 +40,9 @@ async fn main() -> Result<(), lambda_http::Error> {
         .json()
         .init();
 
-    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .load()
-        .await;
-    let client = DynamoClient::new(&config);
+    let client = common::dynamo_client().await;
 
-    // Read configuration from environment
-    let stage = std::env::var("STAGE")
-        .expect("STAGE env var must be set");
+    let tables = common::TableNames::load();
     let allowed_origin = std::env::var("ALLOWED_ORIGIN")
         .expect("ALLOWED_ORIGIN env var must be set");
 
@@ -60,9 +54,9 @@ async fn main() -> Result<(), lambda_http::Error> {
 
     let state = AppState {
         dynamo_client: client,
-        notes_table_name: format!("mini-notes-notes-{stage}"),
-        users_table_name: format!("mini-notes-users-{stage}"),
-        sessions_table_name: format!("mini-notes-sessions-{stage}"),
+        notes_table_name: tables.notes,
+        users_table_name: tables.users,
+        sessions_table_name: tables.sessions,
     };
     let app = Router::new()
         .route("/api/v1/notes", get(handle_get_notes))

@@ -8,6 +8,7 @@ name = "api-v1"
 path = "src/main.rs"
 
 [dependencies]
+common = { path = "../common" }
 lambda_http = "1"
 aws-config = "1"
 aws-sdk-dynamodb = "1"

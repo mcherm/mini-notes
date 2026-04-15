@@ -31,6 +31,9 @@ aws sts get-caller-identity
 | `create-lambda-api-v1.sh` | Once per stage | Creates the `mini-notes-api-v1-<stage>` Lambda and attaches a public HTTPS Function URL |
 | `create-cors-policy.sh` | Once per stage | Creates a CloudFront response headers policy for CORS, allowing the frontend domain to call the API |
 | `create-cloudfront-distribution.sh` | Once per stage | Creates a CloudFront distribution with S3 (static frontend) and Lambda origins, custom domains, TLS, and CORS policy |
+| `create-scheduler-role.sh` | Once per stage | Creates the `mini-notes-scheduler-role-<stage>` IAM role that EventBridge Scheduler assumes in order to invoke scheduled-job Lambdas |
+| `create-scheduled-job.sh JOB_NAME SCHEDULE` | Per job | Creates one scheduled-job Lambda (`mini-notes-<JOB_NAME>-<stage>`) and its EventBridge schedule. `JOB_NAME` must begin with `job-` |
+| `init-scheduled-jobs.sh` | When resetting jobs | Declarative source of truth: one `create-scheduled-job.sh` call per job, with comments documenting purpose and frequency. Edit this file to change schedules |
 | `upload-static-assets.sh` | On frontend changes | Syncs `html/` to the S3 frontend bucket for the current stage |
 | `seed-test-data.sh` | As needed | Inserts a sample note into the current stage's DynamoDB table |
 
@@ -52,6 +55,27 @@ make zip-api-v1                    # build binary and package it
 
 ./aws/seed-test-data.sh
 ```
+
+## Scheduled background jobs
+
+Scheduled jobs are separate Lambda functions (one per job) triggered by
+EventBridge Scheduler, not by HTTP. Each job's crate lives under
+`lambdas/job-<name>/` and produces the Lambda `mini-notes-job-<name>-<stage>`.
+`aws/init-scheduled-jobs.sh` is the declarative source of truth: edit it to
+add, remove, or reschedule jobs.
+
+One-time setup per stage:
+
+```bash
+source aws/env.sh
+./aws/create-scheduler-role.sh    # IAM role EventBridge uses to invoke job Lambdas
+make zip                          # build & package all lambda binaries
+./aws/init-scheduled-jobs.sh      # creates the Lambda + schedule for every declared job
+```
+
+To edit a schedule or add a new job: update `init-scheduled-jobs.sh`, delete
+the affected resources in AWS (the `create-*` scripts are not idempotent), and
+re-run `init-scheduled-jobs.sh`.
 
 ## Testing
 

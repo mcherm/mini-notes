@@ -15,6 +15,8 @@ Requires `cargo-lambda` (`cargo install cargo-lambda`).
 ## Project Structure
 
 - `lambdas/api-v1/src/main.rs` — single Lambda handling all API endpoints via path-based routing
+- `lambdas/common/` — shared crate (AWS config, stage, table names, DynamoDB client); used by `api-v1` and all job lambdas
+- `lambdas/job-<name>/` — one crate per scheduled background job; invoked by EventBridge Scheduler, not HTTP
 - `html/` — static frontend (served from S3 via CloudFront)
 - `aws/` — infrastructure setup scripts (source `aws/env.sh` first)
 - `docs/design_notes.md` — planned API endpoints and data structures

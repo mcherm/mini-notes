@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "lambdas/common",
     "lambdas/api-v1",
+    "lambdas/job-heartbeat",
 ]
 resolver = "2"
