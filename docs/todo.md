@@ -4,3 +4,4 @@
 * Reset Password
 * Some errors should be shown. Eg: email already in use. Failed login.
 * Deleted notes should instead be moved to the trash and be recoverable.
+* Admin screen for viewing number of users and notes.

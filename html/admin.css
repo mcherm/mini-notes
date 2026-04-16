@@ -1,0 +1,21 @@
+body-content#admin-page {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+admin-commands {
+    border: var(--body-border) solid var(--colorless-dk);
+    padding: 4px;
+}
+
+
+admin-commands {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: center;
+    align-items: center;
+    padding: 4px;
+    gap: 4px;
+    background-color: var(--interest-color-lt);
+}
