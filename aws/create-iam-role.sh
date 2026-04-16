@@ -41,7 +41,8 @@ aws iam put-role-policy \
                 \"dynamodb:UpdateItem\",
                 \"dynamodb:DeleteItem\",
                 \"dynamodb:Query\",
-                \"dynamodb:Scan\"
+                \"dynamodb:Scan\",
+                \"dynamodb:DescribeTable\"
             ],
             \"Resource\": \"arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/mini-notes-*\"
         }]

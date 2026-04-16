@@ -6,7 +6,6 @@
 I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 
 ### User
-
 **Fields:**
 * user_id: string
 * email: string [restricted character set]
@@ -291,6 +290,29 @@ Each file always creates a new note, even if a note with the same title already 
 
 For **SimpleNote JSON format**: The file should match the format that SimpleNote uses
 when outputting in JSON format. Only notes that are NOT in the trash will be imported.
+
+### Site Data
+**Path:** /api/v1/admin/site_data [GET]
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+* site_data: [body] SiteData
+
+**Description:**
+This gives an access error unless the user calling it is of type "Admin". Otherwise, it returns a SiteData
+structure. That structure may evolve, but for now it looks like this:
+
+#### SiteData
+**Fields:**
+* user_count: number -- the approximate number of users
+* user_size: number -- the approximate size (in bytes) of the user table
+* session_count: number -- the approximate number of sessions
+* session_size: number -- the approximate size (in bytes) of the session table
+* note_count: number -- the approximate number of notes
+* note_size: number -- the approximate size (in bytes) of the note table
+
 
 ## URLs
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .

@@ -5,17 +5,33 @@ body-content#admin-page {
 }
 
 admin-commands {
-    border: var(--body-border) solid var(--colorless-dk);
-    padding: 4px;
-}
-
-
-admin-commands {
     display: grid;
     grid-template-columns: auto auto;
     justify-content: center;
     align-items: center;
     padding: 4px;
     gap: 4px;
+    border: var(--body-border) solid var(--colorless-dk);
     background-color: var(--interest-color-lt);
+}
+
+site-data-area {
+    display: grid;
+    grid-template-areas:
+        "form_1 form_1"
+        "button_1 .";
+    background-color: var(--interest-color-lt);
+
+    & > button {
+        justify-self: center;
+    }
+}
+
+site-data-form {
+    grid-area: form_1;
+    justify-self: center;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 5px;
+    padding: 5px;
 }

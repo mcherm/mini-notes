@@ -58,7 +58,7 @@ pub async fn handle_user_create(
         }
     };
 
-    let user_type = UserType::Earlybird; // for now, everyone is an Earlybird
+    let user_type = UserType::Earlybird; // anyone signing up now is an Earlybird
 
     // Insert the new user into the users table
     let result = state.dynamo_client

@@ -35,13 +35,15 @@ pub fn parse_note_format(s: &str) -> Result<NoteFormat, String> {
 /// kind ("Earlybird")
 #[derive(Debug, Deserialize)]
 pub enum UserType {
+    Admin,
     Earlybird,
 }
 
 impl Display for UserType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
-            UserType::Earlybird => "Earlybird"
+            UserType::Admin => "Admin",
+            UserType::Earlybird => "Earlybird",
         })
     }
 }
@@ -49,6 +51,7 @@ impl Display for UserType {
 /// Helper for reading the enum UserType fields from DynamoDB.
 pub fn parse_user_type(s: &str) -> Result<UserType, String> {
     match s {
+        "Admin" => Ok(UserType::Admin),
         "Earlybird" => Ok(UserType::Earlybird),
         _ => Err(format!("unknown user type '{s}'")),
     }
@@ -94,6 +97,18 @@ pub struct Session {
     pub session_id: String,
     pub user_id: String,
     pub expire_time: String,
+}
+
+/// A struct summarizing storage-level statistics about the site's DynamoDB tables.
+/// All counts and sizes are approximate; they come from DynamoDB's DescribeTable API,
+/// which refreshes these values roughly every six hours.
+pub struct SiteData {
+    pub user_count: u64,
+    pub user_size: u64,
+    pub session_count: u64,
+    pub session_size: u64,
+    pub note_count: u64,
+    pub note_size: u64,
 }
 
 
@@ -256,6 +271,20 @@ impl From<Session> for JsonValue {
             "session_id": session.session_id,
             "user_id": session.user_id,
             "expire_time": session.expire_time,
+        })
+    }
+}
+
+/// Convert a SiteData into a JsonValue suitable to return to the caller.
+impl From<SiteData> for JsonValue {
+    fn from(site_data: SiteData) -> Self {
+        json!({
+            "user_count": site_data.user_count,
+            "user_size": site_data.user_size,
+            "session_count": site_data.session_count,
+            "session_size": site_data.session_size,
+            "note_count": site_data.note_count,
+            "note_size": site_data.note_size,
         })
     }
 }

@@ -18,9 +18,30 @@
         <header-text>Mini-Notes Admin</header-text>
       </header>
       <admin-commands>
-        <label for="measure-users-btn">Measure Users</label>
-        <button id="measure-users-btn">Go</button>
+        <label for="site-data-btn">Site Data</label>
+        <button id="site-data-btn">Go</button>
       </admin-commands>
     </body-content>
+    <shadow-box id="site-data-display-dialog">
+      <shadow-content>
+        <site-data-area>
+          <site-data-form>
+            <label for="user-count-display">User Count:</label>
+            <input type="text" id="user-count-display" disabled value="dummy">
+            <label for="user-count-display">User Table Size (bytes):</label>
+            <input type="text" id="user-size-display" disabled value="dummy">
+            <label for="session-count-display">Session Count:</label>
+            <input type="text" id="session-count-display" disabled value="dummy">
+            <label for="session-count-display">Session Table Size (bytes):</label>
+            <input type="text" id="session-size-display" disabled value="dummy">
+            <label for="note-count-display">Note Count:</label>
+            <input type="text" id="note-count-display" disabled value="dummy">
+            <label for="note-count-display">Note Table Size (bytes):</label>
+            <input type="text" id="note-size-display" disabled value="dummy">
+          </site-data-form>
+          <button id="close-site-data-shadowbox-btn">&#x2190;</button>
+        </site-data-area>
+      </shadow-content>
+    </shadow-box>
   </body>
 </html>
