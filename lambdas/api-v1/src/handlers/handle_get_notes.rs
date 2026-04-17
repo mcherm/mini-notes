@@ -71,6 +71,7 @@ pub async fn handle_get_notes(
         .table_name(&state.notes_table_name)
         .index_name("notes-by-modify-time")
         .key_condition_expression("user_id = :uid")
+        .filter_expression("attribute_not_exists(delete_time)")
         .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
         .limit(NOTES_PER_BATCH)
         .scan_index_forward(false)

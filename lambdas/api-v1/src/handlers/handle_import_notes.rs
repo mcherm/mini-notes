@@ -293,6 +293,7 @@ async fn create_imported_notes(
             format,
             body,
             undo_stack,
+            delete_time: None,
         };
         put_note(state, note).await?;
         match existing_note {

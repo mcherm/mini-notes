@@ -77,7 +77,7 @@ pub async fn handle_search_notes(
             .query()
             .table_name(&state.notes_table_name)
             .key_condition_expression("user_id = :uid")
-            .filter_expression("contains(title, :search) OR contains(body, :search)")
+            .filter_expression("(contains(title, :search) OR contains(body, :search)) AND attribute_not_exists(delete_time)")
             .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
             .expression_attribute_values(":search", AttributeValue::S(query_params.search_string.clone()))
             .limit(NOTES_PER_BATCH)

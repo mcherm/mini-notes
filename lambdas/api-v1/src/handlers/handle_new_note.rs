@@ -52,6 +52,7 @@ pub async fn handle_new_note(
         format: new_note_fields.format,
         body: new_note_fields.body,
         undo_stack: Vec::new(),
+        delete_time: None,
     };
 
     let result = state.dynamo_client

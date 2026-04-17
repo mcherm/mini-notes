@@ -71,6 +71,7 @@ pub struct Note {
     pub format: NoteFormat,
     pub body: String,
     pub undo_stack: Vec<String>,
+    pub delete_time: Option<String>, // TODO: make this use a time object instead
 }
 
 /// A struct for the header of a note.
@@ -96,7 +97,7 @@ pub struct User {
 pub struct Session {
     pub session_id: String,
     pub user_id: String,
-    pub expire_time: String,
+    pub expire_time: String, // TODO: make this use a time object instead
 }
 
 /// A struct summarizing storage-level statistics about the site's DynamoDB tables.
@@ -123,6 +124,16 @@ pub fn get_s(item: &DynamoDBRecord, field: &str) -> Result<String, String> {
         .as_s()
         .map(|s| s.to_string())
         .map_err(|_| format!("field '{field}' is not a string"))
+}
+
+/// Helper for reading Optional<String> fields from DynamoDB.
+pub fn get_opt_s(item: &DynamoDBRecord, field: &str) -> Result<Option<String>, String> {
+    match item.get(field) {
+        None => Ok(None),
+        Some(attr) => attr.as_s()
+            .map(|s| Some(s.to_string()))
+            .map_err(|_| format!("field '{field}' is not a string")),
+    }
 }
 
 /// Helper for reading number fields from DynamoDB.
@@ -167,6 +178,7 @@ impl TryFrom<DynamoDBRecord> for Note {
             format: parse_note_format(&get_s(&item, "format")?)?,
             body: get_s(&item, "body")?,
             undo_stack: get_list_of_string(&item, "undo_stack")?,
+            delete_time: get_opt_s(&item, "delete_time")?,
         })
     }
 }
@@ -174,7 +186,7 @@ impl TryFrom<DynamoDBRecord> for Note {
 /// Convert a Note into a JsonValue suitable to return to the caller.
 impl From<Note> for JsonValue {
     fn from(note: Note) -> Self {
-        json!({
+        let mut obj = json!({
             "user_id": note.user_id,
             "note_id": note.note_id,
             "version_id": note.version_id,
@@ -184,7 +196,11 @@ impl From<Note> for JsonValue {
             "format": note.format.to_string(),
             "body": note.body,
             "undo_stack": note.undo_stack,
-        })
+        });
+        if let Some(delete_time) = note.delete_time {
+            obj["delete_time"] = json!(delete_time);
+        }
+        obj
     }
 }
 

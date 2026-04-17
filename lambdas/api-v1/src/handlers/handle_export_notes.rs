@@ -94,6 +94,7 @@ async fn fetch_all_notes(state: &AppState, user_id: &str) -> Result<Vec<Note>, H
             .query()
             .table_name(&state.notes_table_name)
             .key_condition_expression("user_id = :uid")
+            .filter_expression("attribute_not_exists(delete_time)")
             .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
             .set_exclusive_start_key(exclusive_start_key)
             .send()

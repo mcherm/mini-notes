@@ -211,6 +211,7 @@ async fn handle_conflict(
             format: existing_note.format,
             body: edit_note_fields.body.clone(),
             undo_stack: Vec::new(), // conflicts get a blank undo stack
+            delete_time: None,
         };
 
         write_note(state, &conflict_note).await?;
@@ -232,6 +233,7 @@ async fn handle_conflict(
             format: NoteFormat::PlainText, // we don't know the true format, but for NOW there IS only one
             body: edit_note_fields.body.clone(),
             undo_stack: Vec::new(), // we lose the undo_stack
+            delete_time: None,
         };
 
         write_note(state, &restored_note).await?;

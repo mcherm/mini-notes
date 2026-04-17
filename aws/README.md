@@ -26,7 +26,10 @@ aws sts get-caller-identity
 | Script | Run | Description |
 |---|---|---|
 | `env.sh` | Each session | **Source** this to set `AWS_PROFILE=mini-notes` and `STAGE=dev` |
-| `create-dynamodb-tables.sh` | Once per stage | Creates the `mini-notes-notes-<stage>`, `mini-notes-users-<stage>`, and `mini-notes-sessions-<stage>` DynamoDB tables |
+| `create-dynamodb-table-notes.sh` | Once per stage | Creates the `mini-notes-notes-<stage>` DynamoDB table with LSI and TTL |
+| `create-dynamodb-table-users.sh` | Once per stage | Creates the `mini-notes-users-<stage>` DynamoDB table with GSI |
+| `create-dynamodb-table-sessions.sh` | Once per stage | Creates the `mini-notes-sessions-<stage>` DynamoDB table with TTL |
+| `recreate-notes-table.sh` | As needed | Backs up, drops, recreates, and restores the notes table (for schema changes) |
 | `create-iam-role.sh` | Once (shared) | Creates the Lambda execution role; not stage-specific |
 | `create-lambda-api-v1.sh` | Once per stage | Creates the `mini-notes-api-v1-<stage>` Lambda and attaches a public HTTPS Function URL |
 | `create-cors-policy.sh` | Once per stage | Creates a CloudFront response headers policy for CORS, allowing the frontend domain to call the API |
@@ -45,7 +48,9 @@ aws sts get-caller-identity
 source aws/env.sh   # sets AWS_PROFILE=mini-notes and STAGE=dev; do this once per shell session
 chmod +x aws/*.sh
 
-./aws/create-dynamodb-tables.sh  # creates mini-notes-notes-dev
+./aws/create-dynamodb-table-notes.sh     # creates mini-notes-notes-dev
+./aws/create-dynamodb-table-users.sh     # creates mini-notes-users-dev
+./aws/create-dynamodb-table-sessions.sh  # creates mini-notes-sessions-dev
 ./aws/create-iam-role.sh        # creates shared role (run once, not per stage)
 
 make zip-api-v1                    # build binary and package it
@@ -96,7 +101,7 @@ affect prod during normal development.
 
 **When `STAGE=prod` is required:**
 
-- Setting up prod infrastructure for the first time (run `create-dynamodb-tables.sh` and `create-lambda-api-v1.sh` with `STAGE=prod`)
+- Setting up prod infrastructure for the first time (run the `create-dynamodb-table-*.sh` scripts and `create-lambda-api-v1.sh` with `STAGE=prod`)
 - Deploying a release build to prod (`make deploy` with `STAGE=prod`)
 - Seeding or inspecting prod data
 
@@ -107,7 +112,9 @@ command — do not permanently change `env.sh`:
 source aws/env.sh          # sets STAGE=dev as usual
 
 # One-time: set up prod infrastructure
-STAGE=prod ./aws/create-dynamodb-tables.sh
+STAGE=prod ./aws/create-dynamodb-table-notes.sh
+STAGE=prod ./aws/create-dynamodb-table-users.sh
+STAGE=prod ./aws/create-dynamodb-table-sessions.sh
 STAGE=prod ./aws/create-lambda-api-v1.sh
 
 # Deploy a release to prod
