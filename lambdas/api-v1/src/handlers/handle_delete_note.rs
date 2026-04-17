@@ -1,13 +1,12 @@
 use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{
     extract::{Path, State},
-    response::Json,
+    http::StatusCode,
 };
-use serde_json::json;
 use time::format_description::well_known::Iso8601;
 use tracing::info;
 
-use crate::extractors::{AppState, CurrentTime, HandlerOutput, http_error, UserSession};
+use crate::extractors::{AppState, CurrentTime, HandlerErrOutput, http_error, UserSession};
 use crate::utils::SOFT_DELETE_DAYS;
 
 
@@ -19,7 +18,7 @@ pub async fn handle_delete_note(
     user_session: UserSession,
     current_time: CurrentTime,
     Path(note_id): Path<String>,
-) -> HandlerOutput {
+) -> Result<StatusCode, HandlerErrOutput> {
     let Some(session) = user_session.0 else {
         return Err(http_error(401, "not logged in"));
     };
@@ -48,8 +47,7 @@ pub async fn handle_delete_note(
         return Err(http_error(500, "unable to delete note"));
     }
 
-    let body_json = json!({});
-    Ok(Json(body_json))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 
@@ -70,8 +68,7 @@ mod tests {
             Path("ab12cd34ef".to_string()),
         ).await;
 
-        let Json(json) = result.unwrap();
-        assert_eq!(json, json!({}));
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
@@ -87,8 +84,7 @@ mod tests {
             Path("ab12cd34ef".to_string()),
         ).await;
 
-        let Json(json) = result.unwrap();
-        assert_eq!(json, json!({}));
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
@@ -103,8 +99,7 @@ mod tests {
             Path("ab12cd34ef".to_string()),
         ).await;
 
-        let (status, Json(json)) = result.unwrap_err();
+        let (status, _) = result.unwrap_err();
         assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
-        assert_eq!(json["error"], "not logged in");
     }
 }

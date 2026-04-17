@@ -200,7 +200,8 @@ If the note was deleted (delete-edit conflict), the note is re-created at the
 original note_id without the "[CONFLICTED] " prefix, and the response is 200. The
 title of a note cannot be more than 1,000 bytes in UTF-8. The body of a note
 cannot be more than 100,000 bytes in UTF-8. Exceeding these will return a 400
-error.
+error. This cannot operate on a soft-deleted note and will return a 403 error if
+that is attempted.
 
 
 ### Delete Note
@@ -235,6 +236,38 @@ the beginning; if a continuation_key is provided it starts where the last call l
 off. The output includes a continuation_key if there might be more to retrieve and
 does not contain one when we've gotten all of the notes that contain the search
 string.
+
+### Get Deleted Notes
+**Path:** /api/v1/deleted_notes [GET]\
+**Path:** /api/v1/deleted_notes?continue_key={continue_key} [GET]
+
+**Inputs:**
+* session_id: [header] string
+* continue_key: [query] string
+
+**Outputs:**
+* NoteHeader objects: [body] list<object>
+* continuation_key: [body] option<string>
+
+**Description:**
+This operates exactly like the Get Notes API except that this returns information
+about the notes that are "in the trash" -- that have been soft-deleted but can
+still be recovered.
+
+
+### Recover Deleted Note
+**Path:** /api/v1/recover_note/*{note_id}* [POST]
+
+**Inputs:**
+* session_id: [header] string
+* note_id: [path] string
+
+**Outputs:**
+
+**Description:**
+If note_id corresponds to a note in this user's account that has been soft-deleted
+but is not yet unrecoverable, then this "recovers" that note, restoring it to being
+a regular note.
 
 ### Export Notes
 **Path:** /api/v1/note_export?file_format={file_format} [GET]

@@ -12,4 +12,6 @@ pub mod handle_delete_note;
 pub mod handle_search_notes;
 pub mod handle_import_notes;
 pub mod handle_export_notes;
+pub mod handle_get_deleted_notes;
+pub mod handle_recover_note;
 pub mod handle_site_data;

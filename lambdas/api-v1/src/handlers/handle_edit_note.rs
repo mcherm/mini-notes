@@ -58,6 +58,13 @@ pub async fn handle_edit_note(
     // --- Read existing note ---
     let existing_note: Option<Note> = get_existing_note(&state, &note_id, &user_id).await?;
 
+    // --- Reject edits to soft-deleted notes ---
+    if let Some(note) = existing_note.as_ref() {
+        if note.delete_time.is_some() {
+            return Err(http_error(403, "cannot edit a deleted note"));
+        }
+    }
+
     // --- Bail now if we find that it's not the right version ---
     if let Some(note) = existing_note.as_ref() && note.version_id != edit_note_fields.source_version_id {
         return handle_conflict(
@@ -485,5 +492,28 @@ mod tests {
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(json["error"].as_str().unwrap().contains("Body too long"));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_note_soft_deleted() {
+        let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"3"},"title":{"S":"Deleted Note"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Some body"},"delete_time":{"S":"2026-04-10T00:00:00.000000000Z"}}}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_edit_note(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            Path("ab12cd34ef".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            Json(EditNoteBody {
+                title: "New Title".to_string(),
+                body: "New body".to_string(),
+                source_version_id: 3,
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(json["error"], "cannot edit a deleted note");
     }
 }

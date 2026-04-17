@@ -11,6 +11,13 @@ use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
 use crate::models::{DynamoDBRecord, NoteHeader, get_s};
 use crate::utils::NOTES_PER_BATCH;
 
+
+/// Controls whether to query normal (non-deleted) notes or soft-deleted notes.
+pub enum NoteFilter {
+    NormalNotes,
+    DeletedNotes,
+}
+
 /// When traversing the index used by get_notes, DynamoDB gives us back a "LastEvaluatedKey"
 /// map with the 3 fields user_id, note_id, and modify_time when we are reading from the LSI.
 /// This converts that to a pipe-delimited string in the format "user_id|modify_time|note_id"
@@ -49,15 +56,30 @@ pub async fn handle_get_notes(
     user_session: UserSession,
     Query(query_params): Query<GetNotesParams>
 ) -> HandlerOutput {
+    get_notes_impl(&state, user_session, query_params.continue_key, NoteFilter::NormalNotes).await
+}
+
+/// Shared implementation for querying notes with pagination. Used by both
+/// handle_get_notes (NormalNotes) and handle_get_deleted_notes (DeletedNotes).
+pub async fn get_notes_impl(
+    state: &AppState,
+    user_session: UserSession,
+    continue_key: Option<String>,
+    note_filter: NoteFilter,
+) -> HandlerOutput {
     let Some(session) = user_session.0 else {
         return Err(http_error(401, "not logged in"));
     };
-    let user_id = session.user_id;
+    let user_id = &session.user_id;
+    let filter_expr = match note_filter {
+        NoteFilter::NormalNotes => "attribute_not_exists(delete_time)",
+        NoteFilter::DeletedNotes => "attribute_exists(delete_time)",
+    };
 
-    info!(user_id, table = state.notes_table_name, "fetching notes");
+    info!(user_id, table = state.notes_table_name, filter_expr, "fetching notes");
 
     // Parse the continuation key if provided
-    let exclusive_start_key: Option<DynamoDBRecord> = match query_params.continue_key {
+    let exclusive_start_key: Option<DynamoDBRecord> = match continue_key {
         Some(key) => match parse_get_notes_continue_key(&key) {
             Ok(record) => Some(record),
             Err(_) => return Err(http_error(400, "invalid continue_key")),
@@ -71,7 +93,7 @@ pub async fn handle_get_notes(
         .table_name(&state.notes_table_name)
         .index_name("notes-by-modify-time")
         .key_condition_expression("user_id = :uid")
-        .filter_expression("attribute_not_exists(delete_time)")
+        .filter_expression(filter_expr)
         .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
         .limit(NOTES_PER_BATCH)
         .scan_index_forward(false)
