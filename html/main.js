@@ -646,13 +646,10 @@ async function deleteCurrentNote() {
     renderNote();
 }
 
-/** Recovers the current note from trash via the API and removes it from the trash list. */
-async function recoverCurrentNote() {
-    if (!currentNote) return;
+/** Removes the current note from the trash list UI and clears the display. */
+function removeCurrentNoteFromTrashList() {
     const noteId = currentNote.note_id;
-    const url = `${getApiBaseUrl()}/api/v1/recover_note/${encodeURIComponent(noteId)}`;
     setIntendedNote(null);
-    await apiFetch(url, { method: "POST" });
 
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
     if (oldIndex !== -1) {
@@ -672,6 +669,22 @@ async function recoverCurrentNote() {
     setCurrentNote(null);
     renderNote();
     document.getElementById("main-page").classList.remove("showing-note");
+}
+
+/** Recovers the current note from trash via the API and removes it from the trash list. */
+async function recoverCurrentNote() {
+    if (!currentNote) return;
+    const url = `${getApiBaseUrl()}/api/v1/recover_note/${encodeURIComponent(currentNote.note_id)}`;
+    await apiFetch(url, { method: "POST" });
+    removeCurrentNoteFromTrashList();
+}
+
+/** Permanently destroys the current note via the API and removes it from the trash list. */
+async function destroyCurrentNote() {
+    if (!currentNote) return;
+    const url = `${getApiBaseUrl()}/api/v1/deleted_notes/${encodeURIComponent(currentNote.note_id)}`;
+    await apiFetch(url, { method: "DELETE" });
+    removeCurrentNoteFromTrashList();
 }
 
 /** Fetches the current user's data from the API and populates the user display fields. */
@@ -1093,8 +1106,8 @@ async function actionRestoreNoteBtn() {
 }
 
 /** Handles the delete forever button (placeholder). */
-function actionDeleteForeverBtn() {
-    // FIXME: Needs content
+async function actionDeleteForeverBtn() {
+    await destroyCurrentNote();
 }
 
 /** Handles title input focus by entering note view and exiting auto-title mode. */

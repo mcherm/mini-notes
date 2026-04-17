@@ -23,6 +23,7 @@ use handlers::{
     handle_delete_note::handle_delete_note,
     handle_get_deleted_notes::handle_get_deleted_notes,
     handle_recover_note::handle_recover_note,
+    handle_destroy_deleted_note::handle_destroy_deleted_note,
     handle_search_notes::handle_search_notes,
     handle_user_login::handle_user_login,
     handle_user_logout::handle_user_logout,
@@ -69,6 +70,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/notes/{note_id}", delete(handle_delete_note))
         .route("/api/v1/deleted_notes", get(handle_get_deleted_notes))
         .route("/api/v1/recover_note/{note_id}", post(handle_recover_note))
+        .route("/api/v1/deleted_notes/{note_id}", delete(handle_destroy_deleted_note))
         .route("/api/v1/note_export", get(handle_export_notes))
         .route("/api/v1/note_import", post(handle_import_notes))
         .route("/api/v1/note_search", get(handle_search_notes))

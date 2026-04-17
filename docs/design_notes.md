@@ -67,6 +67,26 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 
 ## Commands
 
+| Path                                     | Command              |
+|------------------------------------------|----------------------|
+| `GET    /api/v1/notes`                   | Get Notes            |
+| `POST   /api/v1/notes`                   | New Note             |
+| `GET    /api/v1/notes/{note_id}`         | Get Note             |
+| `PUT    /api/v1/notes/{note_id}`         | Edit Note            |
+| `DELETE /api/v1/notes/{note_id}`         | Delete Note          |
+| `GET    /api/v1/deleted_notes`           | Get Deleted Notes    |
+| `POST   /api/v1/recover_note/{note_id}`  | Recover Deleted Note |
+| `DELETE /api/v1/deleted_notes/{note_id}` | Destroy Deleted Note |
+| `GET    /api/v1/note_export`             | Export Notes         |
+| `GET    /api/v1/note_import`             | Import Notes         |
+| `GET    /api/v1/note_search`             | Search Notes         |
+| `GET    /api/v1/user`                    | Get User             |
+| `DELETE /api/v1/user`                    | Delete User          |
+| `POST   /api/v1/user_login`              | User Login           |
+| `POST   /api/v1/user_logout`             | User Logout          |
+| `POST   /api/v1/user_create`             | User Create          |
+| `POST   /api/v1/admin/site_data`         | Site Data            |
+
 ### Create User
 **Path:** /api/v1/user_create [POST]
 
@@ -268,6 +288,21 @@ still be recovered.
 If note_id corresponds to a note in this user's account that has been soft-deleted
 but is not yet unrecoverable, then this "recovers" that note, restoring it to being
 a regular note.
+
+### Destroy Deleted Note
+**Path:** /api/v1/deleted_notes/*{note_id}* [DELETE]
+
+**Inputs:**
+* session_id: [header] string
+* note_id: [path] string
+
+**Outputs:**
+None
+
+**Description:**
+If note_id corresponds to a note in this user's account that has been soft-deleted
+but is not yet unrecoverable, then this permanently ("hard-") deletes it. If the
+note is not soft-deleted it returns an 412 error.
 
 ### Export Notes
 **Path:** /api/v1/note_export?file_format={file_format} [GET]
