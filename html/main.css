@@ -67,21 +67,26 @@ header {
     grid-area: header;
     border-bottom: none;
     background-color: var(--brand-color);
-    display: grid; /* Make this a single-cell grid so we can use justify-self on the button */
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
     align-items: center;
+    gap: 0 5px;
     & header-text {
-        grid-column: 1;
+        grid-column: 1 / -1;
         grid-row: 1;
+        text-align: center;
     }
     & .settings-btn {
         grid-column: 1;
         grid-row: 1;
-        justify-self: start;
+    }
+    & #trash-btn {
+        grid-column: 2;
+        grid-row: 1;
     }
     & #user-btn {
-        grid-column: 1;
+        grid-column: 4;
         grid-row: 1;
-        justify-self: end;
     }
 }
 
@@ -193,6 +198,22 @@ article {
 #note.can-undo #undo-btn {
     display: block;
 }
+
+/* ========== Trash View ========== */
+
+#main-page:not(.trash-view) #close-trash-view-btn { display: none; }
+#main-page:not(.trash-view) #restore-note-btn { display: none; }
+#main-page:not(.trash-view) #delete-forever-btn { display: none; }
+
+#main-page.trash-view #new-note { display: none; }
+#main-page.trash-view input.search { display: none; }
+#main-page.trash-view #trash-btn { display: none; }
+#main-page.trash-view #undo-btn { display: none; }
+#main-page.trash-view #redo-btn { display: none; }
+#main-page.trash-view #note-info-btn { display: none; }
+#main-page.trash-view nav-header { justify-content: center; }
+
+#main-page.trash-view textarea.note-body { background-color: var(--colorless-lt); }
 
 textarea.note-body {
     flex: 1;

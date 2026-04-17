@@ -33,7 +33,7 @@ EditingStatus =
 
 PendingRequest = NoPendingRequest | Saving | Reloading
 
-NoteList = parallel( SearchInput, ListLifecycle )
+NoteList = parallel( SearchInput, ListLifecycle, TrashView )
 SearchInput =
   | NoSearch                     -- showing/loading the full note list
   | SearchDebouncing             -- typing, request not yet sent
@@ -42,6 +42,9 @@ ListLifecycle =
   | Idle
   | LoadingFirstPage
   | LoadingNextPage
+TrashView =
+  | NormalNotes
+  | DeletedNotes
 
 ViewMode = ShowingList | ShowingNote | ShowingBoth
 

@@ -35,6 +35,7 @@ let lastActiveTime = Date.now();
 let autoTitleActive = false;
 let unfocusedEditsPending = false;
 let unfocusedEditDebounceTimer = null;
+let trashView = false;
 
 /** Returns true if the user is currently logged in. */
 function isLoggedIn() {
@@ -157,7 +158,12 @@ function stateUpdateForLogout() {
     unfocusedEditsPending = false;
     clearTimeout(unfocusedEditDebounceTimer);
     unfocusedEditDebounceTimer = null;
-    document.getElementById("main-page").classList.remove("showing-note");
+    trashView = false;
+    const mainPage = document.getElementById("main-page");
+    mainPage.classList.remove("showing-note");
+    mainPage.classList.remove("trash-view");
+    document.querySelector("article input.title").removeAttribute("readonly");
+    document.querySelector("article textarea.note-body").removeAttribute("readonly");
     renderNote();
     document.querySelector("input.search").value = "";
 }
@@ -173,6 +179,36 @@ async function stateUpdateForLogin() {
     await loadNoteHeaders();
 }
 
+/** Enters trash view: shows deleted notes in read-only mode. */
+async function enterTrashView() {
+    saveUnfocusedEditsIfPending();
+    trashView = true;
+    const mainPage = document.getElementById("main-page");
+    mainPage.classList.add("trash-view");
+    mainPage.classList.remove("showing-note");
+    document.querySelector("input.search").value = "";
+    setIntendedNote(null);
+    setCurrentNote(null);
+    renderNote();
+    document.querySelector("article input.title").setAttribute("readonly", "");
+    document.querySelector("article textarea.note-body").setAttribute("readonly", "");
+    await loadTrashNoteHeaders();
+}
+
+/** Exits trash view: returns to normal notes mode. */
+async function exitTrashView() {
+    trashView = false;
+    const mainPage = document.getElementById("main-page");
+    mainPage.classList.remove("trash-view");
+    mainPage.classList.remove("showing-note");
+    setIntendedNote(null);
+    setCurrentNote(null);
+    renderNote();
+    document.querySelector("article input.title").removeAttribute("readonly");
+    document.querySelector("article textarea.note-body").removeAttribute("readonly");
+    await loadNoteHeaders();
+}
+
 // ========== Rendering ==========
 
 /** Clears the <note-list> element and repopulates it from the noteHeaders array. */
@@ -185,7 +221,7 @@ function renderNoteList() {
     });
     if (noteHeaders.length === 0) {
         const emptyMessage = document.createElement("note-list-empty");
-        emptyMessage.textContent = "No notes yet. Click \"New\" to create one.";
+        emptyMessage.textContent = trashView ? "No deleted notes." : "No notes yet. Click \"New\" to create one.";
         noteList.appendChild(emptyMessage);
     } else {
         const emptyMessage = noteList.querySelector("note-list-empty");
@@ -252,7 +288,11 @@ function setupScrollObserver() {
 
     scrollObserver = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && continuationKey !== null && !isLoadingNotes) {
-            loadNoteHeaders(continuationKey);
+            if (trashView) {
+                loadTrashNoteHeaders(continuationKey);
+            } else {
+                loadNoteHeaders(continuationKey);
+            }
         }
     }, {
         root: noteList,
@@ -427,6 +467,31 @@ async function loadNoteHeaders(continueKey) {
     }
 }
 
+/** Fetches deleted note headers from the API and renders the note list. */
+async function loadTrashNoteHeaders(continueKey) {
+    isLoadingNotes = true;
+    try {
+        const queryParams = continueKey ? `?continue_key=${encodeURIComponent(continueKey)}` : "";
+        const url = `${getApiBaseUrl()}/api/v1/deleted_notes${queryParams}`;
+        const response = await apiFetch(url);
+        const data = await response.json();
+        const newHeaders = data.note_headers;
+        continuationKey = data.continue_key || null;
+
+        if (continueKey) {
+            noteHeaders = noteHeaders.concat(newHeaders);
+            appendNoteHeaders(newHeaders);
+        } else {
+            noteHeaders = newHeaders;
+            renderNoteList();
+        }
+        updateSentinel();
+    } finally {
+        isLoadingNotes = false;
+        reobserveSentinel();
+    }
+}
+
 /** Fetches note headers matching a search string and renders the note list. */
 async function searchNotes(searchString, continueKey) {
     isLoadingNotes = true;
@@ -459,6 +524,7 @@ async function searchNotes(searchString, continueKey) {
 
 /** Saves the current note if the title or body has changed. */
 async function saveNoteIfChanged() {
+    if (trashView) return;
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
     const newTitle = titleInput.value;
@@ -521,7 +587,7 @@ async function refreshAfterStale() {
     const priorIntended = intendedCurrentNoteId;
     await saveNoteIfChanged();
     const selectedNoteId = currentNote ? currentNote.note_id : null;
-    await loadNoteHeaders();
+    await (trashView ? loadTrashNoteHeaders() : loadNoteHeaders());
     if (selectedNoteId) {
         const stillExists = noteHeaders.some(h => h.note_id === selectedNoteId);
         if (stillExists) {
@@ -572,12 +638,40 @@ async function deleteCurrentNote() {
 
     if (noteHeaders.length === 0) {
         const emptyMessage = document.createElement("note-list-empty");
-        emptyMessage.textContent = "No notes yet. Click \"New\" to create one.";
+        emptyMessage.textContent = trashView ? "No deleted notes." : "No notes yet. Click \"New\" to create one.";
         noteList.insertBefore(emptyMessage, noteList.firstChild);
     }
 
     setCurrentNote(null);
     renderNote();
+}
+
+/** Recovers the current note from trash via the API and removes it from the trash list. */
+async function recoverCurrentNote() {
+    if (!currentNote) return;
+    const noteId = currentNote.note_id;
+    const url = `${getApiBaseUrl()}/api/v1/recover_note/${encodeURIComponent(noteId)}`;
+    setIntendedNote(null);
+    await apiFetch(url, { method: "POST" });
+
+    const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
+    if (oldIndex !== -1) {
+        noteHeaders.splice(oldIndex, 1);
+    }
+
+    const noteList = document.querySelector("note-list");
+    const oldSlug = noteList.querySelector(`note-slug[data-note-id="${noteId}"]`);
+    if (oldSlug) oldSlug.remove();
+
+    if (noteHeaders.length === 0) {
+        const emptyMessage = document.createElement("note-list-empty");
+        emptyMessage.textContent = "No deleted notes.";
+        noteList.insertBefore(emptyMessage, noteList.firstChild);
+    }
+
+    setCurrentNote(null);
+    renderNote();
+    document.getElementById("main-page").classList.remove("showing-note");
 }
 
 /** Fetches the current user's data from the API and populates the user display fields. */
@@ -983,6 +1077,26 @@ function actionBackToListBtn() {
     document.getElementById("main-page").classList.remove("showing-note");
 }
 
+/** Handles the trash button click by entering trash view. */
+async function actionTrashBtn() {
+    await enterTrashView();
+}
+
+/** Handles the close trash view button click by exiting trash view. */
+async function actionCloseTrashView() {
+    await exitTrashView();
+}
+
+/** Handles the restore button click by recovering the current note from trash. */
+async function actionRestoreNoteBtn() {
+    await recoverCurrentNote();
+}
+
+/** Handles the delete forever button (placeholder). */
+function actionDeleteForeverBtn() {
+    // FIXME: Needs content
+}
+
 /** Handles title input focus by entering note view and exiting auto-title mode. */
 function actionTitleFocus() {
     saveUnfocusedEditsIfPending();
@@ -1127,6 +1241,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#new-note").addEventListener("click", actionNewNoteBtn);
     document.querySelector("#delete-note").addEventListener("click", actionDeleteNoteBtn);
     document.querySelector("#back-to-list").addEventListener("click", actionBackToListBtn);
+    document.querySelector("#trash-btn").addEventListener("click", actionTrashBtn);
+    document.querySelector("#close-trash-view-btn").addEventListener("click", actionCloseTrashView);
+    document.querySelector("#restore-note-btn").addEventListener("click", actionRestoreNoteBtn);
+    document.querySelector("#delete-forever-btn").addEventListener("click", actionDeleteForeverBtn);
     document.querySelector("#note input.title").addEventListener("focus", actionTitleFocus);
     document.querySelector("#note input.title").addEventListener("blur", actionTitleBlur);
     document.querySelector("#note textarea.note-body").addEventListener("focus", actionBodyFocus);
