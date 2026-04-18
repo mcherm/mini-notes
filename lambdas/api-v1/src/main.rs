@@ -29,6 +29,7 @@ use handlers::{
     handle_user_logout::handle_user_logout,
     handle_user_create::handle_user_create,
     handle_get_user::handle_get_user,
+    handle_edit_user::handle_edit_user,
     handle_delete_user::handle_delete_user,
     handle_export_notes::handle_export_notes,
     handle_import_notes::handle_import_notes,
@@ -75,6 +76,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/note_import", post(handle_import_notes))
         .route("/api/v1/note_search", get(handle_search_notes))
         .route("/api/v1/user", get(handle_get_user))
+        .route("/api/v1/user", post(handle_edit_user))
         .route("/api/v1/user", delete(handle_delete_user))
         .route("/api/v1/user_login", post(handle_user_login))
         .route("/api/v1/user_logout", post(handle_user_logout))

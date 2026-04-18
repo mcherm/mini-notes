@@ -1,13 +1,12 @@
-use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{
     extract::State,
     response::Json,
 };
 use serde_json::{json, value::Value as JsonValue};
-use tracing::info;
 
 use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
-use crate::models::{DynamoDBRecord, SiteData, User, UserType};
+use crate::handlers::common;
+use crate::models::{SiteData, UserType};
 
 
 /// Logic for handling the site_data command.
@@ -21,31 +20,7 @@ pub async fn handle_site_data(
     };
     let user_id = session.user_id;
 
-    // Load the user so we can check user_type.
-    let user_result = state.dynamo_client
-        .get_item()
-        .table_name(&state.users_table_name)
-        .key("user_id", AttributeValue::S(user_id.to_string()))
-        .send()
-        .await;
-    let user_result = match user_result {
-        Ok(response) => response,
-        Err(err) => return Err(http_error(500, &err.to_string())),
-    };
-    let user_item: DynamoDBRecord = match user_result.item {
-        Some(item) => item,
-        None => {
-            info!(user_id, "session references a user that does not exist");
-            return Err(http_error(500, "user for session not found"));
-        }
-    };
-    let user: User = match User::try_from(user_item) {
-        Ok(user) => user,
-        Err(err) => {
-            info!(err, "user is invalid in DB");
-            return Err(http_error(500, "user is invalid in DB"));
-        }
-    };
+    let user = common::fetch_user_by_id(&state.dynamo_client, &state.users_table_name, &user_id).await?;
 
     match user.user_type {
         UserType::Admin => {}

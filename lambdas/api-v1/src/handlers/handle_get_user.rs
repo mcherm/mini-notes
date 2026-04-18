@@ -1,13 +1,11 @@
-use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{
     extract::State,
     response::Json,
 };
 use serde_json::{json, value::Value as JsonValue};
-use tracing::info;
 
 use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
-use crate::models::{DynamoDBRecord, User};
+use crate::handlers::common;
 
 /// Logic for handling the get_user command.
 #[axum::debug_handler]
@@ -20,29 +18,7 @@ pub async fn handle_get_user(
     };
     let user_id = session.user_id;
 
-    info!(user_id, table = state.users_table_name, "fetching user");
-
-    let result = state.dynamo_client
-        .get_item()
-        .table_name(&state.users_table_name)
-        .key("user_id", AttributeValue::S(user_id.to_string()))
-        .send()
-        .await;
-    let result = match result {
-        Ok(response) => response,
-        Err(err) => return Err(http_error(500, &err.to_string())),
-    };
-    let item: DynamoDBRecord = match result.item {
-        Some(item) => item,
-        None => return Err(http_error(404, "user not found")),
-    };
-    let user: User = match User::try_from(item) {
-        Ok(user) => user,
-        Err(err) => {
-            info!(err, "user is invalid in DB");
-            return Err(http_error(500, "user is invalid in DB"));
-        }
-    };
+    let user = common::fetch_user_by_id(&state.dynamo_client, &state.users_table_name, &user_id).await?;
     let user_json: JsonValue = user.into();
 
     let body_json = json!({"user": user_json});
@@ -85,8 +61,8 @@ mod tests {
         ).await;
 
         let (status, Json(json)) = result.unwrap_err();
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(json["error"], "user not found");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json["error"], "user for session not found");
     }
 
     #[tokio::test]

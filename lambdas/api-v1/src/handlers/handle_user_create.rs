@@ -8,6 +8,7 @@ use serde::Deserialize;
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, CryptographicOps, http_error};
+use crate::handlers::common;
 use crate::handlers::handle_user_login::{UserLoginBody, handle_user_login};
 use crate::models::UserType;
 
@@ -30,23 +31,7 @@ pub async fn handle_user_create(
     info!(email = user_create_body.email, "user create attempt");
 
     // Check that the email isn't already in use
-    let email_check = state.dynamo_client
-        .query()
-        .table_name(&state.users_table_name)
-        .index_name("users-by-email")
-        .key_condition_expression("email = :email")
-        .expression_attribute_values(":email", AttributeValue::S(user_create_body.email.clone()))
-        .limit(1)
-        .send()
-        .await;
-    let email_check = match email_check {
-        Ok(response) => response,
-        Err(_) => return Err(http_error(500, "unable to check email availability")),
-    };
-    if email_check.items.map(|items| !items.is_empty()).unwrap_or(false) {
-        info!(email = user_create_body.email, "user create rejected: email already in use");
-        return Err(http_error(409, "email already in use"));
-    }
+    common::check_email_available(&state.dynamo_client, &state.users_table_name, &user_create_body.email).await?;
 
     // Generate user_id and password hash
     let user_id = generate_id();

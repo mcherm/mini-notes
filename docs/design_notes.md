@@ -83,7 +83,7 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 | `GET    /api/v1/note_search`             | Search Notes            |
 | `GET    /api/v1/user`                    | Get User                |
 | `DELETE /api/v1/user`                    | Delete User             |
-| `PUT    /api/v1/user`                    | User Edit               |
+| `POST   /api/v1/user`                    | User Edit               |
 | `POST   /api/v1/user_login`              | User Login              |
 | `POST   /api/v1/user_logout`             | User Logout             |
 | `POST   /api/v1/user_create`             | User Create             |
@@ -156,8 +156,8 @@ Obtain data about the currently logged-in user.
 This deletes the currently logged-in user, removing all of their notes, any
 sessions, and the user entry.
 
-### Edit User
-**Path:** /api/v1/user [PUT]
+### User Edit
+**Path:** /api/v1/user [POST]
 
 **Inputs:**
 * session_id: [header] string
