@@ -9,9 +9,8 @@ I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 **Fields:**
 * user_id: string
 * email: string [restricted character set]
-* salt: string
-* encrypted_password: string
-* user_type: enum [earlybird]
+* password_hash [salt and hash of password]
+* user_type: enum [Admin, Earlybird]
 * create_time: timestamp
 
 ### Note
@@ -22,9 +21,10 @@ I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 * title: string [no newlines]
 * create_time: timestamp
 * modify_time: timestamp
-* format: enum [plain]
+* format: enum [PlainText]
 * body: string
 * undo_stack: list[string] a list of diff strings for undo
+* delete_time: optional timestamp
 
 (In DynamoDB the PK is "user_id" and the sort key is "note_id". I will also generate an LSI where the sort key is "modify_time". The LSI will project the fields that are part of NoteHeader.)
 
@@ -37,7 +37,7 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 * version_id: number
 * title: String [no newlines]
 * modify_time: timestamp
-* format: enum [plain]
+* format: enum [PlainText]
 
 ### Session
 **Fields:**

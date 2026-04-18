@@ -6,11 +6,12 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use time::format_description::well_known::Iso8601;
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, CryptographicOps, http_error};
 use crate::models::{User, Session};
+use crate::utils::SESSION_LIFETIME_DAYS;
+
 
 /// A struct for the things that are passed in as part of the body when a user login occurs.
 #[derive(Debug, Deserialize)]
@@ -72,15 +73,11 @@ pub async fn handle_user_login(
 
     // Create a session
     let session_id = generate_id();
-    let expire_time = current_time.date_time + time::Duration::days(30);
-    let expire_time_string = match expire_time.format(&Iso8601::DEFAULT) {
-        Ok(s) => s,
-        Err(_) => return Err(http_error(500, "cannot format expire time")),
-    };
+    let expire_time = current_time.timestamp + std::time::Duration::from_hours(SESSION_LIFETIME_DAYS * 24);
     let session = Session {
         session_id,
         user_id: user.user_id,
-        expire_time: expire_time_string,
+        expire_time,
     };
 
     // Write the new session to the Sessions table
@@ -89,8 +86,8 @@ pub async fn handle_user_login(
         .table_name(&state.sessions_table_name)
         .item("session_id", AttributeValue::S(session.session_id.clone()))
         .item("user_id", AttributeValue::S(session.user_id.clone()))
-        .item("expire_time", AttributeValue::S(session.expire_time.clone()))
-        .item("ttl_expire", AttributeValue::N(expire_time.unix_timestamp().to_string()))
+        .item("expire_time", AttributeValue::S(session.expire_time.to_string()))
+        .item("ttl_expire", AttributeValue::N(session.expire_time.unix_timestamp().to_string()))
         .send()
         .await;
     if result.is_err() {

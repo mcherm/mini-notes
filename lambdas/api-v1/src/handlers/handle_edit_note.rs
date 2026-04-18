@@ -104,7 +104,7 @@ pub async fn handle_edit_note(
         .condition_expression("version_id = :expected_version")
         .expression_attribute_values(":t", AttributeValue::S(edit_note_fields.title.clone()))
         .expression_attribute_values(":b", AttributeValue::S(edit_note_fields.body.clone()))
-        .expression_attribute_values(":m", AttributeValue::S(current_time.time_string.clone()))
+        .expression_attribute_values(":m", AttributeValue::S(current_time.timestamp.to_string()))
         .expression_attribute_values(":v", AttributeValue::N(new_version_id.to_string()))
         .expression_attribute_values(":us", AttributeValue::L(undo_stack))
         .expression_attribute_values(":expected_version", AttributeValue::N(expected_version.to_string()))
@@ -214,7 +214,7 @@ async fn handle_conflict(
             version_id: new_version_id,
             title: conflict_title,
             create_time: existing_note.create_time,
-            modify_time: current_time.time_string.clone(),
+            modify_time: current_time.timestamp,
             format: existing_note.format,
             body: edit_note_fields.body.clone(),
             undo_stack: Vec::new(), // conflicts get a blank undo stack
@@ -235,8 +235,8 @@ async fn handle_conflict(
             note_id: note_id.to_string(),
             version_id: new_version_id,
             title: edit_note_fields.title.clone(),
-            create_time: current_time.time_string.clone(), // we don't know the true create_time so use this
-            modify_time: current_time.time_string.clone(),
+            create_time: current_time.timestamp, // we don't know the true create_time so use this
+            modify_time: current_time.timestamp,
             format: NoteFormat::PlainText, // we don't know the true format, but for NOW there IS only one
             body: edit_note_fields.body.clone(),
             undo_stack: Vec::new(), // we lose the undo_stack
@@ -260,8 +260,8 @@ async fn write_note(state: &AppState, note: &Note) -> Result<(), (StatusCode, Js
         .item("note_id", AttributeValue::S(note.note_id.clone()))
         .item("version_id", AttributeValue::N(note.version_id.to_string()))
         .item("title", AttributeValue::S(note.title.clone()))
-        .item("create_time", AttributeValue::S(note.create_time.clone()))
-        .item("modify_time", AttributeValue::S(note.modify_time.clone()))
+        .item("create_time", AttributeValue::S(note.create_time.to_string()))
+        .item("modify_time", AttributeValue::S(note.modify_time.to_string()))
         .item("format", AttributeValue::S(note.format.to_string()))
         .item("body", AttributeValue::S(note.body.clone()))
         .send()
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(json["note"]["note_id"], "ab12cd34ef");
         assert_eq!(json["note"]["version_id"], 4);
         assert_eq!(json["note"]["title"], "New Title");
-        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00.000000000Z");
+        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00Z");
         assert_eq!(json["note"]["format"], "PlainText");
         assert_eq!(json["note"]["body"], "New body");
         assert_eq!(json["note"]["undo_stack"], json!([]));
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(json["note"]["note_id"], "ab12cd34ef");
         assert_eq!(json["note"]["version_id"], 4);
         assert_eq!(json["note"]["title"], "New Title");
-        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00.000000000Z");
+        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00Z");
         assert_eq!(json["note"]["body"], "New body");
         assert_eq!(json["note"]["undo_stack"], json!([]));
     }
@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(json["note"]["version_id"], 4);
         assert_eq!(json["note"]["title"], "[CONFLICTED] My Edit");
         assert_eq!(json["note"]["body"], "My content");
-        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00.000000000Z"); // copied from original
+        assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00Z"); // copied from original
         assert_eq!(json["note"]["format"], "PlainText"); // copied from original
         assert_eq!(json["note"]["undo_stack"], json!([]));
     }

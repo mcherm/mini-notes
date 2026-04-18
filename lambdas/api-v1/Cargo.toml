@@ -19,7 +19,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.10"
 axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1", features = ["derive"] }
-time = {  version = "0.3", features = ["formatting"] }
+time = {  version = "0.3", features = ["formatting", "parsing"] }
 tower-http = { version = "0.6", features = ["cors"] }
 argon2 = "0.5" # password hashing
 rand_core = { version = "0.6", features = ["getrandom"] } # needed for argon2's OsRng

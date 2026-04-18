@@ -69,7 +69,7 @@ mod tests {
         let Json(json) = result.unwrap();
         assert_eq!(json["user"]["email"], "test@example.com");
         assert_eq!(json["user"]["user_type"], "Earlybird");
-        assert_eq!(json["user"]["create_time"], "2026-03-01T00:00:00.000000000Z");
+        assert_eq!(json["user"]["create_time"], "2026-03-01T00:00:00Z");
         assert!(json["user"].get("user_id").is_none(), "user_id is not currently exposed");
         assert!(json["user"].get("password_hash").is_none(), "password_hash must not be exposed");
     }

@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::ops::Add;
 use aws_sdk_dynamodb::types::AttributeValue;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{json, value::Value as JsonValue};
+use time::format_description::well_known::Rfc3339;
+use time::UtcDateTime;
 
 
 // ========== Enums ==========
@@ -66,12 +69,12 @@ pub struct Note {
     pub note_id: String,
     pub version_id: u32,
     pub title: String,
-    pub create_time: String,
-    pub modify_time: String,
+    pub create_time: Timestamp,
+    pub modify_time: Timestamp,
     pub format: NoteFormat,
     pub body: String,
     pub undo_stack: Vec<String>,
-    pub delete_time: Option<String>, // TODO: make this use a time object instead
+    pub delete_time: Option<Timestamp>,
 }
 
 /// A struct for the header of a note.
@@ -80,7 +83,7 @@ pub struct NoteHeader {
     pub note_id: String,
     pub version_id: u32,
     pub title: String,
-    pub modify_time: String,
+    pub modify_time: Timestamp,
     pub format: NoteFormat,
 }
 
@@ -90,14 +93,14 @@ pub struct User {
     pub email: String,
     pub password_hash: String,
     pub user_type: UserType,
-    pub create_time: String,
+    pub create_time: Timestamp,
 }
 
 /// A struct for a session.
 pub struct Session {
     pub session_id: String,
     pub user_id: String,
-    pub expire_time: String, // TODO: make this use a time object instead
+    pub expire_time: Timestamp,
 }
 
 /// A struct summarizing storage-level statistics about the site's DynamoDB tables.
@@ -124,6 +127,11 @@ pub fn get_s(item: &DynamoDBRecord, field: &str) -> Result<String, String> {
         .as_s()
         .map(|s| s.to_string())
         .map_err(|_| format!("field '{field}' is not a string"))
+}
+
+/// Helper for reading timestamp fields from DynamoDB.
+pub fn get_timestamp(item: &DynamoDBRecord, field: &str) -> Result<Timestamp, String> {
+    Timestamp::from_str(&get_s(&item, field)?)
 }
 
 /// Helper for reading Optional<String> fields from DynamoDB.
@@ -173,12 +181,14 @@ impl TryFrom<DynamoDBRecord> for Note {
             note_id: get_s(&item, "note_id")?,
             version_id: get_n_as_u32(&item, "version_id")?,
             title: get_s(&item, "title")?,
-            create_time: get_s(&item, "create_time")?,
-            modify_time: get_s(&item, "modify_time")?,
+            create_time: get_timestamp(&item, "create_time")?,
+            modify_time: get_timestamp(&item, "modify_time")?,
             format: parse_note_format(&get_s(&item, "format")?)?,
             body: get_s(&item, "body")?,
             undo_stack: get_list_of_string(&item, "undo_stack")?,
-            delete_time: get_opt_s(&item, "delete_time")?,
+            delete_time: get_opt_s(&item, "delete_time")?
+                .map(|s| Timestamp::from_str(&s))
+                .transpose()?,
         })
     }
 }
@@ -197,7 +207,7 @@ impl From<Note> for JsonValue {
             "body": note.body,
             "undo_stack": note.undo_stack,
         });
-        if let Some(delete_time) = note.delete_time {
+        if let Some(ref delete_time) = note.delete_time {
             obj["delete_time"] = json!(delete_time);
         }
         obj
@@ -215,7 +225,7 @@ impl TryFrom<DynamoDBRecord> for NoteHeader {
             note_id: get_s(&item, "note_id")?,
             version_id: get_n_as_u32(&item, "version_id")?,
             title: get_s(&item, "title")?,
-            modify_time: get_s(&item, "modify_time")?,
+            modify_time: get_timestamp(&item, "modify_time")?,
             format: parse_note_format(&get_s(&item, "format")?)?,
         })
     }
@@ -246,7 +256,7 @@ impl TryFrom<DynamoDBRecord> for User {
             email: get_s(&item, "email")?,
             password_hash: get_s(&item, "password_hash")?,
             user_type: parse_user_type(&get_s(&item, "user_type")?)?,
-            create_time: get_s(&item, "create_time")?,
+            create_time: get_timestamp(&item, "create_time")?,
         })
     }
 }
@@ -275,7 +285,7 @@ impl TryFrom<DynamoDBRecord> for Session {
         Ok(Session {
             session_id: get_s(&item, "session_id")?,
             user_id: get_s(&item, "user_id")?,
-            expire_time: get_s(&item, "expire_time")?,
+            expire_time: get_timestamp(&item, "expire_time")?,
         })
     }
 }
@@ -302,5 +312,83 @@ impl From<SiteData> for JsonValue {
             "note_count": site_data.note_count,
             "note_size": site_data.note_size,
         })
+    }
+}
+
+// ========== Field Types ==========
+
+/// This represents a particular moment in time.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Timestamp (UtcDateTime);
+
+impl Timestamp {
+    /// Attempt to construct from a string in RFC 3339 format.
+    pub fn from_str(rfc3339: &str) -> Result<Self, String> {
+        UtcDateTime::parse(rfc3339, &Rfc3339)
+            .map(Timestamp)
+            .map_err(|_| format!("invalid timestamp '{}'", rfc3339))
+    }
+
+    /// Construct from a UtcDateTime object.
+    pub fn from_date_time(date_time: UtcDateTime) -> Self {
+        Timestamp(date_time)
+    }
+
+    /// Return the Unix timestamp (seconds since 1970-01-01T00:00:00Z).
+    pub fn unix_timestamp(&self) -> i64 {
+        self.0.unix_timestamp()
+    }
+}
+
+impl Display for Timestamp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Design note: converting to RFC 3339 should always work except for negative
+        // years or 5+ digit years. I'm comfortable assuming that will always be true.
+        write!(f, "{}", self.0.format(&Rfc3339).expect("date_time should convert to rfc3339"))
+    }
+}
+
+impl Serialize for Timestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl Add<std::time::Duration> for Timestamp {
+    type Output = Self;
+
+    fn add(self, rhs: std::time::Duration) -> Self::Output {
+        Timestamp::from_date_time(self.0.add(rhs))
+    }
+}
+
+// ========== Tests ==========
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timestamp_parse_short() {
+        assert!(Timestamp::from_str("2026-03-09T00:00:00Z").is_ok());
+    }
+
+    #[test]
+    fn test_timestamp_parse_long() {
+        assert!(Timestamp::from_str("2026-03-10T12:30:00.000000000Z").is_ok());
+    }
+
+    #[test]
+    fn test_timestamp_roundtrip() {
+        const TIME_STR: &str = "2026-03-09T00:00:00Z";
+        assert_eq!(TIME_STR, Timestamp::from_str(TIME_STR).unwrap().to_string());
+    }
+
+    #[test]
+    fn test_timestamp_serialize() {
+        assert_eq!(
+            r#"{"timestamp":"2026-03-09T00:00:00Z"}"#,
+            json!({"timestamp": Timestamp::from_str("2026-03-09T00:00:00Z").unwrap()}).to_string()
+        );
     }
 }

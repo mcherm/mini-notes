@@ -2,10 +2,9 @@ use aws_sdk_dynamodb::Client as DynamoClient;
 use axum::extract::State;
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient};
 use aws_smithy_types::body::SdkBody;
-use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::extractors::{AppState, CurrentTime, UserSession};
-use crate::models::{Session};
+use crate::models::{Session, Timestamp};
 
 
 /// Helper: build a DynamoClient backed by canned HTTP responses.
@@ -36,7 +35,7 @@ pub fn test_user_session(s: &str) -> UserSession {
     UserSession(Some(Session{
         session_id: "test-session-id".to_string(),
         user_id: s.to_string(),
-        expire_time: "2026-03-10T00:00:00.000000000Z".to_string(),
+        expire_time: Timestamp::from_str("2026-03-10T00:00:00Z").unwrap(),
     }))
 }
 
@@ -84,7 +83,6 @@ pub fn replay_conditional_check_failed_with_item() -> ReplayEvent {
 /// Create a stub CurrentTime object from a string. Used for tests.
 pub fn current_time_stub(s: &str) -> CurrentTime {
     CurrentTime {
-        date_time: UtcDateTime::parse(s, &Iso8601::DEFAULT).unwrap(),
-        time_string: s.to_string(),
+        timestamp: Timestamp::from_str(s).unwrap(),
     }
 }

@@ -1,7 +1,8 @@
 use rand::RngExt;
 
 pub const NOTES_PER_BATCH: i32 = 100;
-pub const SOFT_DELETE_DAYS: i64 = 30;
+pub const SOFT_DELETE_DAYS: u64 = 30;
+pub const SESSION_LIFETIME_DAYS: u64 = 30;
 
 pub const ID_ALPHABET: &[u8; 64] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_~";
 pub const ID_LENGTH: usize = 10;

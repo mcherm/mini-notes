@@ -47,8 +47,8 @@ pub async fn handle_new_note(
         note_id,
         version_id: 0,
         title: new_note_fields.title,
-        create_time: current_time.time_string.clone(),
-        modify_time: current_time.time_string,
+        create_time: current_time.timestamp,
+        modify_time: current_time.timestamp,
         format: new_note_fields.format,
         body: new_note_fields.body,
         undo_stack: Vec::new(),
@@ -62,8 +62,8 @@ pub async fn handle_new_note(
         .item("note_id", AttributeValue::S(note.note_id.clone()))
         .item("version_id", AttributeValue::N(note.version_id.to_string()))
         .item("title", AttributeValue::S(note.title.clone()))
-        .item("create_time", AttributeValue::S(note.create_time.clone()))
-        .item("modify_time", AttributeValue::S(note.modify_time.clone()))
+        .item("create_time", AttributeValue::S(note.create_time.to_string()))
+        .item("modify_time", AttributeValue::S(note.modify_time.to_string()))
         .item("format", AttributeValue::S(note.format.to_string()))
         .item("body", AttributeValue::S(note.body.clone()))
         .item("undo_stack", AttributeValue::L(Vec::new()))
@@ -107,8 +107,8 @@ mod tests {
         assert_eq!(json["note"]["note_id"], "TESTID1234");
         assert_eq!(json["note"]["version_id"], 0);
         assert_eq!(json["note"]["title"], "Test Title");
-        assert_eq!(json["note"]["create_time"], "2026-03-15T12:00:00.000000000Z");
-        assert_eq!(json["note"]["modify_time"], "2026-03-15T12:00:00.000000000Z");
+        assert_eq!(json["note"]["create_time"], "2026-03-15T12:00:00Z");
+        assert_eq!(json["note"]["modify_time"], "2026-03-15T12:00:00Z");
         assert_eq!(json["note"]["format"], "PlainText");
         assert_eq!(json["note"]["body"], "Test body");
     }

@@ -133,7 +133,7 @@ fn build_ziptext_response(notes: &[Note]) -> Result<Response, HandlerErrOutput> 
     for note in notes {
         let raw_filename = sanitize_title(&note.title);
         let filename = deduplicate_filename(&raw_filename, &mut used_filenames);
-        let mod_time = parse_modify_time_to_zip(&note.modify_time);
+        let mod_time = parse_modify_time_to_zip(&note.modify_time.to_string());
         let options = SimpleFileOptions::default()
             .last_modified_time(mod_time);
 
@@ -432,8 +432,8 @@ mod tests {
         assert_eq!(note0["note_id"], "ab12cd34ef");
         assert_eq!(note0["version_id"], 1);
         assert_eq!(note0["title"], "My First Note");
-        assert_eq!(note0["create_time"], "2026-03-09T00:00:00.000000000Z");
-        assert_eq!(note0["modify_time"], "2026-03-10T12:30:00.000000000Z");
+        assert_eq!(note0["create_time"], "2026-03-09T00:00:00Z");
+        assert_eq!(note0["modify_time"], "2026-03-10T12:30:00Z");
         assert_eq!(note0["format"], "PlainText");
         assert_eq!(note0["body"], "Hello world");
         assert!(note0.get("user_id").is_none());

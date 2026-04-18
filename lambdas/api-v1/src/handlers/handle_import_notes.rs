@@ -10,7 +10,7 @@ use serde_json::{json, Value as JsonValue};
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error, UserSession};
-use crate::models::{Note, NoteFormat, parse_note_format};
+use crate::models::{Note, NoteFormat, parse_note_format, Timestamp};
 use crate::utils::get_title_from_body;
 
 
@@ -60,8 +60,8 @@ async fn put_note(state: &AppState, note: Note) -> Result<(), String> {
         .item("note_id", AttributeValue::S(note.note_id))
         .item("version_id", AttributeValue::N(note.version_id.to_string()))
         .item("title", AttributeValue::S(note.title))
-        .item("create_time", AttributeValue::S(note.create_time))
-        .item("modify_time", AttributeValue::S(note.modify_time))
+        .item("create_time", AttributeValue::S(note.create_time.to_string()))
+        .item("modify_time", AttributeValue::S(note.modify_time.to_string()))
         .item("format", AttributeValue::S(note.format.to_string()))
         .item("body", AttributeValue::S(note.body))
         .send()
@@ -224,7 +224,7 @@ fn extract_note_data_from_zip(
 async fn create_imported_notes(
     state: &AppState,
     user_id: &str,
-    time_string: &str,
+    current_time: &CurrentTime,
     generate_id: fn() -> String,
     imported_notes: Vec<ImportedNoteData>
 ) -> Result<ImportResult, String> {
@@ -266,13 +266,17 @@ async fn create_imported_notes(
             .unwrap_or_else(|| get_title_from_body(&body));
 
         // create_time: provided value, else existing note's value, else now
-        let create_time = note_data.create_time
-            .or(existing_note.as_ref().map(|x| x.create_time.clone()))
-            .unwrap_or_else(|| time_string.to_string());
+        let create_time: Timestamp = note_data.create_time
+            .map(|x: String| Timestamp::from_str(&x))
+            .and_then(|x| x.ok()) // treat a badly formatted timestamp as if it weren't there
+            .or(existing_note.as_ref().map(|x| x.create_time))
+            .unwrap_or(current_time.timestamp);
 
         // modify_time: provided value, else now
-        let modify_time = note_data.modify_time
-            .unwrap_or_else(|| time_string.to_string());
+        let modify_time: Timestamp = note_data.modify_time
+            .map(|x: String| Timestamp::from_str(&x))
+            .and_then(|x| x.ok()) // treat a badly formatted timestamp as if it weren't there
+            .unwrap_or(current_time.timestamp);
 
         // format: provided value as enum, else PlainText
         let format: NoteFormat = match note_data.format {
@@ -328,7 +332,7 @@ pub async fn handle_import_notes(
         extract_note_data_from_json(&body)
     }.map_err(|err| http_error(400, &err))?;
 
-    let import_result = create_imported_notes(&state, &user_id, &current_time.time_string, generate_id, imported_notes)
+    let import_result = create_imported_notes(&state, &user_id, &current_time, generate_id, imported_notes)
         .await
         .map_err(|err| http_error(500, &err))?;
 

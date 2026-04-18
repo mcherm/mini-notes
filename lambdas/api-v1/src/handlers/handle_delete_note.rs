@@ -3,7 +3,6 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use time::format_description::well_known::Iso8601;
 use tracing::info;
 
 use crate::extractors::{AppState, CurrentTime, HandlerErrOutput, http_error, UserSession};
@@ -26,12 +25,7 @@ pub async fn handle_delete_note(
 
     info!(user_id, note_id, table = state.notes_table_name, "soft-delete note");
 
-    let delete_at = current_time.date_time + time::Duration::days(SOFT_DELETE_DAYS);
-    let delete_time_string = match delete_at.format(&Iso8601::DEFAULT) {
-        Ok(s) => s,
-        Err(_) => return Err(http_error(500, "cannot format delete time")),
-    };
-    let ttl_delete_string = delete_at.unix_timestamp().to_string();
+    let delete_at = current_time.timestamp + std::time::Duration::from_hours(SOFT_DELETE_DAYS * 24);
 
     let result = state.dynamo_client
         .update_item()
@@ -39,8 +33,8 @@ pub async fn handle_delete_note(
         .key("user_id", AttributeValue::S(user_id.to_string()))
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .update_expression("SET delete_time = :dt, ttl_delete = :ttl")
-        .expression_attribute_values(":dt", AttributeValue::S(delete_time_string))
-        .expression_attribute_values(":ttl", AttributeValue::N(ttl_delete_string))
+        .expression_attribute_values(":dt", AttributeValue::S(delete_at.to_string()))
+        .expression_attribute_values(":ttl", AttributeValue::N(delete_at.unix_timestamp().to_string()))
         .send()
         .await;
     if result.is_err() {

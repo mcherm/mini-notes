@@ -6,11 +6,11 @@ use axum::{
     http::{StatusCode, request::Parts},
 };
 use serde_json::json;
-use time::{UtcDateTime, format_description::well_known::Iso8601};
+use time::UtcDateTime;
 
 use crate::passwords;
 use crate::utils::generate_id;
-use crate::models::Session;
+use crate::models::{Session, Timestamp};
 
 pub type HandlerErrOutput = (StatusCode, Json<serde_json::Value>);
 pub type HandlerOutput = Result<Json<serde_json::Value>, HandlerErrOutput>;
@@ -68,10 +68,7 @@ impl FromRequestParts<AppState> for UserSession {
             },
             Err(_) => return Ok(UserSession(None)),
         };
-        let now = match UtcDateTime::now().format(&Iso8601::DEFAULT) {
-            Ok(now_string) => now_string,
-            Err(_) => return Err(http_error(500, "cannot read system clock")),
-        };
+        let now = Timestamp::from_date_time(UtcDateTime::now());
         if session.expire_time <= now {
             return Ok(UserSession(None));
         }
@@ -80,9 +77,8 @@ impl FromRequestParts<AppState> for UserSession {
 }
 
 /// Extractor for getting the time from the system clock.
-pub struct CurrentTime{
-    pub date_time: UtcDateTime,
-    pub time_string: String,
+pub struct CurrentTime {
+    pub timestamp: Timestamp,
 }
 
 /// Make CurrentTime into an extractor that can be used by handlers if declared as an argument.
@@ -90,14 +86,9 @@ impl FromRequestParts<AppState> for CurrentTime {
     type Rejection = HandlerErrOutput;
 
     async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
-        let date_time = UtcDateTime::now();
-        match date_time.format(&Iso8601::DEFAULT) {
-            Ok(time_string) => Ok(CurrentTime {
-                date_time,
-                time_string
-            }),
-            Err(_) => Err(http_error(500, "cannot read system clock"))
-        }
+        Ok(CurrentTime {
+            timestamp: Timestamp::from_date_time(UtcDateTime::now()),
+        })
     }
 }
 

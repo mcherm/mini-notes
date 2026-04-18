@@ -68,7 +68,7 @@ pub async fn handle_user_create(
         .item("email", AttributeValue::S(user_create_body.email.clone()))
         .item("password_hash", AttributeValue::S(password_hash))
         .item("user_type", AttributeValue::S(user_type.to_string()))
-        .item("create_time", AttributeValue::S(current_time.time_string.clone()))
+        .item("create_time", AttributeValue::S(current_time.timestamp.to_string()))
         .condition_expression("attribute_not_exists(user_id)") // Clobbering a user would be REALLY bad so double-check.
         .send()
         .await;
