@@ -13,7 +13,8 @@
       "Bash(unzip:*)",
       "Bash(grep:*)",
       "Bash(cargo clippy:*)",
-      "Bash(cargo search:*)"
+      "Bash(cargo search:*)",
+      "Bash(jj log:*)"
     ]
   }
 }

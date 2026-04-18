@@ -5,14 +5,6 @@
 ### Types
 I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 
-### User
-**Fields:**
-* user_id: string
-* email: string [restricted character set]
-* password_hash [salt and hash of password]
-* user_type: enum [Admin, Earlybird]
-* create_time: timestamp
-
 ### Note
 **Fields:**
 * user_id: string [alphanumeric]
@@ -38,6 +30,15 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 * title: String [no newlines]
 * modify_time: timestamp
 * format: enum [PlainText]
+
+### User
+**Fields:**
+* user_id: string
+* email: string [restricted character set]
+* password_hash [salt and hash of password]
+* user_type: enum [Admin, Earlybird]
+* create_time: timestamp
+* password_reset_token: optional string
 
 ### Session
 **Fields:**
@@ -67,25 +68,28 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 
 ## Commands
 
-| Path                                     | Command              |
-|------------------------------------------|----------------------|
-| `GET    /api/v1/notes`                   | Get Notes            |
-| `POST   /api/v1/notes`                   | New Note             |
-| `GET    /api/v1/notes/{note_id}`         | Get Note             |
-| `PUT    /api/v1/notes/{note_id}`         | Edit Note            |
-| `DELETE /api/v1/notes/{note_id}`         | Delete Note          |
-| `GET    /api/v1/deleted_notes`           | Get Deleted Notes    |
-| `POST   /api/v1/recover_note/{note_id}`  | Recover Deleted Note |
-| `DELETE /api/v1/deleted_notes/{note_id}` | Destroy Deleted Note |
-| `GET    /api/v1/note_export`             | Export Notes         |
-| `GET    /api/v1/note_import`             | Import Notes         |
-| `GET    /api/v1/note_search`             | Search Notes         |
-| `GET    /api/v1/user`                    | Get User             |
-| `DELETE /api/v1/user`                    | Delete User          |
-| `POST   /api/v1/user_login`              | User Login           |
-| `POST   /api/v1/user_logout`             | User Logout          |
-| `POST   /api/v1/user_create`             | User Create          |
-| `POST   /api/v1/admin/site_data`         | Site Data            |
+| Path                                     | Command                 |
+|------------------------------------------|-------------------------|
+| `GET    /api/v1/notes`                   | Get Notes               |
+| `POST   /api/v1/notes`                   | New Note                |
+| `GET    /api/v1/notes/{note_id}`         | Get Note                |
+| `PUT    /api/v1/notes/{note_id}`         | Edit Note               |
+| `DELETE /api/v1/notes/{note_id}`         | Delete Note             |
+| `GET    /api/v1/deleted_notes`           | Get Deleted Notes       |
+| `POST   /api/v1/recover_note/{note_id}`  | Recover Deleted Note    |
+| `DELETE /api/v1/deleted_notes/{note_id}` | Destroy Deleted Note    |
+| `GET    /api/v1/note_export`             | Export Notes            |
+| `GET    /api/v1/note_import`             | Import Notes            |
+| `GET    /api/v1/note_search`             | Search Notes            |
+| `GET    /api/v1/user`                    | Get User                |
+| `DELETE /api/v1/user`                    | Delete User             |
+| `PUT    /api/v1/user`                    | User Edit               |
+| `POST   /api/v1/user_login`              | User Login              |
+| `POST   /api/v1/user_logout`             | User Logout             |
+| `POST   /api/v1/user_create`             | User Create             |
+| `POST   /api/v1/pwd_reset/send`          | Send Password Reset     |
+| `POST   /api/v1/pwd_reset/change_pwd`    | Complete Password Reset |
+| `POST   /api/v1/admin/site_data`         | Site Data               |
 
 ### Create User
 **Path:** /api/v1/user_create [POST]
@@ -100,17 +104,21 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 **Description**
 Creates a new user, and a new session for that user (or fails).
 
-### Login
+### User Login
 **Path:** /api/v1/user_login [POST]
 
 **Inputs:**
+* email: [body] string
+* password: [body] string
 
 **Outputs:**
+* session_id: string
+* *{sets cookie}*: [header]
 
 **Description**
 Ends the current session for a user (if there is one).
 
-### Logout
+### User Logout
 **Path:** /api/v1/user_logout [POST]
 
 **Inputs:**
@@ -147,6 +155,26 @@ Obtain data about the currently logged-in user.
 **Description:**
 This deletes the currently logged-in user, removing all of their notes, any
 sessions, and the user entry.
+
+### Edit User
+**Path:** /api/v1/user [PUT]
+
+**Inputs:**
+* session_id: [header] string
+* password: [body] string
+* new_password: [body] optional string
+* new_email: [body] optional string
+
+**Outputs:**
+* None (returns a 204 on success)
+
+**Description:**
+This allows editing certain fields of the user. The caller must be logged in, and only the
+logged-in user can be edited. Editing user fields is sensitive, so the user must provide their
+(current) password. They may optionally provide new values for any of the editable fields:
+that's new_password to change the password and/or new_email to change the email. No other
+fields are editable at this time.
+
 
 ### New Note
 **Path:** /api/v1/notes/ [POST]
@@ -358,6 +386,43 @@ Each file always creates a new note, even if a note with the same title already 
 
 For **SimpleNote JSON format**: The file should match the format that SimpleNote uses
 when outputting in JSON format. Only notes that are NOT in the trash will be imported.
+
+### Send Password Reset
+**Path:** /api/v1/pwd_reset/send [POST]
+
+**Inputs:**
+* email: [body] string
+
+**Outputs:**
+* None (returns a 204 on success)
+
+**Description:**
+This can be performed without a logged-in session. The caller passes the email of a user for
+which they want to perform a password reset. If that user exists, the system will attempt to
+send an email with a reset token. This is rate limited: if a password reset has been sent
+for this user within a very short period, it will not send another one.
+
+
+### Complete Password Reset
+**Path:** /api/v1/pwd_reset/change_pwd [POST]
+
+**Inputs:**
+* user_id: [body] string
+* token: [body] string
+* new_password: [body] string
+
+**Outputs:**
+* None (returns a 204 on success)
+
+**Description:**
+This can be performed without a logged-in session. The caller passes the user_id (not email) of
+a particular user, the token that was generated by a previous call to the Send Password Reset
+API, and a new password to use. If the token provided is, indeed, the most recently issued
+token for that user and the token has not yet expired then the password will be changed. In all
+other cases, this returns a 401. A succesful update will change the password and will also
+disable the token. (Note: as stateless way to protect against excessive calls to this service,
+an unsuccessful call to this has a chance to disable the token.)
+
 
 ### Site Data
 **Path:** /api/v1/admin/site_data [GET]
