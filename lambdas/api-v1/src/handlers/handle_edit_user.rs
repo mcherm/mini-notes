@@ -43,7 +43,8 @@ pub async fn handle_edit_user(
         }
     };
     if !password_valid {
-        return Err(http_error(401, "invalid password"));
+        // Don't return 401, that would trigger "user-is-logged-out" behavior
+        return Err(http_error(403, "invalid password"));
     }
 
     // If nothing to change, succeed as a no-op

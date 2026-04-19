@@ -435,6 +435,25 @@ async function createUser() {
     }
 }
 
+/** Sends user edit request to the API to update email and/or password. */
+async function editUser() {
+    const password = document.querySelector("#user-edit-password").value;
+    const newEmail = document.querySelector("#user-edit-new-email").value;
+    const newPassword = document.querySelector("#user-edit-new-password").value;
+    const body = {password: password};
+    if (newEmail) {
+        body.new_email = newEmail;
+    }
+    if (newPassword) {
+        body.new_password = newPassword;
+    }
+    await apiFetch(`${getApiBaseUrl()}/api/v1/user`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+    });
+}
+
 /**
  * Fetches note headers from the API and renders the note list. continueKey is
  * optional; omit it to get the first block of values.
@@ -1017,6 +1036,28 @@ async function actionLogoutBtn() {
     await logout();
 }
 
+/** Opens the user edit dialog. */
+function actionUserEditDialogBtn() {
+    showShadowBox("user-edit-dialog");
+}
+
+/** Opens the user edit dialog. */
+function actionCloseUserEditBtn() {
+    hideShadowBox("user-edit-dialog");
+}
+
+/** Submits the user edit form to update email and/or password. */
+async function actionUserEditBtn() {
+    try {
+        await editUser();
+    } catch (e) {
+        hideShadowBox("user-edit-dialog");
+        return;
+    }
+    await loadUser();
+    hideShadowBox("user-edit-dialog");
+}
+
 /** Opens the user delete confirmation dialog. */
 function actionUserDeleteDialogBtn() {
     showShadowBox("user-delete-dialog");
@@ -1238,6 +1279,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#close-user-shadowbox-btn").addEventListener("click", actionCloseUserShadowboxBtn);
     document.querySelector("#close-note-info-shadowbox-btn").addEventListener("click", actionCloseNoteInfoShadowboxBtn);
     document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
+    document.querySelector("#user-edit-dialog-btn").addEventListener("click", actionUserEditDialogBtn);
+    document.querySelector("#close-user-edit-btn").addEventListener("click", actionCloseUserEditBtn);
+    document.querySelector("#user-edit-btn").addEventListener("click", actionUserEditBtn);
     document.querySelector("#user-delete-dialog-btn").addEventListener("click", actionUserDeleteDialogBtn);
     document.querySelector("#close-user-delete-btn").addEventListener("click", actionCloseUserDeleteBtn);
     document.querySelector("#delete-user-btn").addEventListener("click", actionDeleteUserBtn);

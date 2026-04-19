@@ -70,8 +70,25 @@
                 </user-form>
                 <button id="close-user-shadowbox-btn">&#x2190;</button>
                 <button id="logout-btn">Log Out</button>
+                <button id="user-edit-dialog-btn">Edit</button>
                 <button id="user-delete-dialog-btn">&#x1F5D1;&#xFE0F;</button>
             </user-area>
+        </shadow-content>
+    </shadow-box>
+    <shadow-box id="user-edit-dialog">
+        <shadow-content>
+            <user-edit>
+                <user-edit-form>
+                    <label for="user-edit-password">Current Password:</label>
+                    <input type="password" id="user-edit-password" value="">
+                    <label for="user-edit-new-email">New Email:</label>
+                    <input type="text" id="user-edit-new-email" value="">
+                    <label for="user-edit-new-password">New Password:</label>
+                    <input type="password" id="user-edit-new-password" value="">
+                </user-edit-form>
+                <button id="close-user-edit-btn">&#x2190;</button>
+                <button id="user-edit-btn">Edit</button>
+            </user-edit>
         </shadow-content>
     </shadow-box>
     <shadow-box id="user-delete-dialog">

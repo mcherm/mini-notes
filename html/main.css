@@ -58,7 +58,8 @@ body-content {
     }
 }
 
-header, nav, article, login-area, user-area, note-info, user-delete {
+/** FIXME: See if I can use a class for this. */
+header, nav, article, login-area, user-area, note-info, user-edit, user-delete {
     border: var(--body-border) solid var(--colorless-dk);
     padding: 4px;
 }
@@ -228,7 +229,8 @@ login-area {
     background-color: var(--interest-color-lt);
 }
 
-user-area, note-info, user-delete {
+/* FIXME: Move the buttons to a separate bar. */
+user-area, note-info, user-edit, user-delete {
     display: grid;
     grid-template-areas:
         "form_1 form_1"
@@ -241,11 +243,9 @@ user-area, note-info, user-delete {
 }
 
 user-area {
-    display: grid;
     grid-template-areas:
-        "form_1 form_1 form_1"
-        "button_1 button_2 button_3";
-    background-color: var(--interest-color-lt);
+        "form_1 form_1 form_1 form_1"
+        "button_1 button_2 button_3 button_4";
 }
 
 user-delete > p {
@@ -271,7 +271,7 @@ login-form {
     }
 }
 
-user-form, info-form {
+user-form, info-form, user-edit-form {
     grid-area: form_1;
     justify-self: center;
     display: grid;
