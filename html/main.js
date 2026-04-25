@@ -230,22 +230,27 @@ function renderNoteList() {
     setupScrollObserver();
 }
 
+/** Updates the can-undo/can-redo classes on #note based on current stack state. */
+function updateUndoRedoButtons() {
+    const noteElem = document.getElementById("note");
+    const canUndo = !!(currentNote && currentNote.undo_stack && currentNote.undo_stack.length > 0);
+    const canRedo = !!(currentNote && redo_stack.length > 0);
+    noteElem.classList.toggle("can-undo", canUndo);
+    noteElem.classList.toggle("can-redo", canRedo);
+}
+
 /** Populates the article area with the current note's title and body. */
 function renderNote() {
     unfocusedEditsPending = false;
     clearTimeout(unfocusedEditDebounceTimer);
     unfocusedEditDebounceTimer = null;
-    const noteElem = document.getElementById("note");
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
+    updateUndoRedoButtons();
     if (currentNote) {
-        noteElem.classList.toggle("can-redo", redo_stack.length > 0);
-        noteElem.classList.toggle("can-undo", currentNote.undo_stack.length > 0);
         titleInput.value = currentNote.title;
         bodyTextarea.value = currentNote.body;
     } else {
-        noteElem.classList.toggle("can-redo", false);
-        noteElem.classList.toggle("can-undo", false);
         titleInput.value = "";
         bodyTextarea.value = "";
     }
@@ -1092,6 +1097,7 @@ function actionUndoBtn() {
     redo_stack.push(diff);
     unfocusedEditsPending = true;
     restartUnfocusedEditTimer();
+    updateUndoRedoButtons();
 }
 
 /** Handles the redo button by applying a diff from the redo stack. */
@@ -1104,6 +1110,7 @@ function actionRedoBtn() {
     currentNote.undo_stack.push(diff);
     unfocusedEditsPending = true;
     restartUnfocusedEditTimer();
+    updateUndoRedoButtons();
 }
 
 
