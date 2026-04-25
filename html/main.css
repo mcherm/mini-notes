@@ -110,6 +110,7 @@ nav, settings-nav {
     align-items: stretch;
     border-right: none;
     background-color: var(--secondary-color-lt);
+    min-width: 0;
     min-height: 0;
     padding: 0;
 }
@@ -138,6 +139,7 @@ input.search {
     background-color: var(--brand-color-lt);
     border: 1px solid var(--secondary-color-dk);
     flex: 1;
+    min-width: 0;
     &:focus {
         background-color: var(--text-entry);
     }
@@ -146,6 +148,7 @@ input.search {
 input.title {
     background-color: inherit;
     flex: 1;
+    min-width: 0;
     border: 0;
     font-size: 1.125rem;
     font-weight: 600;
@@ -184,6 +187,7 @@ article {
     display: flex;
     align-items: stretch;
     flex-direction: column;
+    min-width: 0;
     background-color: var(--interest-color-lt);
 }
 
