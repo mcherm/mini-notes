@@ -44,8 +44,8 @@ pub struct SearchNotesParams {
 /// particular order (it's sorted by note_id, which is randomly assigned). Returns a
 /// continue_key for pagination if there *may* be more to be found. Will always return
 /// at least 1 matching note unless we are at the end of the list of matches. Matching
-/// notes are those that have the search string literally (case sensitive) somewhere
-/// in the title or body.
+/// notes are those that have the search string somewhere in the title or body,
+/// compared case-insensitively.
 #[axum::debug_handler]
 pub async fn handle_search_notes(
     State(state): State<AppState>,
@@ -68,6 +68,10 @@ pub async fn handle_search_notes(
         None => None,
     };
 
+    // DynamoDB's filter expression language has no case-folding function, so we apply
+    // the case-insensitive match in Rust over the raw items returned.
+    let search_lower = query_params.search_string.to_lowercase();
+
     let mut note_headers: Vec<NoteHeader> = Vec::new();
 
     loop {
@@ -77,9 +81,8 @@ pub async fn handle_search_notes(
             .query()
             .table_name(&state.notes_table_name)
             .key_condition_expression("user_id = :uid")
-            .filter_expression("(contains(title, :search) OR contains(body, :search)) AND attribute_not_exists(delete_time)")
+            .filter_expression("attribute_not_exists(delete_time)")
             .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
-            .expression_attribute_values(":search", AttributeValue::S(query_params.search_string.clone()))
             .limit(NOTES_PER_BATCH)
             .set_exclusive_start_key(exclusive_start_key)
             .send()
@@ -91,20 +94,21 @@ pub async fn handle_search_notes(
 
         exclusive_start_key = result.last_evaluated_key;
 
-        // turn any new items found into notes
-        let Ok(new_items): Result<Vec<NoteHeader>,String> = result
-            .items.unwrap_or_default()
-            .into_iter()
-            .map(NoteHeader::try_from)
-            .collect()
-        else {
-            return Err(http_error(500, "a note is invalid in DB"));
-        };
-        // add those notes onto our list
-        note_headers.extend(new_items);
+        // Apply case-insensitive search over title/body, then convert matches to NoteHeader.
+        for item in result.items.unwrap_or_default() {
+            let (Ok(title), Ok(body)) = (get_s(&item, "title"), get_s(&item, "body")) else {
+                return Err(http_error(500, "a note is invalid in DB"));
+            };
+            if title.to_lowercase().contains(&search_lower) || body.to_lowercase().contains(&search_lower) {
+                let Ok(header) = NoteHeader::try_from(item) else {
+                    return Err(http_error(500, "a note is invalid in DB"));
+                };
+                note_headers.push(header);
+            }
+        }
 
-        // Exit when there are no more to find OR we've found at least 1 matching note
-        if exclusive_start_key.is_none() || !note_headers.is_empty() {
+        // Exit when there are no more pages, or we've gathered at least NOTES_PER_BATCH of them
+        if exclusive_start_key.is_none() || note_headers.len() >= NOTES_PER_BATCH as usize {
             break;
         }
     }
@@ -130,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn direct_handle_search_notes_happy_path() {
-        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"1"},"title":{"S":"Matching Note"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":1}"#;
+        let query_response = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"1"},"title":{"S":"Matching Note"},"body":{"S":"some body text"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":1}"#;
         let client = test_dynamo_client(vec![replay_ok(query_response)]);
 
         let result = handle_search_notes(
@@ -175,7 +179,7 @@ mod tests {
         // First page: no matches but has a LastEvaluatedKey (loop continues)
         let page1 = r#"{"Items":[],"Count":0,"ScannedCount":5,"LastEvaluatedKey":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"}}}"#;
         // Second page: has a match and no LastEvaluatedKey (loop exits)
-        let page2 = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"zz99yy88ww"},"version_id":{"N":"1"},"title":{"S":"Found It"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":5}"#;
+        let page2 = r#"{"Items":[{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"zz99yy88ww"},"version_id":{"N":"1"},"title":{"S":"Found It"},"body":{"S":"some body text"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}],"Count":1,"ScannedCount":5}"#;
         let client = test_dynamo_client(vec![replay_ok(page1), replay_ok(page2)]);
 
         let result = handle_search_notes(
@@ -213,6 +217,34 @@ mod tests {
         let Json(json) = result.unwrap();
         let headers = json["note_headers"].as_array().unwrap();
         assert_eq!(headers.len(), 0);
+        assert!(json["continue_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_search_notes_case_insensitive_match() {
+        // Three items: title-only match (mixed case), body-only match (upper case),
+        // and a non-match. Search string is lowercase; both partial-case items should match.
+        let query_response = r#"{"Items":[
+            {"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"aa11bb22cc"},"version_id":{"N":"1"},"title":{"S":"My Recipe Book"},"body":{"S":"nothing here"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}},
+            {"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"dd33ee44ff"},"version_id":{"N":"1"},"title":{"S":"shopping list"},"body":{"S":"buy more RECIPE ingredients"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}},
+            {"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"gg55hh66ii"},"version_id":{"N":"1"},"title":{"S":"unrelated"},"body":{"S":"nothing matching"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"}}
+        ],"Count":3,"ScannedCount":3}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_search_notes(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            Query(SearchNotesParams {
+                search_string: "recipe".to_string(),
+                continue_key: None,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let headers = json["note_headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0]["note_id"], "aa11bb22cc");
+        assert_eq!(headers[1]["note_id"], "dd33ee44ff");
         assert!(json["continue_key"].is_null());
     }
 

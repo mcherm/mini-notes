@@ -242,7 +242,7 @@ mod tests {
         ).await;
 
         let (status, Json(json)) = result.unwrap_err();
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(json["error"], "invalid password");
     }
 
