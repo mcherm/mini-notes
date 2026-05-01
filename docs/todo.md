@@ -3,4 +3,3 @@
 * Able to run offline (cache things in the service worker).
 * Reset Password
 * Some errors should be shown. Eg: email already in use. Failed login.
-

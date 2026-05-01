@@ -2,7 +2,7 @@
 
 ## Data Structures
 
-### Types
+### IDs
 I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
 
 ### Note
@@ -68,129 +68,28 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 
 ## Commands
 
-| Path                                     | Command                 |
-|------------------------------------------|-------------------------|
-| `GET    /api/v1/notes`                   | Get Notes               |
-| `POST   /api/v1/notes`                   | New Note                |
-| `GET    /api/v1/notes/{note_id}`         | Get Note                |
-| `PUT    /api/v1/notes/{note_id}`         | Edit Note               |
-| `DELETE /api/v1/notes/{note_id}`         | Delete Note             |
-| `GET    /api/v1/deleted_notes`           | Get Deleted Notes       |
-| `POST   /api/v1/recover_note/{note_id}`  | Recover Deleted Note    |
-| `DELETE /api/v1/deleted_notes/{note_id}` | Destroy Deleted Note    |
-| `GET    /api/v1/note_export`             | Export Notes            |
-| `GET    /api/v1/note_import`             | Import Notes            |
-| `GET    /api/v1/note_search`             | Search Notes            |
-| `GET    /api/v1/user`                    | Get User                |
-| `DELETE /api/v1/user`                    | Delete User             |
-| `POST   /api/v1/user`                    | User Edit               |
-| `POST   /api/v1/user_login`              | User Login              |
-| `POST   /api/v1/user_logout`             | User Logout             |
-| `POST   /api/v1/user_create`             | User Create             |
-| `POST   /api/v1/pwd_reset/send`          | Send Password Reset     |
-| `POST   /api/v1/pwd_reset/change_pwd`    | Complete Password Reset |
-| `POST   /api/v1/admin/site_data`         | Site Data               |
-
-### Create User
-**Path:** /api/v1/user_create [POST]
-
-**Inputs:**
-* email: [body] string [restricted character set]
-* password: [body] string [restricted character set]
-
-**Outputs:**
-* session_id: [header] string
-
-**Description**
-Creates a new user, and a new session for that user (or fails).
-
-### User Login
-**Path:** /api/v1/user_login [POST]
-
-**Inputs:**
-* email: [body] string
-* password: [body] string
-
-**Outputs:**
-* session_id: string
-* *{sets cookie}*: [header]
-
-**Description**
-Ends the current session for a user (if there is one).
-
-### User Logout
-**Path:** /api/v1/user_logout [POST]
-
-**Inputs:**
-* email: [body] string [restricted character set]
-* password: [body] string [restricted character set]
-
-**Outputs:**
-* session_id: [header] string
-
-**Description**
-Creates a new session for a user (or fails).
-
-### Get User Data (for logged in user)
-**Path:** /api/v1/user [GET]
-
-**Inputs:**
-* session_id: [header] string
-
-**Outputs:**
-* user object fields: [body] object
-
-**Description**
-Obtain data about the currently logged-in user.
-
-### Delete User
-**Path:** /api/v1/user [DELETE]
-
-**Inputs:**
-* session_id: [header] string
-
-`**Outputs:**
-* If successful, this returns a 204 with no body.
-
-**Description:**
-This deletes the currently logged-in user, removing all of their notes, any
-sessions, and the user entry.
-
-### User Edit
-**Path:** /api/v1/user [POST]
-
-**Inputs:**
-* session_id: [header] string
-* password: [body] string
-* new_password: [body] optional string
-* new_email: [body] optional string
-
-**Outputs:**
-* None (returns a 204 on success)
-
-**Description:**
-This allows editing certain fields of the user. The caller must be logged in, and only the
-logged-in user can be edited. Editing user fields is sensitive, so the user must provide their
-(current) password. They may optionally provide new values for any of the editable fields:
-that's new_password to change the password and/or new_email to change the email. No other
-fields are editable at this time.
-
-
-### New Note
-**Path:** /api/v1/notes/ [POST]
-
-**Inputs:**
-* session_id: [header] string
-* title: [body] string
-* body: [body] string
-* format: [body] enum
-
-**Outputs:**
-
-**Description**
-Create a new note. The title of a note cannot be more than 1,000 bytes in UTF-8.
-The body of a note cannot be more than 100,000 bytes in UTF-8. Exceeding these
-will return a 400 error.
+| Path                                     | Command                                           |
+|------------------------------------------|---------------------------------------------------|
+| `GET    /api/v1/notes`                   | [Get Notes](#get-notes)                           |
+| `POST   /api/v1/notes`                   | [New Note](#new-note)                             |
+| `GET    /api/v1/notes/{note_id}`         | [Get Note](#get-note)                             |
+| `PUT    /api/v1/notes/{note_id}`         | [Edit Note](#edit-note)                           |
+| `DELETE /api/v1/notes/{note_id}`         | [Delete Note](#delete-note)                       |
+| `GET    /api/v1/deleted_notes`           | [Get Deleted Notes](#get-deleted-notes)           |
+| `POST   /api/v1/recover_note/{note_id}`  | [Recover Deleted Note](#recover-deleted-note)     |
+| `DELETE /api/v1/deleted_notes/{note_id}` | [Destroy Deleted Note](#destroy-deleted-note)     |
+| `GET    /api/v1/note_export`             | [Export Notes](#export-notes)                     |
+| `POST   /api/v1/note_import`             | [Import Notes](#import-notes)                     |
+| `GET    /api/v1/note_search`             | [Search Notes](#search-notes)                     |
+| `GET    /api/v1/user`                    | [Get User](#get-user)                             |
+| `DELETE /api/v1/user`                    | [Delete User](#delete-user)                       |
+| `POST   /api/v1/user`                    | [User Edit](#user-edit)                           |
+| `POST   /api/v1/user_login`              | [User Login](#user-login)                         |
+| `POST   /api/v1/user_logout`             | [User Logout](#user-logout)                       |
+| `POST   /api/v1/user_create`             | [User Create](#user-create)                       |
+| `POST   /api/v1/pwd_reset/send`          | [Send Password Reset](#send-password-reset)       |
+| `POST   /api/v1/pwd_reset/change_pwd`    | [Complete Password Reset](#complete-password-reset) |
+| `GET    /api/v1/admin/site_data`         | [Site Data](#site-data)                           |
 
 ### Get Notes
 **Path:** /api/v1/notes [GET]\
@@ -210,6 +109,22 @@ is provided then it starts from the beginning; if a continuation_key is provided
 starts where the last call left off. The output includes a continuation_key if
 there might be more to retrieve and does not contain one when we've gotten all of
 the notes.
+
+### New Note
+**Path:** /api/v1/notes [POST]
+
+**Inputs:**
+* session_id: [header] string
+* title: [body] string
+* body: [body] string
+* format: [body] enum
+
+**Outputs:**
+
+**Description**
+Create a new note. The title of a note cannot be more than 1,000 bytes in UTF-8.
+The body of a note cannot be more than 100,000 bytes in UTF-8. Exceeding these
+will return a 400 error.
 
 ### Get Note
 **Path:** /api/v1/notes/*{note_id}* [GET]
@@ -264,27 +179,6 @@ that is attempted.
 **Description:**
 Deletes the given note.
 
-### Search Notes
-**Path:** /api/v1/note_search?search_string=*{search_string}* [GET]\
-**Path:** /api/v1/note_search?search_string=*{search_string}*&continue_key=*{continue_key}* [GET]
-
-**Inputs:**
-* session_id: [header] string
-* search_string: [path] string
-* continue_key: [query] string
-
-**Outputs:**
-* NoteHeader objects: [body] list<object>
-* continuation_key: [body] option<string>
-
-**Description:**
-Returns a page worth of notes that contain (in title or body) the search_string,
-iterating in the standard order. If no continue_key is provided then it starts from
-the beginning; if a continuation_key is provided it starts where the last call left
-off. The output includes a continuation_key if there might be more to retrieve and
-does not contain one when we've gotten all of the notes that contain the search
-string.
-
 ### Get Deleted Notes
 **Path:** /api/v1/deleted_notes [GET]\
 **Path:** /api/v1/deleted_notes?continue_key={continue_key} [GET]
@@ -330,14 +224,14 @@ None
 **Description:**
 If note_id corresponds to a note in this user's account that has been soft-deleted
 but is not yet unrecoverable, then this permanently ("hard-") deletes it. If the
-note is not soft-deleted it returns an 412 error.
+note is not soft-deleted it returns a 412 error.
 
 ### Export Notes
 **Path:** /api/v1/note_export?file_format={file_format} [GET]
 
 **Inputs:**
 * session_id: [header] string
-* format: [query] One of "ziptext" or "json", defaulting to "ziptext"
+* file_format: [query] One of "ziptext" or "json", defaulting to "ziptext"
 
 **Outputs:**
 Unlike most of these APIs, this does NOT return a JSON document. Instead, it returns the
@@ -386,6 +280,110 @@ Each file always creates a new note, even if a note with the same title already 
 
 For **SimpleNote JSON format**: The file should match the format that SimpleNote uses
 when outputting in JSON format. Only notes that are NOT in the trash will be imported.
+
+### Search Notes
+**Path:** /api/v1/note_search?search_string=*{search_string}* [GET]\
+**Path:** /api/v1/note_search?search_string=*{search_string}*&continue_key=*{continue_key}* [GET]
+
+**Inputs:**
+* session_id: [header] string
+* search_string: [query] string
+* continue_key: [query] string
+
+**Outputs:**
+* NoteHeader objects: [body] list<object>
+* continuation_key: [body] option<string>
+
+**Description:**
+Returns a page worth of notes that contain (in title or body) the search_string,
+iterating in the standard order. If no continue_key is provided then it starts from
+the beginning; if a continuation_key is provided it starts where the last call left
+off. The output includes a continuation_key if there might be more to retrieve and
+does not contain one when we've gotten all of the notes that contain the search
+string.
+
+### Get User
+**Path:** /api/v1/user [GET]
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+* user object fields: [body] object
+
+**Description**
+Obtain data about the currently logged-in user.
+
+### Delete User
+**Path:** /api/v1/user [DELETE]
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+* If successful, this returns a 204 with no body.
+
+**Description:**
+This deletes the currently logged-in user, removing all of their notes, any
+sessions, and the user entry.
+
+### User Edit
+**Path:** /api/v1/user [POST]
+
+**Inputs:**
+* session_id: [header] string
+* password: [body] string
+* new_password: [body] optional string
+* new_email: [body] optional string
+
+**Outputs:**
+* None (returns a 204 on success)
+
+**Description:**
+This allows editing certain fields of the user. The caller must be logged in, and only the
+logged-in user can be edited. Editing user fields is sensitive, so the user must provide their
+(current) password. They may optionally provide new values for any of the editable fields:
+that's new_password to change the password and/or new_email to change the email. No other
+fields are editable at this time.
+
+### User Login
+**Path:** /api/v1/user_login [POST]
+
+**Inputs:**
+* email: [body] string
+* password: [body] string
+
+**Outputs:**
+* session_id: string
+* *{sets cookie}*: [header]
+
+**Description**
+Creates a new session for a user (or fails).
+
+### User Logout
+**Path:** /api/v1/user_logout [POST]
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+* *{expires cookie}*: [header]
+
+**Description**
+Ends the current session for a user (if there is one).
+
+### User Create
+**Path:** /api/v1/user_create [POST]
+
+**Inputs:**
+* email: [body] string [restricted character set]
+* password: [body] string [restricted character set]
+
+**Outputs:**
+* session_id: [header] string
+
+**Description**
+Creates a new user, and a new session for that user (or fails).
 
 ### Send Password Reset
 **Path:** /api/v1/pwd_reset/send [POST]
