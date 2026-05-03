@@ -17,3 +17,5 @@ pub mod handle_get_deleted_notes;
 pub mod handle_recover_note;
 pub mod handle_destroy_deleted_note;
 pub mod handle_site_data;
+pub mod handle_pwd_reset_send;
+pub mod handle_pwd_reset_change;

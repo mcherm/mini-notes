@@ -11,6 +11,7 @@ use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, Cr
 use crate::handlers::common;
 use crate::handlers::handle_user_login::{UserLoginBody, handle_user_login};
 use crate::models::UserType;
+use crate::passwords::validate_password;
 
 /// A struct for the things that are passed in as part of the body when a new user is created.
 #[derive(Debug, Deserialize)]
@@ -29,6 +30,11 @@ pub async fn handle_user_create(
     Json(user_create_body): Json<UserCreateBody>,
 ) -> Result<([(header::HeaderName, header::HeaderValue); 1], Json<serde_json::Value>), HandlerErrOutput> {
     info!(email = user_create_body.email, "user create attempt");
+
+    // Validate the proposed password
+    if let Err(msg) = validate_password(&user_create_body.password) {
+        return Err(http_error(400, msg));
+    }
 
     // Check that the email isn't already in use
     common::check_email_available(&state.dynamo_client, &state.users_table_name, &user_create_body.email).await?;
@@ -126,6 +132,37 @@ mod tests {
         assert!(cookie.starts_with("session_id=D9G1NIkGan;"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("Secure"));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_user_create_empty_password() {
+        // No DynamoDB calls should be made — validation rejects before any IO.
+        let client = test_dynamo_client(vec![]);
+
+        fn fake_id() -> String { "D9G1NIkGan".to_string() }
+        fn stub_generate_hash(_password: &str) -> Result<String, passwords::HashFailedError> {
+            Ok("stub_hash".to_string())
+        }
+        fn stub_verify(_password: &str, _hash: &str) -> Result<bool, passwords::HashFailedError> {
+            Ok(true)
+        }
+
+        let result = handle_user_create(
+            test_state(client),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            CryptographicOps {
+                generate_password_hash: stub_generate_hash,
+                verify_password: stub_verify,
+            },
+            Json(UserCreateBody {
+                email: "new@example.com".to_string(),
+                password: "".to_string(),
+            }),
+        ).await;
+
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

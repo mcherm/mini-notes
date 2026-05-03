@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, CryptographicOps, http_error, UserSession};
 use crate::handlers::common;
+use crate::passwords::validate_password;
 
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +32,13 @@ pub async fn handle_edit_user(
     let user_id = session.user_id;
 
     info!(user_id, "user edit attempt");
+
+    // Validate the proposed new password, if one was provided
+    if let Some(ref new_password) = body.new_password {
+        if let Err(msg) = validate_password(new_password) {
+            return Err(http_error(400, msg));
+        }
+    }
 
     let user = common::fetch_user_by_id(&state.dynamo_client, &state.users_table_name, &user_id).await?;
 
@@ -268,6 +276,26 @@ mod tests {
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(json["error"], "email already in use");
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_user_empty_new_password() {
+        // No DynamoDB calls should be made — validation rejects before any IO.
+        let client = test_dynamo_client(vec![]);
+
+        let result = handle_edit_user(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            test_crypto_ops(),
+            Json(UserEditBody {
+                password: "currentpass".to_string(),
+                new_password: Some("".to_string()),
+                new_email: None,
+            }),
+        ).await;
+
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

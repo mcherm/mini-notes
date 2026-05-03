@@ -1,11 +1,18 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::Client as DynamoClient;
+use aws_sdk_sesv2::Client as SesClient;
 
 
 /// Construct a DynamoDB client using the default AWS SDK configuration for this Lambda.
 pub async fn dynamo_client() -> DynamoClient {
     let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     DynamoClient::new(&config)
+}
+
+/// Construct an SES (v2) client using the default AWS SDK configuration for this Lambda.
+pub async fn ses_client() -> SesClient {
+    let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+    SesClient::new(&config)
 }
 
 /// Read the STAGE environment variable, panicking with a clear message if missing.

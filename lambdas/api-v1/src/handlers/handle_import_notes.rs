@@ -10,7 +10,7 @@ use serde_json::{json, Value as JsonValue};
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_error, UserSession};
-use crate::models::{Note, NoteFormat, parse_note_format, Timestamp};
+use crate::models::{Note, NoteFormat, Timestamp};
 use crate::utils::get_title_from_body;
 
 
@@ -280,7 +280,7 @@ async fn create_imported_notes(
 
         // format: provided value as enum, else PlainText
         let format: NoteFormat = match note_data.format {
-            Some(f) => parse_note_format(&f).unwrap_or(NoteFormat::PlainText),
+            Some(f) => NoteFormat::parse(&f).unwrap_or(NoteFormat::PlainText),
             None => NoteFormat::PlainText
         };
 

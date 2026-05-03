@@ -1,5 +1,6 @@
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
+use aws_sdk_sesv2::Client as SesClient;
 use axum::{
     extract::FromRequestParts,
     response::Json,
@@ -9,7 +10,7 @@ use serde_json::json;
 use time::UtcDateTime;
 
 use crate::passwords;
-use crate::utils::generate_id;
+use crate::utils::{generate_id, random_u32};
 use crate::models::{Session, Timestamp};
 
 pub type HandlerErrOutput = (StatusCode, Json<serde_json::Value>);
@@ -27,9 +28,11 @@ pub fn http_error<T: TryInto<StatusCode>>(status: T, message: &str) -> HandlerEr
 #[derive(Clone)]
 pub struct AppState {
     pub dynamo_client: DynamoClient,
+    pub ses_client: SesClient,
     pub notes_table_name: String,
     pub users_table_name: String,
     pub sessions_table_name: String,
+    pub frontend_base_url: String,
 }
 
 
@@ -101,6 +104,20 @@ impl FromRequestParts<AppState> for IdGenerator {
 
     async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
         Ok(IdGenerator(generate_id))
+    }
+}
+
+/// Extractor for sources of randomness that aren't tied to ID generation
+/// (currently just the burn-die roll in handle_pwd_reset_change). In
+/// production this delegates to `random_u32`; tests pass a stub that
+/// returns a fixed value to make burn behavior deterministic.
+pub struct RandomOps(pub fn() -> u32);
+
+impl FromRequestParts<AppState> for RandomOps {
+    type Rejection = HandlerErrOutput;
+
+    async fn from_request_parts(_parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
+        Ok(RandomOps(random_u32))
     }
 }
 

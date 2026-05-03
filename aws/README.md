@@ -31,6 +31,7 @@ aws sts get-caller-identity
 | `create-dynamodb-table-sessions.sh` | Once per stage | Creates the `mini-notes-sessions-<stage>` DynamoDB table with TTL |
 | `recreate-notes-table.sh` | As needed | Backs up, drops, recreates, and restores the notes table (for schema changes) |
 | `create-iam-role.sh` | Once (shared) | Creates the Lambda execution role; not stage-specific |
+| `configure-ses.sh` | Once (shared) | Creates the SES domain identity for `mini-notes.com` and adds DKIM CNAMEs in Route 53; not stage-specific. See script comments for the SES sandbox-exit step that must follow |
 | `create-lambda-api-v1.sh` | Once per stage | Creates the `mini-notes-api-v1-<stage>` Lambda and attaches a public HTTPS Function URL |
 | `create-cors-policy.sh` | Once per stage | Creates a CloudFront response headers policy for CORS, allowing the frontend domain to call the API |
 | `create-cloudfront-distribution.sh` | Once per stage | Creates a CloudFront distribution with S3 (static frontend) and Lambda origins, custom domains, TLS, and CORS policy |

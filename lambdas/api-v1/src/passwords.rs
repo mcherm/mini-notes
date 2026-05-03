@@ -44,6 +44,19 @@ impl std::error::Error for HashFailedError {
 }
 
 
+/// Validates that a proposed password is acceptable to use. Returns Ok
+/// if the password meets all rules, otherwise returns an error message
+/// suitable for use as the body of a 400 response. This is the single
+/// source of truth for password rules and is called wherever a password
+/// is set or changed.
+pub fn validate_password(password: &str) -> Result<(), &'static str> {
+    if password.is_empty() {
+        return Err("password must not be empty");
+    }
+    Ok(())
+}
+
+
 /// This is given a new password. It generates a salt, then hashes the
 /// password, and returns a string which encodes details of the hash
 /// settings, the salt, and the hashed password. That string can later
@@ -68,6 +81,17 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, Hash
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_validate_password_accepts_non_empty() {
+        assert!(validate_password("a").is_ok());
+        assert!(validate_password("a much longer password").is_ok());
+    }
+
+    #[test]
+    fn test_validate_password_rejects_empty() {
+        assert!(validate_password("").is_err());
+    }
 
     #[test]
     fn test_hash_password() -> Result<(),HashFailedError> {

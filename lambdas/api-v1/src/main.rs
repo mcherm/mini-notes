@@ -34,6 +34,8 @@ use handlers::{
     handle_export_notes::handle_export_notes,
     handle_import_notes::handle_import_notes,
     handle_site_data::handle_site_data,
+    handle_pwd_reset_send::handle_pwd_reset_send,
+    handle_pwd_reset_change::handle_pwd_reset_change,
 };
 
 /// Entry point for initializing the lambda's environment, invoked when the lambda is
@@ -45,23 +47,32 @@ async fn main() -> Result<(), lambda_http::Error> {
         .json()
         .init();
 
-    let client = common::dynamo_client().await;
+    let dynamo_client = common::dynamo_client().await;
+    let ses_client = common::ses_client().await;
 
     let tables = common::TableNames::load();
-    let allowed_origin = std::env::var("ALLOWED_ORIGIN")
-        .expect("ALLOWED_ORIGIN env var must be set");
+    // The frontend domain is determined entirely by the deployment stage. Used
+    // both as the CORS allowed origin and as the base URL embedded in
+    // outgoing emails.
+    let frontend_base_url = match common::stage().as_str() {
+        "prod" => "https://mini-notes.com".to_string(),
+        "dev" => "https://dev.mini-notes.com".to_string(),
+        other => panic!("STAGE env var must be 'prod' or 'dev', got '{other}'"),
+    };
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::PUT, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
-        .allow_origin([allowed_origin.parse().expect("Invalid ALLOWED_ORIGIN")])
+        .allow_origin([frontend_base_url.parse().expect("Invalid frontend_base_url")])
         .allow_credentials(true);
 
     let state = AppState {
-        dynamo_client: client,
+        dynamo_client,
+        ses_client,
         notes_table_name: tables.notes,
         users_table_name: tables.users,
         sessions_table_name: tables.sessions,
+        frontend_base_url,
     };
     let app = Router::new()
         .route("/api/v1/notes", get(handle_get_notes))
@@ -76,11 +87,13 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/note_import", post(handle_import_notes))
         .route("/api/v1/note_search", get(handle_search_notes))
         .route("/api/v1/user", get(handle_get_user))
-        .route("/api/v1/user", post(handle_edit_user))
         .route("/api/v1/user", delete(handle_delete_user))
+        .route("/api/v1/user", post(handle_edit_user))
         .route("/api/v1/user_login", post(handle_user_login))
         .route("/api/v1/user_logout", post(handle_user_logout))
         .route("/api/v1/user_create", post(handle_user_create))
+        .route("/api/v1/pwd_reset/send", post(handle_pwd_reset_send))
+        .route("/api/v1/pwd_reset/change_pwd", post(handle_pwd_reset_change))
         .route("/api/v1/admin/site_data", get(handle_site_data))
         .with_state(state)
         .layer(cors);

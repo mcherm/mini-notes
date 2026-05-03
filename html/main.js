@@ -459,6 +459,17 @@ async function editUser() {
     });
 }
 
+/** Requests a password-reset email for the address in the forgot-password dialog. */
+async function sendPasswordResetEmail() {
+    const email = document.querySelector("#forgot-password-email").value;
+    const url = `${getApiBaseUrl()}/api/v1/pwd_reset/send`;
+    await apiFetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({email: email}),
+    });
+}
+
 /**
  * Fetches note headers from the API and renders the note list. continueKey is
  * optional; omit it to get the first block of values.
@@ -1087,6 +1098,30 @@ async function actionDeleteUserBtn() {
     stateUpdateForLogout();
 }
 
+/** Opens the forgot-password dialog. Pre-fills email from the login field. */
+function actionForgotPasswordLink() {
+    const loginEmail = document.querySelector("#email-entry").value;
+    document.querySelector("#forgot-password-email").value = loginEmail;
+    showShadowBox("forgot-password-dialog");
+}
+
+/** Handles the back button in the forgot-password dialog. */
+function actionCloseForgotPasswordBtn() {
+    hideShadowBox("forgot-password-dialog");
+}
+
+/** Sends the reset request, then closes the dialog regardless of outcome. */
+async function actionSendForgotPasswordBtn() {
+    try {
+        await sendPasswordResetEmail();
+    } catch (e) {
+        // The API returns 204 in every "expected" case, so a thrown error
+        // here means a network failure or similar. Per the indistinguishable-
+        // response design, we close the dialog without surfacing it.
+    }
+    hideShadowBox("forgot-password-dialog");
+}
+
 /** Handles the undo button by applying a diff from the undo stack. */
 function actionUndoBtn() {
     if (!currentNote || !currentNote.undo_stack) {
@@ -1292,6 +1327,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#user-delete-dialog-btn").addEventListener("click", actionUserDeleteDialogBtn);
     document.querySelector("#close-user-delete-btn").addEventListener("click", actionCloseUserDeleteBtn);
     document.querySelector("#delete-user-btn").addEventListener("click", actionDeleteUserBtn);
+    document.querySelector("#forgot-password-link").addEventListener("click", actionForgotPasswordLink);
+    document.querySelector("#close-forgot-password-btn").addEventListener("click", actionCloseForgotPasswordBtn);
+    document.querySelector("#send-forgot-password-btn").addEventListener("click", actionSendForgotPasswordBtn);
     document.querySelector("#undo-btn").addEventListener("click", actionUndoBtn);
     document.querySelector("#redo-btn").addEventListener("click", actionRedoBtn);
     document.querySelectorAll(".settings-btn").forEach(btn => {

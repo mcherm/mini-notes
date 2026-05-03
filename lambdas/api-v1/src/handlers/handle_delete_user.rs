@@ -6,6 +6,7 @@ use axum::{
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, http_error, UserSession};
+use crate::handlers::common;
 use crate::models::get_s;
 
 
@@ -69,46 +70,7 @@ pub async fn handle_delete_user(
     }
 
     // --- Delete all sessions for this user ---
-    // The sessions table has session_id as PK, so we scan with a filter on user_id.
-    // DESIGN NOTE: As long as the number of users isn't too big, doing a scan is
-    // probably just fine. But if the number of users ever gets big, we'll need to
-    // create an index (LSI or GSI) to support lookup of sessions by user_id.
-    let mut exclusive_start_key = None;
-    loop {
-        let mut scan_builder = state.dynamo_client
-            .scan()
-            .table_name(&state.sessions_table_name)
-            .filter_expression("user_id = :uid")
-            .expression_attribute_values(":uid", AttributeValue::S(user_id.clone()))
-            .projection_expression("session_id");
-        if let Some(start_key) = exclusive_start_key {
-            scan_builder = scan_builder.set_exclusive_start_key(Some(start_key));
-        }
-
-        let scan_result = match scan_builder.send().await {
-            Ok(response) => response,
-            Err(err) => return Err(http_error(500, &format!("failed to scan sessions: {err}"))),
-        };
-
-        let items = scan_result.items.unwrap_or_default();
-        for item in &items {
-            let session_id = match get_s(item, "session_id") {
-                Ok(id) => id,
-                Err(_) => continue,
-            };
-            let _ = state.dynamo_client
-                .delete_item()
-                .table_name(&state.sessions_table_name)
-                .key("session_id", AttributeValue::S(session_id))
-                .send()
-                .await;
-        }
-
-        if scan_result.last_evaluated_key.is_none() {
-            break;
-        }
-        exclusive_start_key = scan_result.last_evaluated_key;
-    }
+    common::delete_all_sessions_for_user(&state.dynamo_client, &state.sessions_table_name, &user_id).await?;
 
     // --- Delete the user record ---
     let result = state.dynamo_client

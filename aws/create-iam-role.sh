@@ -48,4 +48,19 @@ aws iam put-role-policy \
         }]
     }"
 
+# --- SES SendEmail (used by the password-reset send endpoint) ---
+# Scoped to the mini-notes.com domain identity, so the lambda can send only
+# from a verified mini-notes.com address.
+aws iam put-role-policy \
+    --role-name mini-notes-lambda-role \
+    --policy-name ses-send-email-mini-notes \
+    --policy-document "{
+        \"Version\": \"2012-10-17\",
+        \"Statement\": [{
+            \"Effect\": \"Allow\",
+            \"Action\": \"ses:SendEmail\",
+            \"Resource\": \"arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/mini-notes.com\"
+        }]
+    }"
+
 echo "Role 'mini-notes-lambda-role' created."

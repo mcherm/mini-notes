@@ -1,14 +1,22 @@
 //! This file contains code that is shared by multiple handlers.
 
+use std::time::Duration;
+
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
 
 use crate::extractors::{HandlerErrOutput, http_error};
-use crate::models::User;
+use crate::models::{User, get_s};
 
 
 pub const MAX_TITLE_LEN: usize = 1000;
 pub const MAX_BODY_LEN: usize = 100000;
+
+/// How long a password-reset token remains valid after it was issued.
+/// Lives here because it's used both by the change handler (for the
+/// expiration check) and by the send handler (rendered into the email
+/// body so the user knows roughly when the link will stop working).
+pub const PASSWORD_RESET_TOKEN_MAX_AGE: Duration = Duration::from_hours(3);
 
 /// Verifies that a title and body are of a valid size. Returns an error response if
 /// they are not.
@@ -51,6 +59,59 @@ pub async fn fetch_user_by_id(dynamo_client: &DynamoClient, users_table_name: &s
             Err(http_error(500, "user is invalid in DB"))
         }
     }
+}
+
+/// Deletes every session belonging to the given user. The sessions table has
+/// session_id as its only key, so this scans with a filter on user_id and then
+/// deletes the matching session_ids one-by-one. Per-row delete errors are
+/// swallowed (best-effort cleanup); errors from the scan itself are returned.
+///
+/// DESIGN NOTE: As long as the number of sessions isn't too big, doing a scan
+/// is probably just fine. But if the number of sessions ever gets big, we'll
+/// need to create an index (LSI or GSI) to support lookup of sessions by
+/// user_id.
+pub async fn delete_all_sessions_for_user(
+    dynamo_client: &DynamoClient,
+    sessions_table_name: &str,
+    user_id: &str,
+) -> Result<(), HandlerErrOutput> {
+    let mut exclusive_start_key = None;
+    loop {
+        let mut scan_builder = dynamo_client
+            .scan()
+            .table_name(sessions_table_name)
+            .filter_expression("user_id = :uid")
+            .expression_attribute_values(":uid", AttributeValue::S(user_id.to_string()))
+            .projection_expression("session_id");
+        if let Some(start_key) = exclusive_start_key {
+            scan_builder = scan_builder.set_exclusive_start_key(Some(start_key));
+        }
+
+        let scan_result = match scan_builder.send().await {
+            Ok(response) => response,
+            Err(err) => return Err(http_error(500, &format!("failed to scan sessions: {err}"))),
+        };
+
+        let items = scan_result.items.unwrap_or_default();
+        for item in &items {
+            let session_id = match get_s(item, "session_id") {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
+            let _ = dynamo_client
+                .delete_item()
+                .table_name(sessions_table_name)
+                .key("session_id", AttributeValue::S(session_id))
+                .send()
+                .await;
+        }
+
+        if scan_result.last_evaluated_key.is_none() {
+            break;
+        }
+        exclusive_start_key = scan_result.last_evaluated_key;
+    }
+    Ok(())
 }
 
 /// Queries the users-by-email GSI to check whether the given email address is

@@ -49,11 +49,12 @@
         <login-area>
             <login-form>
                 <label for="email-entry">Email:</label>
-                <input type="text" id="email-entry">
+                <input type="email" id="email-entry">
                 <label for="password-entry">Password:</label>
                 <input type="password" id="password-entry">
                 <button id="login-btn">Log In</button>
                 <button id="new-account-btn">New Account</button>
+                <a id="forgot-password-link">Forgot password?</a>
             </login-form>
         </login-area>
     </body-content>
@@ -98,6 +99,19 @@
                 <button id="close-user-delete-btn">&#x2190;</button>
                 <button id="delete-user-btn">Delete Account</button>
             </user-delete>
+        </shadow-content>
+    </shadow-box>
+    <shadow-box id="forgot-password-dialog">
+        <shadow-content>
+            <forgot-password-area>
+                <p>Enter the email for your account to send a password reset email.</p>
+                <forgot-password-form>
+                    <label for="forgot-password-email">Email:</label>
+                    <input type="email" id="forgot-password-email" value="">
+                    <button id="close-forgot-password-btn">&#x2190;</button>
+                    <button id="send-forgot-password-btn">Send Reset Email</button>
+                </forgot-password-form>
+            </forgot-password-area>
         </shadow-content>
     </shadow-box>
     <shadow-box id="note-info-dialog">
@@ -146,11 +160,10 @@
                     </settings-text>
                     <settings-text id="user-account-info">
                         Anyone may make an account by providing an email and a password. We do not currently verify
-                        or enforce that it is a valid email, but if we need to contact a user or start providing
-                        password resets, they won't work if that field isn't an email you have access to.
+                        or enforce that the email is valid, but it is not an email you have access to then you will be
+                        unable to recover a forgotten password, and we cannot contact you about your account.
 
-                        <p>Mini-notes does not keep a record of your password, only a hash used to verify it. There is
-                        currently no way to reset your password &mdash; see the "Tech Support" section if needed.</p>
+                        <p>Mini-notes does not keep a record of your password, only a hash used to verify it.</p>
                     </settings-text>
                     <settings-text id="privacy-info">
                         Mini-notes collects very little information about our users. We collect the email used to create
