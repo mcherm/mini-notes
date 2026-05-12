@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
+use tracing::info;
 
 use crate::extractors::{HandlerErrOutput, http_error};
 use crate::models::{User, get_s};
@@ -11,6 +12,9 @@ use crate::models::{User, get_s};
 
 pub const MAX_TITLE_LEN: usize = 1000;
 pub const MAX_BODY_LEN: usize = 100000;
+
+/// User-facing message for any 500 response.
+pub const SERVER_ERROR_MESSAGE: &str = "Server error.";
 
 /// How long a password-reset token remains valid after it was issued.
 /// Lives here because it's used both by the change handler (for the
@@ -89,7 +93,10 @@ pub async fn delete_all_sessions_for_user(
 
         let scan_result = match scan_builder.send().await {
             Ok(response) => response,
-            Err(err) => return Err(http_error(500, &format!("failed to scan sessions: {err}"))),
+            Err(err) => {
+                info!(%err, "sessions scan failed");
+                return Err(http_error(500, SERVER_ERROR_MESSAGE));
+            }
         };
 
         let items = scan_result.items.unwrap_or_default();
@@ -129,7 +136,10 @@ pub async fn check_email_available(dynamo_client: &DynamoClient, users_table_nam
         .await;
     let email_check = match email_check {
         Ok(response) => response,
-        Err(_) => return Err(http_error(500, "unable to check email availability")),
+        Err(err) => {
+            info!(%err, "users-by-email query failed");
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
+        }
     };
     if email_check.items.map(|items| !items.is_empty()).unwrap_or(false) {
         return Err(http_error(409, "email already in use"));

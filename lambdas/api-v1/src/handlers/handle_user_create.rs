@@ -8,7 +8,7 @@ use serde::Deserialize;
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, CryptographicOps, http_error};
-use crate::handlers::common;
+use crate::handlers::common::{self, SERVER_ERROR_MESSAGE};
 use crate::handlers::handle_user_login::{UserLoginBody, handle_user_login};
 use crate::models::UserType;
 use crate::passwords::validate_password;
@@ -45,7 +45,7 @@ pub async fn handle_user_create(
         Ok(hash) => hash,
         Err(err) => {
             info!(%err, "password hash generation failed");
-            return Err(http_error(500, "password hash generation error"));
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
         }
     };
 
@@ -63,8 +63,9 @@ pub async fn handle_user_create(
         .condition_expression("attribute_not_exists(user_id)") // Clobbering a user would be REALLY bad so double-check.
         .send()
         .await;
-    if result.is_err() {
-        return Err(http_error(500, "unable to create user"));
+    if let Err(err) = result {
+        info!(%err, "failed to write new user to users table");
+        return Err(http_error(500, SERVER_ERROR_MESSAGE));
     }
 
     // Now perform a login for the newly created user

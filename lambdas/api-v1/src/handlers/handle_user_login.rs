@@ -9,6 +9,7 @@ use serde_json::json;
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, CryptographicOps, http_error};
+use crate::handlers::common::SERVER_ERROR_MESSAGE;
 use crate::models::{User, Session};
 use crate::utils::SESSION_LIFETIME_DAYS;
 
@@ -43,7 +44,10 @@ pub async fn handle_user_login(
         .await;
     let query_result = match query_result {
         Ok(response) => response,
-        Err(err) => return Err(http_error(500, &err.to_string())),
+        Err(err) => {
+            info!(%err, "users-by-email query failed");
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
+        }
     };
     let Some(first_user) = query_result
         .items
@@ -55,7 +59,7 @@ pub async fn handle_user_login(
         Ok(user) => user,
         Err(err) => {
             info!(err, "user record is invalid in DB");
-            return Err(http_error(500, "user record is invalid in DB"));
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
         }
     };
 
@@ -64,7 +68,7 @@ pub async fn handle_user_login(
         Ok(valid) => valid,
         Err(err) => {
             info!(%err, "password hash verification failed");
-            return Err(http_error(500, "password verification error"));
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
         }
     };
     if !password_valid {
@@ -90,8 +94,9 @@ pub async fn handle_user_login(
         .item("ttl_expire", AttributeValue::N(session.expire_time.unix_timestamp().to_string()))
         .send()
         .await;
-    if result.is_err() {
-        return Err(http_error(500, "unable to create session"));
+    if let Err(err) = result {
+        info!(%err, "failed to write session to sessions table");
+        return Err(http_error(500, SERVER_ERROR_MESSAGE));
     }
 
     // Return a response with a Set-Cookie header containing the session_id

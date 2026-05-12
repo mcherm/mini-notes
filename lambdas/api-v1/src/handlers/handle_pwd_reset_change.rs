@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tracing::info;
 
 use crate::extractors::{AppState, CryptographicOps, CurrentTime, HandlerErrOutput, RandomOps, http_error};
-use crate::handlers::common::{self, PASSWORD_RESET_TOKEN_MAX_AGE};
+use crate::handlers::common::{self, PASSWORD_RESET_TOKEN_MAX_AGE, SERVER_ERROR_MESSAGE};
 use crate::models::{PasswordResetToken, User};
 use crate::passwords::validate_password;
 use crate::utils::constant_time_eq;
@@ -72,13 +72,16 @@ pub async fn handle_pwd_reset_change(
             Some(i) => i,
             None => return Err(unauthenticated()),
         },
-        Err(err) => return Err(http_error(500, &err.to_string())),
+        Err(err) => {
+            info!(%err, "users get_item failed");
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
+        }
     };
     let user: User = match User::try_from(item) {
         Ok(u) => u,
         Err(err) => {
             info!(err, "user record is invalid in DB");
-            return Err(http_error(500, "user record is invalid in DB"));
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
         }
     };
 
@@ -117,7 +120,7 @@ pub async fn handle_pwd_reset_change(
         Ok(h) => h,
         Err(err) => {
             info!(%err, "password hash generation failed");
-            return Err(http_error(500, "password hash generation error"));
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
         }
     };
 
@@ -140,7 +143,8 @@ pub async fn handle_pwd_reset_change(
             info!("conditional update failed (token rotated mid-request); 401");
             return Err(unauthenticated());
         }
-        return Err(http_error(500, &sdk_err.to_string()));
+        info!(%sdk_err, "password update_item failed");
+        return Err(http_error(500, SERVER_ERROR_MESSAGE));
     }
 
     // Invalidate any other live sessions for this user. Per design: a
@@ -160,7 +164,7 @@ pub async fn handle_pwd_reset_change(
 /// shape, so callers can't distinguish among "no such user", "no stored
 /// token", "expired", "wrong token", or "concurrent token rotation".
 fn unauthenticated() -> HandlerErrOutput {
-    http_error(401, "invalid user_id or token")
+    http_error(401, "Password reset link is invalid or expired.")
 }
 
 /// Best-effort: clear the user's password_reset_token only if it still
@@ -288,7 +292,7 @@ mod tests {
         ).await;
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["error"], "invalid user_id or token");
+        assert_eq!(json["error"], "Password reset link is invalid or expired.");
     }
 
     #[tokio::test]
@@ -303,7 +307,7 @@ mod tests {
         ).await;
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["error"], "invalid user_id or token");
+        assert_eq!(json["error"], "Password reset link is invalid or expired.");
     }
 
     #[tokio::test]
@@ -404,6 +408,6 @@ mod tests {
         ).await;
         let (status, Json(json)) = result.unwrap_err();
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["error"], "invalid user_id or token");
+        assert_eq!(json["error"], "Password reset link is invalid or expired.");
     }
 }

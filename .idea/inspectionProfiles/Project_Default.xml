@@ -4,7 +4,7 @@
     <inspection_tool class="HtmlUnknownTag" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="myValues">
         <value>
-          <list size="33">
+          <list size="37">
             <item index="0" class="java.lang.String" itemvalue="nobr" />
             <item index="1" class="java.lang.String" itemvalue="noembed" />
             <item index="2" class="java.lang.String" itemvalue="comment" />
@@ -38,6 +38,10 @@
             <item index="30" class="java.lang.String" itemvalue="user-delete" />
             <item index="31" class="java.lang.String" itemvalue="user-edit" />
             <item index="32" class="java.lang.String" itemvalue="user-edit-form" />
+            <item index="33" class="java.lang.String" itemvalue="inline-alert" />
+            <item index="34" class="java.lang.String" itemvalue="info-form" />
+            <item index="35" class="java.lang.String" itemvalue="forgot-password-area" />
+            <item index="36" class="java.lang.String" itemvalue="forgot-password-form" />
           </list>
         </value>
       </option>

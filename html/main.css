@@ -266,6 +266,7 @@ login-form {
     grid-template-areas:
         "label_1 entry_1"
         "label_2 entry_2"
+        "alert   alert"
         "button_1 button_2";
     gap: 5px;
     padding: 5px;
@@ -273,6 +274,30 @@ login-form {
     & button {
         justify-self: center;
     }
+
+    & > inline-alert {
+        grid-area: alert;
+    }
+}
+
+/* ========== Inline Alert (shared error display) ========== */
+
+inline-alert {
+    display: block;
+    background-color: var(--critical-color-lt);
+    border: 2px solid var(--critical-color-dk);
+    color: var(--critical-color-dk);
+    padding: 6px 10px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+inline-alert::before {
+    content: "\26A0\00a0\00a0";
+}
+
+inline-alert:empty {
+    display: none;
 }
 
 user-form, info-form, user-edit-form {
