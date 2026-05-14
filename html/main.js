@@ -441,14 +441,16 @@ function showInlineAlert(alertSelector, formSelector, message) {
     clearInlineAlert(alertSelector);
     const alert = document.querySelector(alertSelector);
     alert.textContent = message;
-    const form = document.querySelector(formSelector);
-    const onInput = () => {
-        alert.textContent = "";
-        form.removeEventListener("input", onInput);
-        _inlineAlertAutoClear.delete(alert);
-    };
-    form.addEventListener("input", onInput);
-    _inlineAlertAutoClear.set(alert, { form, onInput });
+    if (formSelector) {
+        const form = document.querySelector(formSelector);
+        const onInput = () => {
+            alert.textContent = "";
+            form.removeEventListener("input", onInput);
+            _inlineAlertAutoClear.delete(alert);
+        };
+        form.addEventListener("input", onInput);
+        _inlineAlertAutoClear.set(alert, { form, onInput });
+    }
 }
 
 /**
@@ -463,6 +465,36 @@ function clearInlineAlert(alertSelector) {
         _inlineAlertAutoClear.delete(alert);
     }
     alert.textContent = "";
+}
+
+/**
+ * Displays a progress message in a progress-box (default state — hourglass icon).
+ * Removes any prior .complete state. Accepts either a CSS selector or the
+ * progress-box element directly (useful for bulk operations).
+ */
+function showProgressBox(box, message) {
+    const el = typeof box === "string" ? document.querySelector(box) : box;
+    el.classList.remove("complete");
+    el.textContent = message;
+}
+
+/**
+ * Marks a progress-box as complete: replaces the hourglass icon with a
+ * checkmark and updates the text to the completion message. Accepts either
+ * a CSS selector or the progress-box element directly.
+ */
+function completeProgressBox(box, message) {
+    const el = typeof box === "string" ? document.querySelector(box) : box;
+    el.classList.add("complete");
+    el.textContent = message;
+}
+
+/** Clears a progress-box and removes any state class. Accepts either a
+ * CSS selector or the progress-box element directly. */
+function clearProgressBox(box) {
+    const el = typeof box === "string" ? document.querySelector(box) : box;
+    el.classList.remove("complete");
+    el.textContent = "";
 }
 
 /** Logs out by calling the server to clear the cookie, then updates UI. */
@@ -824,28 +856,32 @@ async function loadUser() {
 
 /** Imports notes from the selected file by POSTing its raw bytes to the API. */
 async function importNotes(file) {
-    const statusSpan = document.getElementById("import-notes-status");
-    statusSpan.textContent = "Importing...";
+    clearInlineAlert("#import-alert");
+    showProgressBox("#import-progress", "Importing...");
+    let response;
     try {
         const bytes = await file.arrayBuffer();
-        const url = `${getApiBaseUrl()}/api/v1/note_import`;
-        const response = await apiFetch(url, {
+        response = await apiFetch(`${getApiBaseUrl()}/api/v1/note_import`, {
             method: "POST",
             body: bytes,
         });
-        if (response.ok) {
-            const data = await response.json();
-            statusSpan.textContent = `Done: ${data.notes_created} created, ${data.notes_updated} updated.`;
-            await loadNoteHeaders();
-        } else {
-            const data = await response.json();
-            statusSpan.textContent = `Error: ${data.error || "import failed"}`;
-        }
     } catch (e) {
-        if (!(e instanceof LoggedOutError)) {
-            statusSpan.textContent = `Error: ${e.message}`;
+        clearProgressBox("#import-progress");
+        if (e instanceof LoggedOutError) {
+            // apiFetch already handled the 401 and triggered logout.
+            return;
         }
+        showInlineAlert("#import-alert", null, FALLBACK_ERROR_MESSAGE);
+        return;
     }
+    if (!response.ok) {
+        clearProgressBox("#import-progress");
+        showInlineAlert("#import-alert", null, await extractErrorMessage(response));
+        return;
+    }
+    const data = await response.json();
+    completeProgressBox("#import-progress", `Done: ${data.notes_created} created, ${data.notes_updated} updated.`);
+    await loadNoteHeaders();
 }
 
 /**
@@ -1117,8 +1153,11 @@ function actionCloseNoteInfoShadowboxBtn() {
     hideShadowBox("note-info-dialog");
 }
 
-/** Handles a settings button click by showing the app-settings shadow box. */
+/** Handles a settings button click by showing the app-settings shadow box.
+ * Clears any progress-box content inside the settings panel so stale
+ * "Done…" messages from a previous visit don't reappear on a fresh open. */
 function actionSettingsBtn() {
+    document.querySelectorAll("app-settings progress-box").forEach(clearProgressBox);
     showShadowBox("app-settings-dialog");
 }
 
@@ -1162,8 +1201,10 @@ async function actionUserEditBtn() {
     hideShadowBox("user-edit-dialog");
 }
 
-/** Opens the user delete confirmation dialog. */
+/** Opens the user delete confirmation dialog with a clean state. */
 function actionUserDeleteDialogBtn() {
+    clearProgressBox("#delete-user-progress");
+    clearInlineAlert("#delete-user-alert");
     showShadowBox("user-delete-dialog");
 }
 
@@ -1172,18 +1213,47 @@ function actionCloseUserDeleteBtn() {
     hideShadowBox("user-delete-dialog");
 }
 
-/** Handles the delete account button by calling the API and logging out. */
+/**
+ * How long the "Done deleting." confirmation is shown before the user is
+ * logged out. Long enough to register; short enough not to feel laggy.
+ */
+const DELETE_USER_DONE_MS = 1500;
+
+/**
+ * Delete-account workflow: shows progress, then either completes (briefly
+ * displays "Done deleting." before logging out) or surfaces an error.
+ */
 async function actionDeleteUserBtn() {
+    clearInlineAlert("#delete-user-alert");
+    showProgressBox("#delete-user-progress", "Deleting...");
+    let response;
     try {
-        await apiFetch(`${getApiBaseUrl()}/api/v1/user`, { method: "DELETE" });
+        response = await apiFetch(`${getApiBaseUrl()}/api/v1/user`, { method: "DELETE" });
     } catch (e) {
-        // If the delete fails, just close the dialog
-        hideShadowBox("user-delete-dialog");
+        clearProgressBox("#delete-user-progress");
+        if (e instanceof LoggedOutError) {
+            // apiFetch already handled the 401 and triggered logout; the
+            // delete didn't happen, but we're already at the login screen.
+            hideShadowBox("user-delete-dialog");
+            hideShadowBox("user-display-dialog");
+            return;
+        }
+        showInlineAlert("#delete-user-alert", null, FALLBACK_ERROR_MESSAGE);
         return;
     }
-    hideShadowBox("user-delete-dialog");
-    hideShadowBox("user-display-dialog");
-    stateUpdateForLogout();
+    if (!response.ok) {
+        clearProgressBox("#delete-user-progress");
+        showInlineAlert("#delete-user-alert", null, await extractErrorMessage(response));
+        return;
+    }
+    completeProgressBox("#delete-user-progress", "Done deleting.");
+    // One of the very few places in the program where it simply pauses for a moment
+    setTimeout(() => {
+        clearProgressBox("#delete-user-progress");
+        hideShadowBox("user-delete-dialog");
+        hideShadowBox("user-display-dialog");
+        stateUpdateForLogout();
+    }, DELETE_USER_DONE_MS);
 }
 
 /** Opens the forgot-password dialog. Pre-fills email from the login field. */

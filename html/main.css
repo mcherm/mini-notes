@@ -252,8 +252,24 @@ user-area {
         "button_1 button_2 button_3 button_4";
 }
 
+user-delete {
+    grid-template-areas:
+        "form_1 form_1"
+        "progress progress"
+        "alert alert"
+        "button_1 button_2";
+}
+
 user-delete > p {
     grid-area: form_1;
+}
+
+user-delete > progress-box {
+    grid-area: progress;
+}
+
+user-delete > inline-alert {
+    grid-area: alert;
 }
 
 #back-to-list {
@@ -280,24 +296,54 @@ login-form {
     }
 }
 
-/* ========== Inline Alert (shared error display) ========== */
+/* ========== Status Boxes (shared display vocabulary) ========== */
 
-inline-alert {
+/* Common box treatment shared by inline-alert (errors) and progress-box
+ * (workflow progress / completion). Padding, border thickness, radius
+ * and centering are part of the family identity, not per-variant. */
+inline-alert, progress-box {
     display: block;
-    background-color: var(--critical-color-lt);
-    border: 2px solid var(--critical-color-dk);
-    color: var(--critical-color-dk);
+    margin: 5px;
+    border-width: 2px;
+    border-style: solid;
     padding: 6px 10px;
     border-radius: 10px;
     text-align: center;
+}
+
+inline-alert:empty, progress-box:empty {
+    display: none;
+}
+
+/* ---------- Inline Alert (error variant) ---------- */
+
+inline-alert {
+    background-color: var(--critical-color-lt);
+    border-color: var(--critical-color-dk);
+    color: var(--critical-color-dk);
 }
 
 inline-alert::before {
     content: "\26A0\00a0\00a0";
 }
 
-inline-alert:empty {
-    display: none;
+/* ---------- Progress Box (workflow status variant) ---------- */
+
+/* We are coloring this using variants of --secondary-color. That works at the moment
+ * because it always appears on a background which is based on --interest-color. If
+ * we use it somewhere else we might need to change the color. */
+progress-box {
+    background-color: var(--secondary-color-lt);
+    border-color: var(--secondary-color-dk);
+    color: var(--secondary-color-dk);
+}
+
+progress-box::before {
+    content: "\23F3\00a0\00a0";
+}
+
+progress-box.complete::before {
+    content: "\2713\00a0\00a0";
 }
 
 user-form, info-form, user-edit-form {

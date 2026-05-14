@@ -97,6 +97,8 @@
         <shadow-content>
             <user-delete>
                 <p>WARNING: This will irreversibly delete your entire account and all information!</p>
+                <progress-box id="delete-user-progress"></progress-box>
+                <inline-alert id="delete-user-alert" role="alert"></inline-alert>
                 <button id="close-user-delete-btn">&#x2190;</button>
                 <button id="delete-user-btn">Delete Account</button>
             </user-delete>
@@ -214,8 +216,9 @@
                         <input type="file" id="import-notes-file" accept=".zip,.json">
                         <import-actions>
                             <button id="import-notes-btn">Import</button>
-                            <import-status id="import-notes-status"></import-status>
                         </import-actions>
+                        <progress-box id="import-progress"></progress-box>
+                        <inline-alert id="import-alert" role="alert"></inline-alert>
                     </settings-text>
                     <settings-text id="installing-info">
                         On most phones and some other systems, Mini-notes can be installed as a PWA (a kind of app).
