@@ -167,6 +167,7 @@ function stateUpdateForLogout() {
     renderNote();
     document.querySelector("input.search").value = "";
     clearInlineAlert("#note-list-alert");
+    clearInlineAlert("#note-pane-alert");
 }
 
 /**
@@ -915,8 +916,31 @@ async function importNotes(file) {
  * changed by the time the fetch completes, the result is discarded.
  */
 async function loadNote(noteId) {
+    // Clear the pane immediately so the previous note doesn't linger
+    // while the fetch is in flight. If the user clicks another slug
+    // mid-flight, the intendedCurrentNoteId guard below will discard
+    // this load's result (success or failure) so it can't clobber
+    // the new selection.
+    clearInlineAlert("#note-pane-alert");
+    setCurrentNote(null);
+    renderNote();
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    const response = await apiFetch(url);
+    let response;
+    try {
+        response = await apiFetch(url);
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        if (intendedCurrentNoteId === noteId) {
+            showInlineAlert("#note-pane-alert", null, FALLBACK_ERROR_MESSAGE);
+        }
+        return;
+    }
+    if (!response.ok) {
+        if (intendedCurrentNoteId === noteId) {
+            showInlineAlert("#note-pane-alert", null, await extractErrorMessage(response));
+        }
+        return;
+    }
     const data = await response.json();
     if (intendedCurrentNoteId === noteId) {
         setCurrentNote(data.note);
@@ -1455,7 +1479,8 @@ async function actionNoteListClick(event) {
 /** Shows the import button when a file is selected; clears any prior status. */
 function actionImportFileChange(event) {
     document.querySelector("import-actions").classList.toggle("visible", event.target.files.length > 0);
-    document.getElementById("import-notes-status").textContent = "";
+    clearProgressBox("#import-progress");
+    clearInlineAlert("#import-alert");
 }
 
 /** Imports notes from the file currently selected in the file input. */
