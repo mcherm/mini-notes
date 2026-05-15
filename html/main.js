@@ -166,6 +166,7 @@ function stateUpdateForLogout() {
     document.querySelector("article textarea.note-body").removeAttribute("readonly");
     renderNote();
     document.querySelector("input.search").value = "";
+    clearInlineAlert("#note-list-alert");
 }
 
 /**
@@ -227,6 +228,22 @@ function renderNoteList() {
         const emptyMessage = noteList.querySelector("note-list-empty");
         if (emptyMessage) emptyMessage.remove();
     }
+    setupScrollObserver();
+}
+
+/**
+ * Wipes the note-list contents without rendering the empty-list message.
+ * Used by the load functions when a refresh fails: leaving the previous
+ * (now stale) items in place would be misleading, but the empty-list
+ * message ("No notes yet.") is wrong too — it implies a successful zero
+ * result. The accompanying inline-alert carries the real status.
+ *
+ * Re-runs setupScrollObserver so the sentinel exists for future loads.
+ */
+function clearNoteListForError() {
+    noteHeaders = [];
+    const noteList = document.querySelector("note-list");
+    noteList.innerHTML = "";
     setupScrollObserver();
 }
 
@@ -591,20 +608,40 @@ async function sendPasswordResetEmail() {
 }
 
 /**
- * Fetches note headers from the API and renders the note list. continueKey is
- * optional; omit it to get the first block of values.
+ * Loads one page of note headers from the API and updates the list.
+ *
+ * buildUrl(continueKey) -> string: caller-supplied URL builder that knows
+ *   which endpoint and which extra query params to use. Called once per
+ *   invocation with the continueKey passed below.
+ * continueKey: undefined for a fresh first-page load (replaces the list),
+ *   or the continuation token from a previous response (appends).
+ *
+ * Returns true on success, false on failure (so callers like searchNotes
+ * can decide whether to auto-follow further pages).
+ *
+ * Side effects: clears the note-list inline-alert on entry, updates the
+ * inline-alert with a backend or fallback message on failure, manages
+ * isLoadingNotes. On success, calls reobserveSentinel so that if the
+ * sentinel is still in view the IntersectionObserver re-fires and the
+ * next page is fetched immediately. On failure, reobserveSentinel is
+ * deliberately skipped — calling observe() always re-fires the callback
+ * synchronously, which would cause an instant retry loop while the
+ * sentinel remains visible. A real scroll still fires the observer
+ * normally because that's a genuine intersection-state change.
  */
-async function loadNoteHeaders(continueKey) {
+async function loadNotePage(buildUrl, continueKey) {
     isLoadingNotes = true;
+    clearInlineAlert("#note-list-alert");
     try {
-        const queryParams = continueKey ? `?continue_key=${encodeURIComponent(continueKey)}` : "";
-        const url = `${getApiBaseUrl()}/api/v1/notes${queryParams}`;
-        const response = await apiFetch(url);
+        const response = await apiFetch(buildUrl(continueKey));
+        if (!response.ok) {
+            if (!continueKey) clearNoteListForError();
+            showInlineAlert("#note-list-alert", null, await extractErrorMessage(response));
+            return false;
+        }
         const data = await response.json();
-        console.log("API response data:", JSON.stringify(data, null, 2));
         const newHeaders = data.note_headers;
         continuationKey = data.continue_key || null;
-        console.log("continuationKey set to:", continuationKey);
 
         if (continueKey) {
             // Subsequent page: append
@@ -616,64 +653,52 @@ async function loadNoteHeaders(continueKey) {
             renderNoteList();
         }
         updateSentinel();
+        reobserveSentinel();
+        return true;
+    } catch (e) {
+        if (e instanceof LoggedOutError) return false;
+        if (!continueKey) clearNoteListForError();
+        showInlineAlert("#note-list-alert", null, FALLBACK_ERROR_MESSAGE);
+        return false;
     } finally {
         isLoadingNotes = false;
-        reobserveSentinel();
     }
+}
+
+/** Builds a `?continue_key=...` query suffix (or empty string when absent). */
+function continueKeyQuery(continueKey, leadingChar) {
+    return continueKey ? `${leadingChar}continue_key=${encodeURIComponent(continueKey)}` : "";
+}
+
+/**
+ * Fetches note headers from the API and renders the note list. continueKey is
+ * optional; omit it to get the first block of values.
+ */
+async function loadNoteHeaders(continueKey) {
+    await loadNotePage(
+        (ck) => `${getApiBaseUrl()}/api/v1/notes${continueKeyQuery(ck, "?")}`,
+        continueKey,
+    );
 }
 
 /** Fetches deleted note headers from the API and renders the note list. */
 async function loadTrashNoteHeaders(continueKey) {
-    isLoadingNotes = true;
-    try {
-        const queryParams = continueKey ? `?continue_key=${encodeURIComponent(continueKey)}` : "";
-        const url = `${getApiBaseUrl()}/api/v1/deleted_notes${queryParams}`;
-        const response = await apiFetch(url);
-        const data = await response.json();
-        const newHeaders = data.note_headers;
-        continuationKey = data.continue_key || null;
-
-        if (continueKey) {
-            noteHeaders = noteHeaders.concat(newHeaders);
-            appendNoteHeaders(newHeaders);
-        } else {
-            noteHeaders = newHeaders;
-            renderNoteList();
-        }
-        updateSentinel();
-    } finally {
-        isLoadingNotes = false;
-        reobserveSentinel();
-    }
+    await loadNotePage(
+        (ck) => `${getApiBaseUrl()}/api/v1/deleted_notes${continueKeyQuery(ck, "?")}`,
+        continueKey,
+    );
 }
 
 /** Fetches note headers matching a search string and renders the note list. */
 async function searchNotes(searchString, continueKey) {
-    isLoadingNotes = true;
-    try {
-        const extraQueryParams = continueKey ? `&continue_key=${encodeURIComponent(continueKey)}` : "";
-        const url = `${getApiBaseUrl()}/api/v1/note_search?search_string=${encodeURIComponent(searchString)}${extraQueryParams}`;
-        const response = await apiFetch(url);
-        const data = await response.json();
-        const newHeaders = data.note_headers;
-        continuationKey = data.continue_key || null;
-
-        if (continueKey) {
-            noteHeaders = noteHeaders.concat(newHeaders);
-            appendNoteHeaders(newHeaders);
-        } else {
-            noteHeaders = newHeaders;
-            renderNoteList();
-        }
-        updateSentinel();
-
-        // Auto-follow continuation keys since search results are filtered and small
-        if (continuationKey) {
-            await searchNotes(searchString, continuationKey);
-        }
-    } finally {
-        isLoadingNotes = false;
-        reobserveSentinel();
+    const succeeded = await loadNotePage(
+        (ck) => `${getApiBaseUrl()}/api/v1/note_search?search_string=${encodeURIComponent(searchString)}${continueKeyQuery(ck, "&")}`,
+        continueKey,
+    );
+    // Auto-follow continuation keys since search results are filtered and small.
+    // Skip if the load failed — auto-follow would just fail the same way.
+    if (succeeded && continuationKey) {
+        await searchNotes(searchString, continuationKey);
     }
 }
 
