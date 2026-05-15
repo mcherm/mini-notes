@@ -249,7 +249,12 @@ user-area, note-info, user-edit, user-delete, forgot-password-area {
 user-area {
     grid-template-areas:
         "form_1 form_1 form_1 form_1"
+        "alert alert alert alert"
         "button_1 button_2 button_3 button_4";
+}
+
+user-area > inline-alert {
+    grid-area: alert;
 }
 
 user-delete {

@@ -20,7 +20,7 @@ rand = "0.10"
 axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1", features = ["derive"] }
 time = {  version = "0.3", features = ["formatting", "parsing"] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "set-header"] }
 argon2 = "0.5" # password hashing
 rand_core = { version = "0.6", features = ["getrandom"] } # needed for argon2's OsRng
 zip = { version = "2", default-features = false, features = ["deflate"] }

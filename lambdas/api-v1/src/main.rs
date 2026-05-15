@@ -9,10 +9,11 @@ mod test_helpers;
 
 use axum::{
     Router,
-    http::{Method, header},
+    http::{HeaderValue, Method, header},
     routing::{get, put, post, delete},
 };
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use extractors::AppState;
 use handlers::{
@@ -96,6 +97,15 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/pwd_reset/change_pwd", post(handle_pwd_reset_change))
         .route("/api/v1/admin/site_data", get(handle_site_data))
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        // Every API response declares Cache-Control: no-store. The data is
+        // user-mutable (notes can change at any moment from another tab or
+        // device), so any HTTP caching is a correctness hazard, not just a
+        // performance concern. Browsers' heuristic caching of GETs in the
+        // absence of this header is what we're guarding against.
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ));
     lambda_http::run(app).await
 }

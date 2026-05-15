@@ -16,7 +16,8 @@
       "Bash(cargo search:*)",
       "Bash(jj log:*)",
       "Bash(cargo build *)",
-      "Bash(node --check /Users/mcherm/repos/mini-notes/html/main.js)"
+      "Bash(node --check /Users/mcherm/repos/mini-notes/html/main.js)",
+      "Bash(node --check /Users/mcherm/repos/mini-notes/html/admin.js)"
     ]
   }
 }

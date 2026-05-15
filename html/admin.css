@@ -19,11 +19,16 @@ site-data-area {
     display: grid;
     grid-template-areas:
         "form_1 form_1"
+        "alert alert"
         "button_1 .";
     background-color: var(--interest-color-lt);
 
     & > button {
         justify-self: center;
+    }
+
+    & > inline-alert {
+        grid-area: alert;
     }
 }
 
