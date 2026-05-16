@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::extractors::{AppState, CurrentTime, HandlerErrOutput, http_error};
-use crate::handlers::common::PASSWORD_RESET_TOKEN_MAX_AGE;
+use crate::handlers::common::{PASSWORD_RESET_TOKEN_MAX_AGE, SERVER_ERROR_MESSAGE};
 use crate::models::{PasswordResetToken, User};
 use crate::utils::generate_id_of_length;
 
@@ -73,7 +73,10 @@ pub async fn handle_pwd_reset_send(
         .await;
     let query_result = match query_result {
         Ok(r) => r,
-        Err(err) => return Err(http_error(500, &err.to_string())),
+        Err(err) => {
+            info!(%err, "users-by-email query failed");
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
+        }
     };
     let Some(item) = query_result.items
         .and_then(|mut items| if items.is_empty() { None } else { Some(items.remove(0)) })
@@ -85,7 +88,7 @@ pub async fn handle_pwd_reset_send(
         Ok(u) => u,
         Err(err) => {
             info!(err, "user record is invalid in DB");
-            return Err(http_error(500, "user record is invalid in DB"));
+            return Err(http_error(500, SERVER_ERROR_MESSAGE));
         }
     };
 
@@ -120,7 +123,8 @@ pub async fn handle_pwd_reset_send(
         .send()
         .await;
     if let Err(err) = update_result {
-        return Err(http_error(500, &err.to_string()));
+        info!(%err, "password_reset_token update failed");
+        return Err(http_error(500, SERVER_ERROR_MESSAGE));
     }
 
     // Both user_id and token are drawn from the mini-notes ID alphabet

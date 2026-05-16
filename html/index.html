@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en-us">
 <head>
+    <meta charset="UTF-8">
     <title>Mini-Notes</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -12,55 +13,64 @@
     <script src="main.js"></script>
 </head>
 <body class="logged-in"> <!-- assume logged in until proven otherwise -->
-    <body-content id="main-page">
-        <header>
-            <header-text>Mini-Notes</header-text>
-            <button class="settings-btn">&#x2699;&#xFE0F;</button>
-            <button id="trash-btn">&#x1F5D1;&#xFE0F;</button>
-            <button id="user-btn">&#x1F464;</button>
-        </header>
-        <nav>
-            <nav-header>
-                <button id="new-note">New</button>
-                <input class="search" type="search" value="" placeholder="&#128269;">
-                <button id="close-trash-view-btn">Close Trash View</button>
-            </nav-header>
-            <note-list>
-            </note-list>
-            <inline-alert id="note-list-alert" role="alert"></inline-alert>
-        </nav>
-        <article id="note">
-            <note-header>
-                <button id="back-to-list">&#x2713;</button>
-                <input class="title" type="text" value="" tabindex="1">
-                <button id="redo-btn">&#x21AA;&#xFE0F;</button>
-                <button id="undo-btn">&#x21A9;&#xFE0F;</button>
-                <button id="note-info-btn">&#x1F4DD;</button>
-                <button id="restore-note-btn">Restore</button>
-                <button id="delete-forever-btn">Destroy</button>
-            </note-header>
-            <inline-alert id="note-pane-alert" role="alert"></inline-alert>
-            <textarea class="note-body" tabindex="2"></textarea>
-        </article>
-    </body-content>
-    <body-content id="login-page">
-        <header>
-            <header-text>Mini-Notes</header-text>
-            <button class="settings-btn">&#x2699;&#xFE0F;</button>
-        </header>
-        <login-area>
-            <login-form>
-                <label for="email-entry">Email:</label>
-                <input type="email" id="email-entry">
-                <label for="password-entry">Password:</label>
-                <input type="password" id="password-entry">
-                <inline-alert id="login-alert" role="alert"></inline-alert>
-                <button id="login-btn">Log In</button>
-                <button id="new-account-btn">New Account</button>
-                <a id="forgot-password-link">Forgot password?</a>
-            </login-form>
-        </login-area>
-    </body-content>
+    <active-area>
+        <body-content id="main-page">
+            <header>
+                <header-text>Mini-Notes</header-text>
+                <button class="settings-btn">&#x2699;&#xFE0F;</button>
+                <button id="trash-btn">&#x1F5D1;&#xFE0F;</button>
+                <button id="user-btn">&#x1F464;</button>
+            </header>
+            <nav>
+                <nav-header>
+                    <button id="new-note">New</button>
+                    <input class="search" type="search" value="" placeholder="&#128269;">
+                    <button id="close-trash-view-btn">Close Trash View</button>
+                </nav-header>
+                <note-list>
+                </note-list>
+                <inline-alert id="note-list-alert" role="alert"></inline-alert>
+            </nav>
+            <article id="note">
+                <note-header>
+                    <button id="back-to-list">&#x2713;</button>
+                    <input class="title" type="text" value="" tabindex="1">
+                    <button id="redo-btn">&#x21AA;&#xFE0F;</button>
+                    <button id="undo-btn">&#x21A9;&#xFE0F;</button>
+                    <button id="note-info-btn">&#x1F4DD;</button>
+                    <button id="restore-note-btn">Restore</button>
+                    <button id="delete-forever-btn">Destroy</button>
+                </note-header>
+                <inline-alert id="note-pane-alert" role="alert"></inline-alert>
+                <textarea class="note-body" tabindex="2"></textarea>
+            </article>
+        </body-content>
+        <body-content id="login-page">
+            <header>
+                <header-text>Mini-Notes</header-text>
+                <button class="settings-btn">&#x2699;&#xFE0F;</button>
+            </header>
+            <login-area>
+                <login-form>
+                    <label for="email-entry">Email:</label>
+                    <input type="email" id="email-entry">
+                    <label for="password-entry">Password:</label>
+                    <input type="password" id="password-entry">
+                    <inline-alert id="login-alert" role="alert"></inline-alert>
+                    <button id="login-btn">Log In</button>
+                    <button id="new-account-btn">New Account</button>
+                    <a id="forgot-password-link">Forgot password?</a>
+                </login-form>
+            </login-area>
+        </body-content>
+        <floating-alert role="alert">
+            <floating-alert-top>
+                <floating-alert-dots></floating-alert-dots>
+                <button class="close" aria-label="Dismiss">&#x2715;</button>
+            </floating-alert-top>
+            <floating-alert-message></floating-alert-message>
+        </floating-alert>
+    </active-area>
     <shadow-box id="user-display-dialog">
         <shadow-content>
             <user-area>

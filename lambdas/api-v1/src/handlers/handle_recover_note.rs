@@ -24,7 +24,7 @@ pub async fn handle_recover_note(
     let user_id = session.user_id;
 
     if !is_valid_id(&note_id) {
-        return Err(http_error(404, "note_id has invalid characters"));
+        return Err(http_error(404, "Note not found."));
     }
 
     info!(user_id, note_id, table = state.notes_table_name, "recover note");
@@ -46,9 +46,10 @@ pub async fn handle_recover_note(
                 .map(|e| e.is_conditional_check_failed_exception())
                 .unwrap_or(false)
             {
-                Err(http_error(404, "note not found"))
+                Err(http_error(404, "Note not found."))
             } else {
-                Err(http_error(500, "unable to recover note"))
+                info!(%sdk_err, "recover note update_item failed");
+                Err(http_error(500, "Unable to recover note"))
             }
         }
     }

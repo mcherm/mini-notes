@@ -26,7 +26,7 @@ pub async fn handle_destroy_deleted_note(
     let user_id = session.user_id;
 
     if !is_valid_id(&note_id) {
-        return Err(http_error(404, "note_id has invalid characters"));
+        return Err(http_error(404, "Note not found."));
     }
 
     info!(user_id, note_id, table = state.notes_table_name, "destroy deleted note");
@@ -52,7 +52,10 @@ pub async fn handle_destroy_deleted_note(
                         Ok(StatusCode::NO_CONTENT)
                     }
                 }
-                _ => Err(http_error(500, "unable to destroy note")),
+                _ => {
+                    info!(%sdk_err, "destroy note delete_item failed");
+                    Err(http_error(500, "Unable to destroy note"))
+                },
             }
         }
     }

@@ -69,8 +69,9 @@ pub async fn handle_new_note(
         .item("undo_stack", AttributeValue::L(Vec::new()))
         .send()
         .await;
-    if result.is_err() {
-        return Err(http_error(500, "unable to create new note"));
+    if let Err(err) = result {
+        info!(%err, "new note put_item failed");
+        return Err(http_error(500, "Unable to create new note"));
     }
 
     let note_json: JsonValue = note.into();

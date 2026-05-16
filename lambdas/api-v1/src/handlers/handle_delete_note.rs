@@ -37,8 +37,9 @@ pub async fn handle_delete_note(
         .expression_attribute_values(":ttl", AttributeValue::N(delete_at.unix_timestamp().to_string()))
         .send()
         .await;
-    if result.is_err() {
-        return Err(http_error(500, "unable to delete note"));
+    if let Err(err) = result {
+        info!(%err, "soft-delete update_item failed");
+        return Err(http_error(500, "Unable to delete note"));
     }
 
     Ok(StatusCode::NO_CONTENT)

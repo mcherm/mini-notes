@@ -12,7 +12,7 @@ use tracing::info;
 use crate::extractors::{AppState, HandlerOutput, HandlerErrOutput, CurrentTime, IdGenerator, http_error, UserSession};
 use crate::models::{Note, NoteFormat};
 use crate::diff;
-use crate::handlers::common::verify_size;
+use crate::handlers::common::{SERVER_ERROR_MESSAGE, verify_size};
 use crate::utils::is_valid_id;
 
 
@@ -43,7 +43,7 @@ pub async fn handle_edit_note(
     let user_id = session.user_id;
 
     if ! is_valid_id(&note_id) {
-        return Err(http_error(404, "note_id has invalid characters"));
+        return Err(http_error(404, "Note not found."));
     }
 
     if let Err(err_msg) = verify_size(&edit_note_fields.title, &edit_note_fields.body) {
@@ -116,9 +116,15 @@ pub async fn handle_edit_note(
         Ok(output) => {
             // --- Success: parse returned attributes into a Note ---
             let attributes = output.attributes
-                .ok_or_else(|| http_error(500, "update succeeded but returned no attributes"))?;
+                .ok_or_else(|| {
+                    info!("edit note update_item returned no attributes");
+                    http_error(500, SERVER_ERROR_MESSAGE)
+                })?;
             let updated_note = Note::try_from(attributes)
-                .map_err(|err| http_error(500, &format!("updated note is invalid: {err}")))?;
+                .map_err(|err| {
+                    info!(%err, "updated note is invalid");
+                    http_error(500, SERVER_ERROR_MESSAGE)
+                })?;
             let note_json: JsonValue = updated_note.into();
             let body_json = json!({"note": note_json});
             Ok(Json(body_json))
@@ -134,7 +140,8 @@ pub async fn handle_edit_note(
                     &state, &user_id, &note_id, &edit_note_fields, &current_time, generate_id, new_version_id,
                 ).await
             } else {
-                Err(http_error(500, &sdk_err.to_string()))
+                info!(%sdk_err, "edit note update_item failed");
+                Err(http_error(500, "Update note failed"))
             }
         }
     }
@@ -164,13 +171,16 @@ async fn get_existing_note(state: &AppState, note_id: &String, user_id: &String)
         .send()
         .await;
     match result {
-        Err(err) => Err(http_error(500, &err.to_string())),
+        Err(err) => {
+            info!(%err, "get_existing_note get_item failed");
+            Err(http_error(500, SERVER_ERROR_MESSAGE))
+        }
         Ok(response) => match response.item {
-            Some(item) => {info!("Got existing note: {:?}", item); // FIXME: Remove info!()
+            Some(item) => {
             match Note::try_from(item) {
                 Err(err) => {
                     info!(err, "note is invalid in DB");
-                    Err(http_error(500, "note is invalid in DB"))
+                    Err(http_error(500, SERVER_ERROR_MESSAGE))
                 }
                 Ok(note) => Ok(Some(note)), // there was an existing note
             }}
@@ -197,12 +207,18 @@ async fn handle_conflict(
         .key("note_id", AttributeValue::S(note_id.to_string()))
         .send()
         .await
-        .map_err(|err| http_error(500, &err.to_string()))?;
+        .map_err(|err| {
+            info!(%err, "conflict-check get_item failed");
+            http_error(500, SERVER_ERROR_MESSAGE)
+        })?;
 
     if let Some(item) = check_result.item {
         // --- True edit conflict: create a new conflict note ---
         let existing_note = Note::try_from(item)
-            .map_err(|err| http_error(500, &format!("existing note is invalid: {err}")))?;
+            .map_err(|err| {
+                info!(%err, "existing note is invalid");
+                http_error(500, SERVER_ERROR_MESSAGE)
+            })?;
         let conflict_note_id = generate_id();
         let conflict_title = format!("{}{}", TITLE_PREFIX_FOR_CONFLICTS, edit_note_fields.title);
 
@@ -266,7 +282,10 @@ async fn write_note(state: &AppState, note: &Note) -> Result<(), (StatusCode, Js
         .item("body", AttributeValue::S(note.body.clone()))
         .send()
         .await
-        .map_err(|err| http_error(500, &err.to_string()))?;
+        .map_err(|err| {
+            info!(%err, "write_note put_item failed");
+            http_error(500, "Update note failed")
+        })?;
     Ok(())
 }
 

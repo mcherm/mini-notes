@@ -36,6 +36,8 @@ let autoTitleActive = false;
 let unfocusedEditsPending = false;
 let unfocusedEditDebounceTimer = null;
 let trashView = false;
+/** Queue of alerts; first one is visible */
+const floatingAlertMessages = [];
 
 /** Returns true if the user is currently logged in. */
 function isLoggedIn() {
@@ -168,6 +170,7 @@ function stateUpdateForLogout() {
     document.querySelector("input.search").value = "";
     clearInlineAlert("#note-list-alert");
     clearInlineAlert("#note-pane-alert");
+    clearAllFloatingAlerts();
 }
 
 /**
@@ -486,6 +489,44 @@ function clearInlineAlert(alertSelector) {
 }
 
 /**
+ * Updates the <floating-alert>'s text from the message queue. The
+ * structural children (top row, dots, close button, message) live
+ * statically in the HTML; this only writes textContent. When the queue
+ * is empty the message is cleared, and the CSS `:has(message:empty)`
+ * rule hides the alert.
+ */
+function renderFloatingAlert() {
+    const dots = document.querySelector("floating-alert-dots");
+    const message = document.querySelector("floating-alert-message");
+    if (floatingAlertMessages.length === 0) {
+        dots.textContent = "";
+        message.textContent = "";
+        return;
+    }
+    // One dot per additional queued message (i.e. one fewer than the queue length).
+    dots.textContent = "⚫ ".repeat(floatingAlertMessages.length - 1);
+    message.textContent = floatingAlertMessages[0];
+}
+
+/** Adds a message to the floating-alert queue and re-renders. */
+function showFloatingAlert(message) {
+    floatingAlertMessages.push(message);
+    renderFloatingAlert();
+}
+
+/** Removes the first queued message (called from the close button). */
+function dismissFloatingAlert() {
+    floatingAlertMessages.shift();
+    renderFloatingAlert();
+}
+
+/** Empties the floating-alert queue. Used on logout / full UI refresh. */
+function clearAllFloatingAlerts() {
+    floatingAlertMessages.length = 0;
+    renderFloatingAlert();
+}
+
+/**
  * Displays a progress message in a progress-box (default state — hourglass icon).
  * Removes any prior .complete state. Accepts either a CSS selector or the
  * progress-box element directly (useful for bulk operations).
@@ -590,22 +631,46 @@ async function editUser() {
     if (newPassword) {
         body.new_password = newPassword;
     }
-    await apiFetch(`${getApiBaseUrl()}/api/v1/user`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(body),
-    });
+    let response;
+    try {
+        response = await apiFetch(`${getApiBaseUrl()}/api/v1/user`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert("Failed to update user.");
+        return;
+    }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+    }
 }
 
-/** Requests a password-reset email for the address in the forgot-password dialog. */
+/**
+ * Requests a password-reset email for the address in the forgot-password dialog.
+ * The backend returns 204 for the indistinguishable cases (success, no-such-user,
+ * cooldown, SES failure) — only network/5xx surfaces as a floating alert here.
+ */
 async function sendPasswordResetEmail() {
     const email = document.querySelector("#forgot-password-email").value;
     const url = `${getApiBaseUrl()}/api/v1/pwd_reset/send`;
-    await apiFetch(url, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({email: email}),
-    });
+    let response;
+    try {
+        response = await apiFetch(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({email: email}),
+        });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert(FALLBACK_ERROR_MESSAGE);
+        return;
+    }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+    }
 }
 
 /**
@@ -728,17 +793,28 @@ async function saveNote(title, body) {
     const noteId = currentNote.note_id;
     const versionId = currentNote.version_id;
     const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    const response = await apiFetch(url, {
-        method: "PUT",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title: title, body: body, source_version_id: versionId}),
-    });
-    const data = await response.json();
+    let response;
+    try {
+        response = await apiFetch(url, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({title: title, body: body, source_version_id: versionId}),
+        });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert("Failed to save changes to note.");
+        return;
+    }
     if (response.status === 409) {
         await handleConflict();
-    } else {
-        applyNoteToUI(data.note);
+        return;
     }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+        return;
+    }
+    const data = await response.json();
+    applyNoteToUI(data.note);
 }
 
 /** Handles an edit conflict by doing a full state refresh. */
@@ -789,42 +865,68 @@ async function refreshAfterStale() {
  */
 async function createNewNote(newTitle = "", newBody = "") {
     const url = `${getApiBaseUrl()}/api/v1/notes`;
-    const response = await apiFetch(url, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title: newTitle, body: newBody, format: "PlainText"}),
-    });
+    let response;
+    try {
+        response = await apiFetch(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({title: newTitle, body: newBody, format: "PlainText"}),
+        });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert("Failed to create new note.");
+        return;
+    }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+        return;
+    }
     const data = await response.json();
     if (setIntendedNoteIfUnchanged(null, data.note.note_id)) {
         applyNoteToUI(data.note);
     }
 }
 
-/** Deletes the current note via the API and clears it from the UI. */
+/**
+ * Deletes the current note. Optimistic: the UI removes the note before the
+ * API call returns, so the user can continue navigating without waiting. On
+ * failure, a floating-alert informs the user (the note stays gone locally
+ * until the next refresh, when it'll reappear).
+ */
 async function deleteCurrentNote() {
     if (!currentNote) return;
     const noteId = currentNote.note_id;
-    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
     setIntendedNote(null);
-    await apiFetch(url, { method: "DELETE" });
 
+    // Optimistic UI update: remove the note from local state before the API call.
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
     if (oldIndex !== -1) {
         noteHeaders.splice(oldIndex, 1);
     }
-
     const noteList = document.querySelector("note-list");
     const oldSlug = noteList.querySelector(`note-slug[data-note-id="${noteId}"]`);
     if (oldSlug) oldSlug.remove();
-
     if (noteHeaders.length === 0) {
         const emptyMessage = document.createElement("note-list-empty");
         emptyMessage.textContent = trashView ? "No deleted notes." : "No notes yet. Click \"New\" to create one.";
         noteList.insertBefore(emptyMessage, noteList.firstChild);
     }
-
     setCurrentNote(null);
     renderNote();
+
+    // Fire the API call; surface failures via a floating-alert.
+    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
+    let response;
+    try {
+        response = await apiFetch(url, { method: "DELETE" });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert(FALLBACK_ERROR_MESSAGE);
+        return;
+    }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+    }
 }
 
 /** Removes the current note from the trash list UI and clears the display. */
@@ -852,20 +954,50 @@ function removeCurrentNoteFromTrashList() {
     document.getElementById("main-page").classList.remove("showing-note");
 }
 
-/** Recovers the current note from trash via the API and removes it from the trash list. */
+/**
+ * Recovers the current note from trash. Optimistic: UI removes it from the
+ * trash list before the API call returns; floating-alert on failure.
+ */
 async function recoverCurrentNote() {
     if (!currentNote) return;
-    const url = `${getApiBaseUrl()}/api/v1/recover_note/${encodeURIComponent(currentNote.note_id)}`;
-    await apiFetch(url, { method: "POST" });
+    const noteId = currentNote.note_id;
     removeCurrentNoteFromTrashList();
+
+    const url = `${getApiBaseUrl()}/api/v1/recover_note/${encodeURIComponent(noteId)}`;
+    let response;
+    try {
+        response = await apiFetch(url, { method: "POST" });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert(FALLBACK_ERROR_MESSAGE);
+        return;
+    }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+    }
 }
 
-/** Permanently destroys the current note via the API and removes it from the trash list. */
+/**
+ * Permanently destroys the current note. Optimistic: UI removes it from the
+ * trash list before the API call returns; floating-alert on failure.
+ */
 async function destroyCurrentNote() {
     if (!currentNote) return;
-    const url = `${getApiBaseUrl()}/api/v1/deleted_notes/${encodeURIComponent(currentNote.note_id)}`;
-    await apiFetch(url, { method: "DELETE" });
+    const noteId = currentNote.note_id;
     removeCurrentNoteFromTrashList();
+
+    const url = `${getApiBaseUrl()}/api/v1/deleted_notes/${encodeURIComponent(noteId)}`;
+    let response;
+    try {
+        response = await apiFetch(url, { method: "DELETE" });
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showFloatingAlert(FALLBACK_ERROR_MESSAGE);
+        return;
+    }
+    if (!response.ok) {
+        showFloatingAlert(await extractErrorMessage(response));
+    }
 }
 
 /** Fetches the current user's data from the API and populates the user display fields. */
@@ -1506,6 +1638,17 @@ async function actionImportNotesBtn() {
     if (file) await importNotes(file);
 }
 
+/**
+ * Event-delegated handler for the close button inside floating-alert.
+ * The button is rebuilt on every renderFloatingAlert, so we listen on
+ * the (long-lived) <floating-alert> element and inspect the click target.
+ */
+function actionFloatingAlertClick(event) {
+    if (event.target.closest("button.close")) {
+        dismissFloatingAlert();
+    }
+}
+
 // ========== Stale Tab Detection ==========
 
 /** Checks if enough time has passed since last active and refreshes if so. */
@@ -1581,6 +1724,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("note-list").addEventListener("click", actionNoteListClick);
     document.querySelector("#import-notes-file").addEventListener("change", actionImportFileChange);
     document.querySelector("#import-notes-btn").addEventListener("click", actionImportNotesBtn);
+    document.querySelector("floating-alert").addEventListener("click", actionFloatingAlertClick);
     document.addEventListener("visibilitychange", actionOnVisibilityChange);
     window.addEventListener("focus", actionOnWindowFocus);
     window.addEventListener("blur", actionOnWindowBlur);

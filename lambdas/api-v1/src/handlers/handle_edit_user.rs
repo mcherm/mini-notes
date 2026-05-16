@@ -47,7 +47,7 @@ pub async fn handle_edit_user(
         Ok(valid) => valid,
         Err(err) => {
             info!(%err, "password hash verification failed");
-            return Err(http_error(500, "password verification error"));
+            return Err(http_error(500, "Password verification error"));
         }
     };
     if !password_valid {
@@ -72,7 +72,7 @@ pub async fn handle_edit_user(
                 Ok(hash) => hash,
                 Err(err) => {
                     info!(%err, "password hash generation failed");
-                    return Err(http_error(500, "password hash generation error"));
+                    return Err(http_error(500, "Password hash generation error"));
                 }
             };
             Some(hash)
@@ -106,7 +106,7 @@ pub async fn handle_edit_user(
         Ok(_) => Ok(StatusCode::NO_CONTENT),
         Err(err) => {
             info!(%err, "user update failed");
-            Err(http_error(500, "unable to update user"))
+            Err(http_error(500, "Unable to update user"))
         }
     }
 }

@@ -16,6 +16,8 @@
     --text-entry: #f0f0f0;
     --body-margin: 8px;
     --body-border: 2px;
+    --body-max-width: 800px;
+    --floating-alert-margin: 10px;
 }
 
 body {
@@ -28,12 +30,22 @@ button, input, textarea, select {
     font-size: inherit;
 }
 
+/* The horizontally-centred container that holds the visible body-content
+ * and the floating-alert. Its width rules are the single source of truth
+ * for "where the app sits horizontally". */
+active-area {
+    display: block;
+    position: relative;
+    width: 100%;
+    max-width: var(--body-max-width);
+    height: calc(100vh - 2 * var(--body-margin));
+    margin: 0 auto;
+}
+
 body-content {
     display: grid;
     width: 100%;
-    max-width: 800px;
     max-height: calc(100vh - 2 * var(--body-margin));
-    margin: 0 auto;
     border: var(--body-border) solid var(--colorless-dk);
 
     &#main-page {
@@ -303,16 +315,22 @@ login-form {
 
 /* ========== Status Boxes (shared display vocabulary) ========== */
 
-/* Common box treatment shared by inline-alert (errors) and progress-box
- * (workflow progress / completion). Padding, border thickness, radius
- * and centering are part of the family identity, not per-variant. */
-inline-alert, progress-box {
-    display: block;
-    margin: 5px;
+/* Common box treatment shared by inline-alert (errors), progress-box
+ * (workflow progress / completion), and floating-alert (queued
+ * background-failure toast). Padding, border thickness, and radius are
+ * part of the family identity, not per-variant. */
+inline-alert, progress-box, floating-alert {
     border-width: 2px;
     border-style: solid;
     padding: 6px 10px;
     border-radius: 10px;
+}
+
+/* The two block-flow members (inline-alert, progress-box) add margin and
+ * centred text. floating-alert overrides these in its own block below. */
+inline-alert, progress-box {
+    display: block;
+    margin: 5px;
     text-align: center;
 }
 
@@ -320,15 +338,21 @@ inline-alert:empty, progress-box:empty {
     display: none;
 }
 
-/* ---------- Inline Alert (error variant) ---------- */
+/* floating-alert has inner structure so we check the message section to see whether to hide it */
+floating-alert:has(floating-alert-message:empty) {
+    display: none;
+}
 
-inline-alert {
+
+/* ---------- Alerts (error variant) ---------- */
+
+inline-alert, floating-alert {
     background-color: var(--critical-color-lt);
     border-color: var(--critical-color-dk);
     color: var(--critical-color-dk);
 }
 
-inline-alert::before {
+inline-alert::before, floating-alert-message::before {
     content: "\26A0\00a0\00a0";
 }
 
@@ -349,6 +373,49 @@ progress-box::before {
 
 progress-box.complete::before {
     content: "\2713\00a0\00a0";
+}
+
+/* ---------- Floating Alert (error variant, fixed-position toast) ---------- */
+
+floating-alert {
+    position: absolute;
+    bottom: var(--floating-alert-margin);
+    left: var(--floating-alert-margin);
+    z-index: 10;
+    max-width: calc(100% - 2 * var(--floating-alert-margin));
+    box-sizing: border-box; /* when applying max-width, include padding & border */
+    width: max-content;
+    display: flex;
+    flex-direction: column;
+}
+
+floating-alert-top {
+    display: flex;
+    justify-content: space-between;
+}
+
+floating-alert-dots {
+    overflow-x: hidden;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* The close button overrides the project's default button look so the X
+ * reads as an inline glyph rather than a tinted action button. */
+floating-alert button.close {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 4px;
+    min-width: 0;
+    min-height: 0;
+    line-height: 1;
+    flex-shrink: 0; /* don't allow this to get squeezed horizontally */
+}
+
+floating-alert-message {
+    text-align: center;
 }
 
 user-form, info-form, user-edit-form {
