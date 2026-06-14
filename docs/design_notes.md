@@ -260,6 +260,7 @@ body, which are all strings, except version_id.
 
 **Inputs:**
 * session_id: [header] string
+* filename: [query] string
 * file: [body] binary
 
 **Outputs:**
@@ -268,8 +269,12 @@ body, which are all strings, except version_id.
 
 **Description:**
 Accepts a file upload (the raw binary body of the request) containing notes to import.
-Several different formats are permitted; if the content is not recognized as one of the
-supported formats then a 400 error is returned.
+The `filename` is required; a request that omits it returns a 400 error. Several different
+formats are permitted; if the content is not recognized as one of the supported formats
+then a 400 error is returned. The `filename` is used as a hint to choose the format: a
+name ending in `.json` is read as JSON, and a name ending in `.txt` is read as a single
+plain-text note. For any other extension the format is detected from the content of the
+file.
 
 For **Mini-Notes JSON format**: the file must match the format produced by the Export
 Notes endpoint (an object with a "notes" field containing a list of note objects). Each
@@ -289,6 +294,11 @@ Each file always creates a new note, even if a note with the same title already 
 
 For **SimpleNote JSON format**: The file should match the format that SimpleNote uses
 when outputting in JSON format. Only notes that are NOT in the trash will be imported.
+
+For **plain-text format**: the entire file becomes the body of a single new note. The
+title is derived from the filename (with its extension removed). Fields other than title
+and body are set the same way as the New Note endpoint. A file that cannot be decoded as
+UTF-8 text is rejected with a 400 error.
 
 ### Search Notes
 **Path:** /api/v1/note_search?search_string=*{search_string}* [GET]\

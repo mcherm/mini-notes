@@ -3,9 +3,10 @@ use std::io::{Cursor, Read};
 use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Query, State},
     response::Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use tracing::info;
 
@@ -13,6 +14,14 @@ use crate::extractors::{AppState, HandlerOutput, CurrentTime, IdGenerator, http_
 use crate::models::{Note, NoteFormat, Timestamp};
 use crate::utils::get_title_from_body;
 
+
+/// Query parameter extractor for note_import. The filename is required (the handler rejects a
+/// request that omits it); it is typed as an Option only so that a missing value reaches the
+/// handler, which returns our own error message rather than a generic extractor rejection.
+#[derive(Deserialize)]
+pub struct ImportNotesParams {
+    pub filename: Option<String>,
+}
 
 /// This is the common structure that all import formats convert into before using it to
 /// create a note. Every single field is optional other than that body of the note.
@@ -89,6 +98,42 @@ async fn get_existing_note_info(
         None => None,
         Some(item) => Some(Note::try_from(item)?)
     })
+}
+
+/// Decide how to read an upload that isn't a zip file, using the filename extension as a strong
+/// hint. A `.json` file must parse as a known JSON format; a `.txt` file becomes a single note.
+/// For any other extension we sniff: try JSON first, and otherwise treat the whole upload as a
+/// single plain-text note.
+fn extract_note_data_from_non_zip(
+    body: &[u8],
+    filename: &str,
+) -> Result<Vec<ImportedNoteData>, String> {
+    let lower = filename.to_ascii_lowercase();
+    if lower.ends_with(".json") {
+        extract_note_data_from_json(body)
+    } else if lower.ends_with(".txt") {
+        extract_single_text_note(body, filename)
+    } else {
+        extract_note_data_from_json(body)
+            .or_else(|_| extract_single_text_note(body, filename))
+    }
+}
+
+/// Turn a whole text file into a single note, with the title derived from the filename (minus
+/// its extension). A file that isn't valid UTF-8 text is rejected.
+fn extract_single_text_note(
+    body: &[u8],
+    filename: &str,
+) -> Result<Vec<ImportedNoteData>, String> {
+    let text = std::str::from_utf8(body)
+        .map_err(|_| "file is not valid UTF-8 text".to_string())?
+        .to_string();
+    let title = filename.rsplit_once('.').map_or(filename, |(stem, _)| stem).to_string();
+    Ok(vec![ImportedNoteData {
+        title: Some(title),
+        body: text,
+        ..Default::default()
+    }])
 }
 
 /// Read the notes from a JSON file laid out like the file that mini-notes uses for export (but
@@ -342,12 +387,17 @@ pub async fn handle_import_notes(
     user_session: UserSession,
     current_time: CurrentTime,
     IdGenerator(generate_id): IdGenerator,
+    Query(params): Query<ImportNotesParams>,
     body: Bytes,
 ) -> HandlerOutput {
     let Some(session) = user_session.0 else {
         return Err(http_error(401, "not logged in"));
     };
     let user_id = session.user_id;
+
+    let Some(filename) = params.filename.filter(|name| !name.is_empty()) else {
+        return Err(http_error(400, "filename query parameter is required"));
+    };
 
     info!(user_id, body_len = body.len(), table = state.notes_table_name, "importing notes");
 
@@ -358,7 +408,7 @@ pub async fn handle_import_notes(
             extract_note_data_from_zip(&body)
         }
     } else {
-        extract_note_data_from_json(&body)
+        extract_note_data_from_non_zip(&body, &filename)
     }.map_err(|err| http_error(400, &err))?;
 
     let import_result = create_imported_notes(&state, &user_id, &current_time, generate_id, imported_notes)
@@ -382,10 +432,15 @@ mod tests {
 
     use super::*;
     use crate::test_helpers::*;
+    use axum::extract::Query;
     use axum::http::StatusCode;
     use zip::write::{SimpleFileOptions, ZipWriter};
 
     fn fake_id() -> String { "TESTIMP001".to_string() }
+
+    fn import_params(filename: Option<&str>) -> Query<ImportNotesParams> {
+        Query(ImportNotesParams { filename: filename.map(str::to_string) })
+    }
 
     fn make_zip(files: &[(&str, &str)]) -> Bytes {
         let buf = Cursor::new(Vec::new());
@@ -409,6 +464,7 @@ mod tests {
             test_no_user_session(),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(None),
             Bytes::from_static(b"{}"),
         ).await;
 
@@ -418,7 +474,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_import_invalid_content() {
+    async fn test_import_invalid_utf8_rejected() {
+        // A .txt upload whose bytes aren't valid UTF-8 text is rejected. No DynamoDB calls
+        // are expected.
         let client = test_dynamo_client(vec![]);
 
         let result = handle_import_notes(
@@ -426,7 +484,8 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
-            Bytes::from_static(b"this is not json or zip"),
+            import_params(Some("note.txt")),
+            Bytes::from_static(&[0xFF, 0xFE, 0xFF]),
         ).await;
 
         let (status, _) = result.unwrap_err();
@@ -453,6 +512,7 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(Some("notes.json")),
             Bytes::from(body),
         ).await;
 
@@ -481,6 +541,7 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(Some("notes.json")),
             Bytes::from(body),
         ).await;
 
@@ -509,6 +570,7 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(Some("notes.json")),
             Bytes::from(body),
         ).await;
 
@@ -534,6 +596,7 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(Some("export.zip")),
             Bytes::from(body),
         ).await;
 
@@ -558,6 +621,7 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(Some("Notes_260512_174108.sdocx")),
             body,
         ).await;
 
@@ -583,11 +647,130 @@ mod tests {
             test_user_session("user1"),
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
+            import_params(Some("export.zip")),
             Bytes::from(body),
         ).await;
 
         let Json(json) = result.unwrap();
         assert_eq!(json["notes_created"], 1);
         assert_eq!(json["notes_updated"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_import_txt_creates_single_note() {
+        let client = test_dynamo_client(vec![
+            replay_ok(PUT_OK),
+        ]);
+
+        let result = handle_import_notes(
+            test_state(client),
+            test_user_session("user1"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            import_params(Some("Grocery List.txt")),
+            Bytes::from_static(b"milk\neggs"),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["notes_created"], 1);
+        assert_eq!(json["notes_updated"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_import_txt_with_json_content_stays_text() {
+        // A .txt file whose contents happen to be valid mini-notes JSON. The filename hint wins,
+        // so this becomes ONE plain-text note rather than being parsed into two notes. We supply
+        // only a single put_item, so parsing it as JSON would exhaust the replay and fail.
+        let client = test_dynamo_client(vec![
+            replay_ok(PUT_OK),
+        ]);
+
+        let result = handle_import_notes(
+            test_state(client),
+            test_user_session("user1"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            import_params(Some("looks_like.txt")),
+            Bytes::from_static(br#"{"notes":[{"body":"a"},{"body":"b"}]}"#),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["notes_created"], 1);
+        assert_eq!(json["notes_updated"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_import_json_extension_invalid_rejected() {
+        // A .json file that doesn't parse is an error: the hint wins, so we do not fall back to
+        // treating it as text. No DynamoDB calls are expected.
+        let client = test_dynamo_client(vec![]);
+
+        let result = handle_import_notes(
+            test_state(client),
+            test_user_session("user1"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            import_params(Some("broken.json")),
+            Bytes::from_static(b"this is not json"),
+        ).await;
+
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_import_unknown_extension_plain_text_fallback() {
+        // An extension that is neither .json nor .txt and content that isn't valid JSON: sniffing
+        // falls back to a single plain-text note.
+        let client = test_dynamo_client(vec![
+            replay_ok(PUT_OK),
+        ]);
+
+        let result = handle_import_notes(
+            test_state(client),
+            test_user_session("user1"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            import_params(Some("notes.md")),
+            Bytes::from_static(b"just some plain text"),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["notes_created"], 1);
+        assert_eq!(json["notes_updated"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_import_missing_filename_rejected() {
+        // The filename query parameter is required; a request without it is rejected before any
+        // parsing or DynamoDB calls happen.
+        let client = test_dynamo_client(vec![]);
+
+        let result = handle_import_notes(
+            test_state(client),
+            test_user_session("user1"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            import_params(None),
+            Bytes::from_static(br#"{"notes":[{"body":"a"}]}"#),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json["error"], "filename query parameter is required");
+    }
+
+    #[test]
+    fn test_single_text_note_title_from_filename() {
+        let entries = extract_single_text_note(b"hello world", "My Note.txt").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].title.as_deref(), Some("My Note"));
+        assert_eq!(entries[0].body, "hello world");
+    }
+
+    #[test]
+    fn test_single_text_note_rejects_invalid_utf8() {
+        let result = extract_single_text_note(&[0xFF, 0xFE], "x.txt");
+        assert!(result.is_err());
     }
 }

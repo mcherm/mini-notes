@@ -227,11 +227,12 @@
                         </ul>
                         <p><em>Import Notes</em> must be one of the following:</p>
                         <ul>
+                            <li>a .txt file containing a single note (in ASCII or UTF-8)</li>
                             <li>a zip containing .txt files</li>
                             <li>a JSON file in mini-notes or SimpleNote format</li>
                             <li>a .sdocx file from Samsung Notes (only text notes will be imported)</li>
                         </ul>
-                        <input type="file" id="import-notes-file" accept=".zip,.json,.sdocx">
+                        <input type="file" id="import-notes-file" accept=".txt,.zip,.json,.sdocx">
                         <import-actions>
                             <button id="import-notes-btn">Import</button>
                         </import-actions>
@@ -242,7 +243,7 @@
                             <dt>simplenote.com</dt>
                             <dd>Go to [Settings / Tools / Export Notes] to create an export file this can read.</dd>
                             <dt>Samsung Notes</dt>
-                            <dd>Export in Samsung Notes format (".sdoc") and import above.</dd>
+                            <dd>Export in Samsung Notes format (".sdoc") and import all the individual files.</dd>
                         </dl>
                     </settings-text>
                     <settings-text id="installing-info">

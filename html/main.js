@@ -1036,7 +1036,8 @@ async function importNotes(file) {
     let response;
     try {
         const bytes = await file.arrayBuffer();
-        response = await apiFetch(`${getApiBaseUrl()}/api/v1/note_import`, {
+        const url = `${getApiBaseUrl()}/api/v1/note_import?filename=${encodeURIComponent(file.name)}`;
+        response = await apiFetch(url, {
             method: "POST",
             body: bytes,
         });
