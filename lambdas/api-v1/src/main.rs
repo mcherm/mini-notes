@@ -2,6 +2,7 @@ mod models;
 mod utils;
 mod extractors;
 mod passwords;
+mod samsung_notes;
 mod handlers;
 pub mod diff;
 #[cfg(test)]

@@ -220,6 +220,31 @@ fn extract_note_data_from_zip(
     Ok(entries)
 }
 
+/// Returns true if this zip looks like a Samsung Notes .sdocx file, which we detect by the
+/// presence of its `note.note` document entry. (A .sdocx is itself a zip, so we need this to
+/// tell it apart from a plain zip of .txt files.)
+fn zip_is_sdocx(body: &[u8]) -> bool {
+    match zip::ZipArchive::new(Cursor::new(body)) {
+        Ok(mut archive) => archive.by_name("note.note").is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// Import the text notes from a Samsung Notes .sdocx file. Handwriting strokes, PDF content, and
+/// media are ignored; only typed text is extracted. The actual parsing lives in the
+/// `samsung_notes` module; here we just map its output into `ImportedNoteData`.
+fn extract_note_data_from_sdocx(body: &[u8]) -> Result<Vec<ImportedNoteData>, String> {
+    Ok(crate::samsung_notes::extract_text_notes(body)?
+        .into_iter()
+        .map(|note| ImportedNoteData {
+            create_time: note.create_time,
+            modify_time: note.modify_time,
+            body: note.body,
+            ..Default::default()
+        })
+        .collect())
+}
+
 // Given a collection of ImportedNoteData, go ahead and write the notes to the user's data.
 async fn create_imported_notes(
     state: &AppState,
@@ -327,7 +352,11 @@ pub async fn handle_import_notes(
     info!(user_id, body_len = body.len(), table = state.notes_table_name, "importing notes");
 
     let imported_notes: Vec<ImportedNoteData> = if body.starts_with(ZIP_MAGIC_BYTES) {
-        extract_note_data_from_zip(&body)
+        if zip_is_sdocx(&body) {
+            extract_note_data_from_sdocx(&body)
+        } else {
+            extract_note_data_from_zip(&body)
+        }
     } else {
         extract_note_data_from_json(&body)
     }.map_err(|err| http_error(400, &err))?;
@@ -510,6 +539,30 @@ mod tests {
 
         let Json(json) = result.unwrap();
         assert_eq!(json["notes_created"], 2);
+        assert_eq!(json["notes_updated"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_import_sdocx_creates_note() {
+        // One put_item for the single text note recovered from the Samsung Notes sample.
+        let client = test_dynamo_client(vec![
+            replay_ok(PUT_OK),
+        ]);
+
+        let body = Bytes::from_static(
+            include_bytes!("../../../../sample_docs/Notes_260512_174108.sdocx"),
+        );
+
+        let result = handle_import_notes(
+            test_state(client),
+            test_user_session("user1"),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            body,
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["notes_created"], 1);
         assert_eq!(json["notes_updated"], 0);
     }
 
