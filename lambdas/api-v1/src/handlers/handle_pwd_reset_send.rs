@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::extractors::{AppState, CurrentTime, HandlerErrOutput, http_error};
-use crate::handlers::common::{PASSWORD_RESET_TOKEN_MAX_AGE, SERVER_ERROR_MESSAGE};
+use crate::handlers::common::{self, PASSWORD_RESET_TOKEN_MAX_AGE, SERVER_ERROR_MESSAGE};
 use crate::models::{PasswordResetToken, User};
 use crate::utils::generate_id_of_length;
 
@@ -56,7 +56,9 @@ pub async fn handle_pwd_reset_send(
 ) -> Result<StatusCode, HandlerErrOutput> {
     info!(email = body.email, "password reset send attempt");
 
-    if !email_looks_valid(&body.email) {
+    let email = common::normalize_email(&body.email);
+
+    if !email_looks_valid(&email) {
         info!("email failed validity check; returning 204 anyway");
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -67,7 +69,7 @@ pub async fn handle_pwd_reset_send(
         .table_name(&state.users_table_name)
         .index_name("users-by-email")
         .key_condition_expression("email = :email")
-        .expression_attribute_values(":email", AttributeValue::S(body.email.clone()))
+        .expression_attribute_values(":email", AttributeValue::S(email.clone()))
         .limit(1)
         .send()
         .await;
@@ -137,7 +139,7 @@ pub async fn handle_pwd_reset_send(
         token,
     );
 
-    if let Err(err) = send_reset_email(&state.ses_client, FROM_EMAIL, &body.email, &link).await {
+    if let Err(err) = send_reset_email(&state.ses_client, FROM_EMAIL, &email, &link).await {
         // Per design: still return 204 on SES failure.
         warn!(error = err, "SES send_email failed");
     }

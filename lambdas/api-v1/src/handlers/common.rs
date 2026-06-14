@@ -121,6 +121,14 @@ pub async fn delete_all_sessions_for_user(
     Ok(())
 }
 
+/// Normalizes an email address into its canonical storage form. Email is
+/// treated as case-insensitive, so this lowercases it, and surrounding
+/// whitespace is insignificant, so it is trimmed. Apply this to any email
+/// read from a request before using it for lookups, storage, or comparison.
+pub fn normalize_email(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
 /// Queries the users-by-email GSI to check whether the given email address is
 /// already associated with an existing user. Returns Ok if the email is available,
 /// or a 409 error if it is already in use.

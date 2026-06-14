@@ -9,7 +9,7 @@ use serde_json::json;
 use tracing::info;
 
 use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, CryptographicOps, http_error};
-use crate::handlers::common::SERVER_ERROR_MESSAGE;
+use crate::handlers::common::{self, SERVER_ERROR_MESSAGE};
 use crate::models::{User, Session};
 use crate::utils::SESSION_LIFETIME_DAYS;
 
@@ -32,13 +32,15 @@ pub async fn handle_user_login(
 ) -> Result<([(header::HeaderName, header::HeaderValue); 1], Json<serde_json::Value>), HandlerErrOutput> {
     info!(email = user_login_body.email, "user login attempt");
 
+    let email = common::normalize_email(&user_login_body.email);
+
     // Look up the user by email using the GSI
     let query_result = state.dynamo_client
         .query()
         .table_name(&state.users_table_name)
         .index_name("users-by-email")
         .key_condition_expression("email = :email")
-        .expression_attribute_values(":email", AttributeValue::S(user_login_body.email))
+        .expression_attribute_values(":email", AttributeValue::S(email))
         .limit(1)
         .send()
         .await;

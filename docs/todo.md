@@ -9,4 +9,3 @@
 * Support for importing a single note
 * BUG: often get conflicts even when working with a single device.
 * Remove the need for a monthly login.
-* Case insensitive email

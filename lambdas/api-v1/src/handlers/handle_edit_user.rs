@@ -60,8 +60,11 @@ pub async fn handle_edit_user(
         return Ok(StatusCode::NO_CONTENT);
     }
 
+    // Normalize the requested email (if any) into its canonical form
+    let new_email = body.new_email.as_deref().map(common::normalize_email);
+
     // If changing email, check that the new email isn't already in use
-    if let Some(ref new_email) = body.new_email {
+    if let Some(ref new_email) = new_email {
         common::check_email_available(&state.dynamo_client, &state.users_table_name, new_email).await?;
     }
 
@@ -87,7 +90,7 @@ pub async fn handle_edit_user(
         .table_name(&state.users_table_name)
         .key("user_id", AttributeValue::S(user_id.to_string()));
 
-    if let Some(ref new_email) = body.new_email {
+    if let Some(ref new_email) = new_email {
         set_parts.push("email = :email".to_string());
         update = update.expression_attribute_values(":email", AttributeValue::S(new_email.clone()));
     }

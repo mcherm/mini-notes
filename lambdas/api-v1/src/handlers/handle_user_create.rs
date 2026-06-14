@@ -31,13 +31,15 @@ pub async fn handle_user_create(
 ) -> Result<([(header::HeaderName, header::HeaderValue); 1], Json<serde_json::Value>), HandlerErrOutput> {
     info!(email = user_create_body.email, "user create attempt");
 
+    let email = common::normalize_email(&user_create_body.email);
+
     // Validate the proposed password
     if let Err(msg) = validate_password(&user_create_body.password) {
         return Err(http_error(400, msg));
     }
 
     // Check that the email isn't already in use
-    common::check_email_available(&state.dynamo_client, &state.users_table_name, &user_create_body.email).await?;
+    common::check_email_available(&state.dynamo_client, &state.users_table_name, &email).await?;
 
     // Generate user_id and password hash
     let user_id = generate_id();
@@ -56,7 +58,7 @@ pub async fn handle_user_create(
         .put_item()
         .table_name(&state.users_table_name)
         .item("user_id", AttributeValue::S(user_id.clone()))
-        .item("email", AttributeValue::S(user_create_body.email.clone()))
+        .item("email", AttributeValue::S(email.clone()))
         .item("password_hash", AttributeValue::S(password_hash))
         .item("user_type", AttributeValue::S(user_type.to_string()))
         .item("create_time", AttributeValue::S(current_time.timestamp.to_string()))
@@ -75,7 +77,7 @@ pub async fn handle_user_create(
         IdGenerator(generate_id),
         cryptographic_ops,
         Json(UserLoginBody {
-            email: user_create_body.email,
+            email,
             password: user_create_body.password,
         }),
     ).await
