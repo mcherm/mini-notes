@@ -152,6 +152,19 @@ pub struct User {
     pub password_reset_token: Option<PasswordResetToken>,
 }
 
+/// A struct summarizing more-expensive-to-compute detail about a single user.
+/// `notes` and `notes_in_trash` count the user's active and soft-deleted notes;
+/// `most_recent_edit` (max modify_time) and `busiest_note` (max version_id) are
+/// computed over the active notes only. The two maxes are `None` when the user
+/// has no active notes.
+pub struct UserDetail {
+    pub user_id: String,
+    pub notes: u32,
+    pub notes_in_trash: u32,
+    pub most_recent_edit: Option<Timestamp>,
+    pub busiest_note: Option<u32>,
+}
+
 /// A struct for a session.
 pub struct Session {
     pub session_id: String,
@@ -329,6 +342,22 @@ impl From<User> for JsonValue {
             "email": user.email,
             "user_type": user.user_type.to_string(),
             "create_time": user.create_time,
+        })
+    }
+}
+
+/// Convert a UserDetail into a JsonValue suitable to return to the caller.
+///
+/// As with `User`, the `user_id` is not usable by clients and is not included.
+/// `most_recent_edit` and `busiest_note` serialize to `null` when the user has
+/// no active notes.
+impl From<UserDetail> for JsonValue {
+    fn from(user_detail: UserDetail) -> Self {
+        json!({
+            "notes": user_detail.notes,
+            "notes_in_trash": user_detail.notes_in_trash,
+            "most_recent_edit": user_detail.most_recent_edit,
+            "busiest_note": user_detail.busiest_note,
         })
     }
 }

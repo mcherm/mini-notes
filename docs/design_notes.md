@@ -40,6 +40,14 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 * create_time: timestamp
 * password_reset_token: optional PasswordResetToken
 
+### UserDetail
+**Fields:**
+* user_id: string
+* notes: number
+* notes_in_trash: number
+* most_recent_edit: timestamp
+* busiest_note: number
+
 ### PasswordResetToken
 **Fields:**
 * issued_at: timestamp
@@ -64,6 +72,7 @@ parsed back into the struct on read.
 * LSI:
   * PK: user_id
   * SK: modify_time
+  * Projected: delete_time, format, version_id, title
 
 ### Users
 * PK: user_id
@@ -77,28 +86,30 @@ parsed back into the struct on read.
 
 ## Commands
 
-| Path                                     | Command                                           |
-|------------------------------------------|---------------------------------------------------|
-| `GET    /api/v1/notes`                   | [Get Notes](#get-notes)                           |
-| `POST   /api/v1/notes`                   | [New Note](#new-note)                             |
-| `GET    /api/v1/notes/{note_id}`         | [Get Note](#get-note)                             |
-| `PUT    /api/v1/notes/{note_id}`         | [Edit Note](#edit-note)                           |
-| `DELETE /api/v1/notes/{note_id}`         | [Delete Note](#delete-note)                       |
-| `GET    /api/v1/deleted_notes`           | [Get Deleted Notes](#get-deleted-notes)           |
-| `POST   /api/v1/recover_note/{note_id}`  | [Recover Deleted Note](#recover-deleted-note)     |
-| `DELETE /api/v1/deleted_notes/{note_id}` | [Destroy Deleted Note](#destroy-deleted-note)     |
-| `GET    /api/v1/note_export`             | [Export Notes](#export-notes)                     |
-| `POST   /api/v1/note_import`             | [Import Notes](#import-notes)                     |
-| `GET    /api/v1/note_search`             | [Search Notes](#search-notes)                     |
-| `GET    /api/v1/user`                    | [Get User](#get-user)                             |
-| `DELETE /api/v1/user`                    | [Delete User](#delete-user)                       |
-| `POST   /api/v1/user`                    | [User Edit](#user-edit)                           |
-| `POST   /api/v1/user_login`              | [User Login](#user-login)                         |
-| `POST   /api/v1/user_logout`             | [User Logout](#user-logout)                       |
-| `POST   /api/v1/user_create`             | [User Create](#user-create)                       |
-| `POST   /api/v1/pwd_reset/send`          | [Send Password Reset](#send-password-reset)       |
+| Path                                     | Command                                             |
+|------------------------------------------|-----------------------------------------------------|
+| `GET    /api/v1/notes`                   | [Get Notes](#get-notes)                             |
+| `POST   /api/v1/notes`                   | [New Note](#new-note)                               |
+| `GET    /api/v1/notes/{note_id}`         | [Get Note](#get-note)                               |
+| `PUT    /api/v1/notes/{note_id}`         | [Edit Note](#edit-note)                             |
+| `DELETE /api/v1/notes/{note_id}`         | [Delete Note](#delete-note)                         |
+| `GET    /api/v1/deleted_notes`           | [Get Deleted Notes](#get-deleted-notes)             |
+| `POST   /api/v1/recover_note/{note_id}`  | [Recover Deleted Note](#recover-deleted-note)       |
+| `DELETE /api/v1/deleted_notes/{note_id}` | [Destroy Deleted Note](#destroy-deleted-note)       |
+| `GET    /api/v1/note_export`             | [Export Notes](#export-notes)                       |
+| `POST   /api/v1/note_import`             | [Import Notes](#import-notes)                       |
+| `GET    /api/v1/note_search`             | [Search Notes](#search-notes)                       |
+| `GET    /api/v1/user`                    | [Get User](#get-user)                               |
+| `GET    /api/v1/user_detail`             | [Get User Detail](#get-user-detail)                 |
+| `DELETE /api/v1/user`                    | [Delete User](#delete-user)                         |
+| `POST   /api/v1/user`                    | [User Edit](#user-edit)                             |
+| `POST   /api/v1/user_login`              | [User Login](#user-login)                           |
+| `POST   /api/v1/user_logout`             | [User Logout](#user-logout)                         |
+| `POST   /api/v1/user_create`             | [User Create](#user-create)                         |
+| `POST   /api/v1/pwd_reset/send`          | [Send Password Reset](#send-password-reset)         |
 | `POST   /api/v1/pwd_reset/change_pwd`    | [Complete Password Reset](#complete-password-reset) |
-| `GET    /api/v1/admin/site_data`         | [Site Data](#site-data)                           |
+| `GET    /api/v1/admin/site_data`         | [Site Data](#site-data)                             |
+| `GET    /api/v1/admin/users_detail`      | [Site Data](#users-detail)                          |
 
 ### Get Notes
 **Path:** /api/v1/notes [GET]\
@@ -331,7 +342,21 @@ string.
 * user object fields: [body] object
 
 **Description**
-Obtain data about the currently logged-in user.
+Obtain data about the currently logged-in user. This only returns basic user
+information which is not expensive to compute.
+
+### Get User Detail
+**Path:** /api/v1/user_detail [GET]
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+* user detail object fields: [body] object
+
+**Description**
+Obtain detailed data about the currently logged-in user. Unlike Get User, this
+performs some queries that may take longer or be more expensive.
 
 ### Delete User
 **Path:** /api/v1/user [DELETE]
@@ -480,6 +505,26 @@ structure. That structure may evolve, but for now it looks like this:
 * note_count: number -- the approximate number of notes
 * note_size: number -- the approximate size (in bytes) of the note table
 
+### Site Data
+**Path:** /api/v1/admin/users_detail [GET]
+
+**Inputs:**
+* session_id: [header] string
+
+**Outputs:**
+* users: [body] array(FullUserInfo) 
+
+**Description:**
+This returns detailed information about all users on the site. It may take
+a bit of time to compute.
+
+#### FullUserInfo
+**Fields:**
+* user: User
+* user_detail: UserDetail
+
+
+/api/v1/admin/users_detail
 
 ## URLs
 I intend to put the production website at https://mini-notes.com . The dev version will be at https://dev.mini-notes.com .
