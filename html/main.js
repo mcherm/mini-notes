@@ -1029,6 +1029,38 @@ async function loadUser() {
     document.getElementById("user-create-date-display").value = user.create_time.substring(0, 10);
 }
 
+/** Fetches the current user's usage detail from the API and populates the user-details fields. */
+async function loadUserDetail() {
+    clearInlineAlert("#user-details-alert");
+    const noteCountField = document.getElementById("user-note-count-display");
+    const trashCountField = document.getElementById("user-trash-count-display");
+    const lastEditField = document.getElementById("user-last-edit-display");
+    const busiestNoteField = document.getElementById("user-busiest-note-version-display");
+    noteCountField.value = "";
+    trashCountField.value = "";
+    lastEditField.value = "";
+    busiestNoteField.value = "";
+    let response;
+    try {
+        response = await apiFetch(`${getApiBaseUrl()}/api/v1/user_detail`);
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showInlineAlert("#user-details-alert", null, FALLBACK_ERROR_MESSAGE);
+        return;
+    }
+    if (!response.ok) {
+        showInlineAlert("#user-details-alert", null, await extractErrorMessage(response));
+        return;
+    }
+    const data = await response.json();
+    const detail = data.user_detail;
+    noteCountField.value = detail.notes;
+    trashCountField.value = detail.notes_in_trash;
+    // The two maxima are null when the user has no active notes.
+    lastEditField.value = detail.most_recent_edit ? detail.most_recent_edit.substring(0, 10) : "no notes";
+    busiestNoteField.value = detail.busiest_note ?? "no notes";
+}
+
 /** Imports notes from the selected file by POSTing its raw bytes to the API. */
 async function importNotes(file) {
     clearInlineAlert("#import-alert");
@@ -1378,6 +1410,17 @@ async function actionLogoutBtn() {
     await logout();
 }
 
+/** Opens the user usage-detail dialog, loading the data first. */
+async function actionUserDetailsBtn() {
+    await loadUserDetail();
+    showShadowBox("user-details-dialog");
+}
+
+/** Handles the back button in the user usage-detail dialog. */
+function actionCloseUserDetailsBtn() {
+    hideShadowBox("user-details-dialog");
+}
+
 /** Opens the user edit dialog. */
 function actionUserEditDialogBtn() {
     showShadowBox("user-edit-dialog");
@@ -1690,6 +1733,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#close-user-shadowbox-btn").addEventListener("click", actionCloseUserShadowboxBtn);
     document.querySelector("#close-note-info-shadowbox-btn").addEventListener("click", actionCloseNoteInfoShadowboxBtn);
     document.querySelector("#logout-btn").addEventListener("click", actionLogoutBtn);
+    document.querySelector("#user-details-btn").addEventListener("click", actionUserDetailsBtn);
+    document.querySelector("#close-user-details-btn").addEventListener("click", actionCloseUserDetailsBtn);
     document.querySelector("#user-edit-dialog-btn").addEventListener("click", actionUserEditDialogBtn);
     document.querySelector("#close-user-edit-btn").addEventListener("click", actionCloseUserEditBtn);
     document.querySelector("#user-edit-btn").addEventListener("click", actionUserEditBtn);

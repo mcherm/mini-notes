@@ -85,9 +85,28 @@
                 <inline-alert id="user-info-alert" role="alert"></inline-alert>
                 <button id="close-user-shadowbox-btn">&#x2190;</button>
                 <button id="logout-btn">Log Out</button>
+                <button id="user-details-btn">Usage</button>
                 <button id="user-edit-dialog-btn">Edit</button>
                 <button id="user-delete-dialog-btn">&#x1F5D1;&#xFE0F;</button>
             </user-area>
+        </shadow-content>
+    </shadow-box>
+    <shadow-box id="user-details-dialog">
+        <shadow-content>
+            <user-details>
+                <user-details-form>
+                    <label for="user-note-count-display">Notes:</label>
+                    <input type="text" id="user-note-count-display" disabled value="">
+                    <label for="user-trash-count-display">Notes in Trash:</label>
+                    <input type="text" id="user-trash-count-display" disabled value="">
+                    <label for="user-last-edit-display">Last Edit:</label>
+                    <input type="text" id="user-last-edit-display" disabled value="">
+                    <label for="user-busiest-note-version-display">Most Edits:</label>
+                    <input type="text" id="user-busiest-note-version-display" disabled value="">
+                </user-details-form>
+                <inline-alert id="user-details-alert" role="alert"></inline-alert>
+                <button id="close-user-details-btn">&#x2190;</button>
+            </user-details>
         </shadow-content>
     </shadow-box>
     <shadow-box id="user-edit-dialog">

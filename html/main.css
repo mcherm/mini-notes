@@ -71,7 +71,7 @@ body-content {
 }
 
 /** FIXME: See if I can use a class for this. */
-header, nav, article, login-area, user-area, note-info, user-edit, user-delete, forgot-password-area {
+header, nav, article, login-area, user-area, note-info, user-edit, user-delete, forgot-password-area, user-details {
     border: var(--body-border) solid var(--colorless-dk);
     padding: 4px;
 }
@@ -246,7 +246,7 @@ login-area {
 }
 
 /* FIXME: Move the buttons to a separate bar. */
-user-area, note-info, user-edit, user-delete, forgot-password-area {
+user-area, note-info, user-edit, user-delete, forgot-password-area, user-details {
     display: grid;
     grid-template-areas:
         "form_1 form_1"
@@ -260,12 +260,23 @@ user-area, note-info, user-edit, user-delete, forgot-password-area {
 
 user-area {
     grid-template-areas:
-        "form_1 form_1 form_1 form_1"
-        "alert alert alert alert"
-        "button_1 button_2 button_3 button_4";
+        "form_1 form_1 form_1 form_1 form_1"
+        "alert alert alert alert alert"
+        "button_1 button_2 button_3 button_4 button_5";
 }
 
 user-area > inline-alert {
+    grid-area: alert;
+}
+
+user-details {
+    grid-template-areas:
+        "form_1"
+        "alert"
+        "button_1";
+}
+
+user-details > inline-alert {
     grid-area: alert;
 }
 
@@ -418,7 +429,7 @@ floating-alert-message {
     text-align: center;
 }
 
-user-form, info-form, user-edit-form {
+user-form, info-form, user-edit-form, user-details-form {
     grid-area: form_1;
     justify-self: center;
     display: grid;
