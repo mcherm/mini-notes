@@ -21,6 +21,8 @@
       <admin-commands>
         <label for="site-data-btn">Site Data</label>
         <button id="site-data-btn">Go</button>
+        <label for="users-detail-btn">Users Detail (slow)</label>
+        <button id="users-detail-btn">Go</button>
       </admin-commands>
     </body-content>
     <shadow-box id="site-data-display-dialog">
@@ -29,20 +31,50 @@
           <site-data-form>
             <label for="user-count-display">User Count:</label>
             <input type="text" id="user-count-display" disabled value="">
-            <label for="user-count-display">User Table Size (bytes):</label>
+            <label for="user-size-display">User Table Size (bytes):</label>
             <input type="text" id="user-size-display" disabled value="">
             <label for="session-count-display">Session Count:</label>
             <input type="text" id="session-count-display" disabled value="">
-            <label for="session-count-display">Session Table Size (bytes):</label>
+            <label for="session-size-display">Session Table Size (bytes):</label>
             <input type="text" id="session-size-display" disabled value="">
             <label for="note-count-display">Note Count:</label>
             <input type="text" id="note-count-display" disabled value="">
-            <label for="note-count-display">Note Table Size (bytes):</label>
+            <label for="note-size-display">Note Table Size (bytes):</label>
             <input type="text" id="note-size-display" disabled value="">
           </site-data-form>
           <inline-alert id="site-data-alert" role="alert"></inline-alert>
           <button id="close-site-data-shadowbox-btn">&#x2190;</button>
         </site-data-area>
+      </shadow-content>
+    </shadow-box>
+    <shadow-box id="users-detail-display-dialog">
+      <shadow-content>
+        <users-detail-area>
+          <inline-alert id="users-detail-alert" role="alert"></inline-alert>
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Type</th>
+                <th>Notes</th>
+                <th>In Trash</th>
+                <th>Invalid</th>
+                <th>Last Edited</th>
+                <th>Busiest Note</th>
+                <th>Created</th>
+                <th>User ID</th>
+              </tr>
+            </thead>
+            <tbody id="users-detail-tbody"></tbody>
+          </table>
+          <users-detail-totals>
+            <label for="orphan-note-count-display">Orphan Notes:</label>
+            <input type="text" id="orphan-note-count-display" disabled value="">
+            <label for="invalid-user-count-display">Invalid Users:</label>
+            <input type="text" id="invalid-user-count-display" disabled value="">
+          </users-detail-totals>
+          <button id="close-users-detail-shadowbox-btn">&#x2190;</button>
+        </users-detail-area>
       </shadow-content>
     </shadow-box>
   </body>

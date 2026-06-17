@@ -144,6 +144,62 @@ function actionCloseSiteDataShadowboxBtn() {
     hideShadowBox("site-data-display-dialog");
 }
 
+/** Appends one row to the users-detail table from a FullUserInfo record.
+ * Cells are set via textContent (never innerHTML) since email is user-supplied. */
+function appendUserDetailRow(tbody, fullUserInfo) {
+    const user = fullUserInfo.user;
+    const detail = fullUserInfo.user_detail;
+    const cells = [
+        user.email,
+        user.user_type,
+        detail.notes,
+        detail.notes_in_trash,
+        detail.invalid_notes,
+        detail.most_recent_edit ? detail.most_recent_edit.substring(0, 10) : "no notes",
+        detail.busiest_note ?? "no notes",
+        user.create_time.substring(0, 10),
+        user.user_id,
+    ];
+    const row = document.createElement("tr");
+    for (const value of cells) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+    }
+    tbody.appendChild(row);
+}
+
+async function actionUsersDetailBtn() {
+    clearInlineAlert("#users-detail-alert");
+    const tbody = document.getElementById("users-detail-tbody");
+    tbody.replaceChildren();
+    document.getElementById("orphan-note-count-display").value = "";
+    document.getElementById("invalid-user-count-display").value = "";
+    showShadowBox("users-detail-display-dialog");
+    let response;
+    try {
+        response = await apiFetch(`${getApiBaseUrl()}/api/v1/admin/users_detail`);
+    } catch (e) {
+        if (e instanceof LoggedOutError) return;
+        showInlineAlert("#users-detail-alert", null, FALLBACK_ERROR_MESSAGE);
+        return;
+    }
+    if (!response.ok) {
+        showInlineAlert("#users-detail-alert", null, await extractErrorMessage(response));
+        return;
+    }
+    const data = await response.json();
+    for (const fullUserInfo of data.users) {
+        appendUserDetailRow(tbody, fullUserInfo);
+    }
+    document.getElementById("orphan-note-count-display").value = data.orphan_note_count;
+    document.getElementById("invalid-user-count-display").value = data.invalid_user_count;
+}
+
+function actionCloseUsersDetailShadowboxBtn() {
+    hideShadowBox("users-detail-display-dialog");
+}
+
 function actionDismissShadowBox(event) {
     if (event.target === event.currentTarget) {
         hideShadowBox(event.currentTarget.id);
@@ -155,6 +211,8 @@ function actionDismissShadowBox(event) {
 document.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#site-data-btn").addEventListener("click", actionSiteDataBtn);
     document.querySelector("#close-site-data-shadowbox-btn").addEventListener("click", actionCloseSiteDataShadowboxBtn);
+    document.querySelector("#users-detail-btn").addEventListener("click", actionUsersDetailBtn);
+    document.querySelector("#close-users-detail-shadowbox-btn").addEventListener("click", actionCloseUsersDetailShadowboxBtn);
     document.querySelectorAll("shadow-box").forEach(sb => {
         sb.addEventListener("click", actionDismissShadowBox);
     });

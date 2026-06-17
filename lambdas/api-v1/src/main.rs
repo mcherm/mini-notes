@@ -37,6 +37,7 @@ use handlers::{
     handle_export_notes::handle_export_notes,
     handle_import_notes::handle_import_notes,
     handle_site_data::handle_site_data,
+    handle_get_all_users_detail::handle_get_all_users_detail,
     handle_pwd_reset_send::handle_pwd_reset_send,
     handle_pwd_reset_change::handle_pwd_reset_change,
 };
@@ -99,6 +100,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         .route("/api/v1/pwd_reset/send", post(handle_pwd_reset_send))
         .route("/api/v1/pwd_reset/change_pwd", post(handle_pwd_reset_change))
         .route("/api/v1/admin/site_data", get(handle_site_data))
+        .route("/api/v1/admin/users_detail", get(handle_get_all_users_detail))
         .with_state(state)
         .layer(cors)
         // Every API response declares Cache-Control: no-store. The data is

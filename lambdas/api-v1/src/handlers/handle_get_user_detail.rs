@@ -9,6 +9,57 @@ use tracing::info;
 use crate::extractors::{AppState, HandlerOutput, http_error, UserSession};
 use crate::models::{DynamoDBRecord, Timestamp, UserDetail, get_n_as_u32, get_timestamp};
 
+/// Running tally of one user's note statistics, accumulated a note at a time.
+/// Lives here with the single-user endpoint that primarily uses it, and is
+/// reused by handle_get_all_users_detail (which keeps one per user). The
+/// `most_recent_edit` / `busiest_note` maxima are folded over active notes only.
+#[derive(Default)]
+pub struct UserNoteStats {
+    pub notes: u32,
+    pub notes_in_trash: u32,
+    pub invalid_notes: u32,
+    pub most_recent_edit: Option<Timestamp>,
+    pub busiest_note: Option<u32>,
+}
+
+impl UserNoteStats {
+    /// Record one note item (as projected from the notes LSI) into the tally: a
+    /// trashed note (one with delete_time) bumps the trash count only; an active
+    /// note bumps the active count and updates the modify_time / version_id maxima.
+    ///
+    /// A corrupt record — one whose summarized fields can't be parsed — is counted
+    /// in `invalid_notes` and excluded from the other tallies, rather than
+    /// being surfaced as an error. This keeps a single bad note from failing a
+    /// whole-table scan; callers reserve hard errors for DynamoDB failures.
+    pub fn record_note(&mut self, item: &DynamoDBRecord) {
+        if item.contains_key("delete_time") {
+            self.notes_in_trash += 1;
+            return;
+        }
+        let (Ok(modify_time), Ok(version_id)) =
+            (get_timestamp(item, "modify_time"), get_n_as_u32(item, "version_id"))
+        else {
+            self.invalid_notes += 1;
+            return;
+        };
+        self.notes += 1;
+        self.most_recent_edit = self.most_recent_edit.max(Some(modify_time));
+        self.busiest_note = self.busiest_note.max(Some(version_id));
+    }
+
+    /// Finalize the tally into a UserDetail for the given user.
+    pub fn into_user_detail(self, user_id: String) -> UserDetail {
+        UserDetail {
+            user_id,
+            notes: self.notes,
+            notes_in_trash: self.notes_in_trash,
+            invalid_notes: self.invalid_notes,
+            most_recent_edit: self.most_recent_edit,
+            busiest_note: self.busiest_note,
+        }
+    }
+}
+
 /// Logic for handling the get_user_detail command. Returns counts of the user's
 /// notes (active vs. in trash) plus two cheap collective stats over the active
 /// notes — the most recent edit time (max modify_time) and the "busiest note"
@@ -25,17 +76,13 @@ pub async fn handle_get_user_detail(
 
     info!(user_id, table = state.notes_table_name, "computing user detail");
 
-    let mut notes: u32 = 0;
-    let mut notes_in_trash: u32 = 0;
-    let mut most_recent_edit: Option<Timestamp> = None;
-    let mut busiest_note: Option<u32> = None;
+    let mut stats = UserNoteStats::default();
     let mut exclusive_start_key: Option<DynamoDBRecord> = None;
 
     // A single pass over the notes-by-modify-time LSI. We read only the
     // projected attributes (never the base table, whose body can be up to
-    // 100 KB), classify each note as active or trashed by the presence of
-    // delete_time, and fold modify_time / version_id into running maxima. No
-    // filter and no page limit: we want every note and the fewest round trips.
+    // 100 KB) and record each note in the tally. No filter and no page limit:
+    // we want every note and the fewest round trips.
     loop {
         let result = state.dynamo_client
             .query()
@@ -53,23 +100,7 @@ pub async fn handle_get_user_detail(
         };
 
         for item in result.items.unwrap_or_default() {
-            if item.contains_key("delete_time") {
-                notes_in_trash += 1;
-            } else {
-                notes += 1;
-
-                let modify_time = match get_timestamp(&item, "modify_time") {
-                    Ok(ts) => ts,
-                    Err(err) => return Err(http_error(500, &err)),
-                };
-                most_recent_edit = most_recent_edit.max(Some(modify_time));
-
-                let version_id = match get_n_as_u32(&item, "version_id") {
-                    Ok(v) => v,
-                    Err(err) => return Err(http_error(500, &err)),
-                };
-                busiest_note = busiest_note.max(Some(version_id));
-            }
+            stats.record_note(&item);
         }
 
         exclusive_start_key = result.last_evaluated_key;
@@ -78,14 +109,7 @@ pub async fn handle_get_user_detail(
         }
     }
 
-    let user_detail = UserDetail {
-        user_id,
-        notes,
-        notes_in_trash,
-        most_recent_edit,
-        busiest_note,
-    };
-    let user_detail_json: JsonValue = user_detail.into();
+    let user_detail_json: JsonValue = stats.into_user_detail(user_id).into();
 
     let body_json = json!({"user_detail": user_detail_json});
     Ok(Json(body_json))
@@ -127,6 +151,31 @@ mod tests {
         assert_eq!(detail["busiest_note"], 7);
         // user_id is intentionally not exposed (matches the get_user convention).
         assert!(detail.get("user_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn direct_handle_get_user_detail_invalid_notesed() {
+        // One good active note and one active note with an unparseable modify_time.
+        // The bad note is counted as invalid (not as a note), and the request
+        // still succeeds.
+        let query_response = r#"{"Items":[
+            {"version_id":{"N":"4"},"modify_time":{"S":"2026-03-08T00:00:00.000000000Z"}},
+            {"version_id":{"N":"5"},"modify_time":{"S":"not-a-timestamp"}}
+        ],"Count":2,"ScannedCount":2}"#;
+        let client = test_dynamo_client(vec![replay_ok(query_response)]);
+
+        let result = handle_get_user_detail(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        let detail = &json["user_detail"];
+        assert_eq!(detail["notes"], 1);
+        assert_eq!(detail["invalid_notes"], 1);
+        // The invalid note does not contribute to the maxima.
+        assert_eq!(detail["most_recent_edit"], "2026-03-08T00:00:00Z");
+        assert_eq!(detail["busiest_note"], 4);
     }
 
     #[tokio::test]

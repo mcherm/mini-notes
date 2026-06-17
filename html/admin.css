@@ -32,11 +32,45 @@ site-data-area {
     }
 }
 
-site-data-form {
-    grid-area: form_1;
-    justify-self: center;
+/* The whole area scrolls (no inner wrapper); the viewport-relative caps keep a
+ * long or wide user list inside the dialog. The table spans the area's width
+ * while the narrower sections center, so the blue background frames everything. */
+users-detail-area {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 5px;
+    overflow: auto;
+    max-height: 90vh;
+    max-width: 90vw;
+    background-color: var(--interest-color-lt);
+}
+
+users-detail-totals,
+users-detail-area > button {
+    align-self: center;
+}
+
+site-data-form, users-detail-totals {
     display: grid;
     grid-template-columns: auto auto;
     gap: 5px;
     padding: 5px;
+}
+
+site-data-form {
+    grid-area: form_1;
+    justify-self: center;
+}
+
+users-detail-area table {
+    border-collapse: collapse;
+}
+
+users-detail-area th,
+users-detail-area td {
+    border: 1px solid var(--colorless-dk);
+    padding: 3px 8px;
+    text-align: left;
+    white-space: nowrap;
 }

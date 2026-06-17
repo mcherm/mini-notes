@@ -154,6 +154,8 @@ pub struct User {
 
 /// A struct summarizing more-expensive-to-compute detail about a single user.
 /// `notes` and `notes_in_trash` count the user's active and soft-deleted notes;
+/// `invalid_notes` is the number of the user's notes that could not be
+/// parsed (a corrupt record that is excluded from the other tallies);
 /// `most_recent_edit` (max modify_time) and `busiest_note` (max version_id) are
 /// computed over the active notes only. The two maxes are `None` when the user
 /// has no active notes.
@@ -161,8 +163,16 @@ pub struct UserDetail {
     pub user_id: String,
     pub notes: u32,
     pub notes_in_trash: u32,
+    pub invalid_notes: u32,
     pub most_recent_edit: Option<Timestamp>,
     pub busiest_note: Option<u32>,
+}
+
+/// Pairs a user's record with their computed usage detail; the element type of
+/// the admin users_detail response.
+pub struct FullUserInfo {
+    pub user: User,
+    pub user_detail: UserDetail,
 }
 
 /// A struct for a session.
@@ -356,8 +366,26 @@ impl From<UserDetail> for JsonValue {
         json!({
             "notes": user_detail.notes,
             "notes_in_trash": user_detail.notes_in_trash,
+            "invalid_notes": user_detail.invalid_notes,
             "most_recent_edit": user_detail.most_recent_edit,
             "busiest_note": user_detail.busiest_note,
+        })
+    }
+}
+
+/// Convert a FullUserInfo into a JsonValue suitable to return to the caller.
+///
+/// Unlike the self-service endpoints, the admin view exposes `user_id`. The
+/// sensitive fields (`password_hash`, reset token) are still excluded, since
+/// they are never part of `From<User>`.
+impl From<FullUserInfo> for JsonValue {
+    fn from(info: FullUserInfo) -> Self {
+        let user_id = info.user.user_id.clone();
+        let mut user_json = JsonValue::from(info.user);
+        user_json["user_id"] = json!(user_id);
+        json!({
+            "user": user_json,
+            "user_detail": JsonValue::from(info.user_detail),
         })
     }
 }

@@ -2,6 +2,7 @@ pub mod common;
 pub mod handle_user_create;
 pub mod handle_get_user;
 pub mod handle_get_user_detail;
+pub mod handle_get_all_users_detail;
 pub mod handle_edit_user;
 pub mod handle_delete_user;
 pub mod handle_user_login;

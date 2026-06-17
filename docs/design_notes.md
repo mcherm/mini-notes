@@ -42,11 +42,12 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 
 ### UserDetail
 **Fields:**
-* user_id: string
-* notes: number
-* notes_in_trash: number
-* most_recent_edit: timestamp
-* busiest_note: number
+* user_id: string -- unique user_id for this user
+* notes: number -- number of (active) notes this user has
+* notes_in_trash: number -- number of notes this user has in the trash
+* invalid_notes: number -- number of notes for this user which have internal errors
+* most_recent_edit: timestamp -- time of the most recent edit to any of this user's notes
+* busiest_note: number -- largest number of times any of this user's notes has been edited
 
 ### PasswordResetToken
 **Fields:**
@@ -505,14 +506,15 @@ structure. That structure may evolve, but for now it looks like this:
 * note_count: number -- the approximate number of notes
 * note_size: number -- the approximate size (in bytes) of the note table
 
-### Site Data
+### Users Detail
 **Path:** /api/v1/admin/users_detail [GET]
 
 **Inputs:**
 * session_id: [header] string
 
 **Outputs:**
-* users: [body] array(FullUserInfo) 
+* users: [body] array(FullUserInfo)
+* orphan_note_count: number -- the number of notes that don't have an owner
 
 **Description:**
 This returns detailed information about all users on the site. It may take
