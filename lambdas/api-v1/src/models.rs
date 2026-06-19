@@ -179,6 +179,12 @@ pub struct FullUserInfo {
 pub struct Session {
     pub session_id: String,
     pub user_id: String,
+    /// When the session was created; drives the absolute lifetime cap.
+    pub create_time: Timestamp,
+    /// Approximately when the session was last used; drives the sliding idle window.
+    /// Refreshed lazily (at most once per day), so it can lag real activity by up to a day.
+    pub last_used: Timestamp,
+    /// Effective expiry: the earlier of `last_used + idle limit` and `create_time + lifetime`.
     pub expire_time: Timestamp,
 }
 
@@ -399,8 +405,25 @@ impl TryFrom<DynamoDBRecord> for Session {
         Ok(Session {
             session_id: get_s(&item, "session_id")?,
             user_id: get_s(&item, "user_id")?,
+            create_time: get_timestamp(&item, "create_time")?,
+            last_used: get_timestamp(&item, "last_used")?,
             expire_time: get_timestamp(&item, "expire_time")?,
         })
+    }
+}
+
+impl Session {
+    /// Build the DynamoDB item for this session. Inverse of the `TryFrom<DynamoDBRecord>`
+    /// read path; used by login and the lazy refresh in the `UserSession` extractor.
+    pub fn to_item(&self) -> DynamoDBRecord {
+        DynamoDBRecord::from([
+            ("session_id".to_string(), AttributeValue::S(self.session_id.clone())),
+            ("user_id".to_string(), AttributeValue::S(self.user_id.clone())),
+            ("create_time".to_string(), AttributeValue::S(self.create_time.to_string())),
+            ("last_used".to_string(), AttributeValue::S(self.last_used.to_string())),
+            ("expire_time".to_string(), AttributeValue::S(self.expire_time.to_string())),
+            ("ttl_expire".to_string(), AttributeValue::N(self.expire_time.unix_timestamp().to_string())),
+        ])
     }
 }
 

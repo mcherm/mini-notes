@@ -1,8 +1,27 @@
+use std::time::Duration;
+
 use rand::RngExt;
+
+use crate::models::Timestamp;
 
 pub const NOTES_PER_BATCH: i32 = 100;
 pub const SOFT_DELETE_DAYS: u64 = 30;
-pub const SESSION_LIFETIME_DAYS: u64 = 30;
+/// Absolute cap on how long a session can live, measured from when it was created.
+pub const SESSION_LIFETIME_DAYS: u64 = 365;
+/// Sliding idle window: a session is invalid once it has gone unused this long.
+pub const SESSION_IDLE_LIMIT_DAYS: u64 = 45;
+/// How stale `last_used` must be before an authenticated request refreshes it. Bounds
+/// session write traffic to at most once per session per day.
+pub const SESSION_REFRESH_THRESHOLD_HOURS: u64 = 24;
+
+/// Compute a session's effective expiry: the earlier of the sliding idle window
+/// (`last_used + idle limit`) and the absolute cap (`create_time + lifetime`). Used at login,
+/// on each lazy refresh, and by the migration tool so all three agree on the policy.
+pub fn effective_expire_time(last_used: Timestamp, create_time: Timestamp) -> Timestamp {
+    let idle = last_used + Duration::from_hours(SESSION_IDLE_LIMIT_DAYS * 24);
+    let cap = create_time + Duration::from_hours(SESSION_LIFETIME_DAYS * 24);
+    std::cmp::min(idle, cap)
+}
 
 pub const ID_ALPHABET: &[u8; 64] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_~";
 pub const ID_LENGTH: usize = 10;
@@ -99,5 +118,23 @@ mod tests {
         assert!(!constant_time_eq("abc", "ab"));
         assert!(!constant_time_eq("ab", "abc"));
         assert!(!constant_time_eq("", "x"));
+    }
+
+    #[test]
+    fn test_effective_expire_time_idle_binds_when_fresh() {
+        // A fresh session (now == create_time): the idle window is sooner than the cap.
+        let now = Timestamp::from_str("2026-06-01T00:00:00Z").unwrap();
+        let expected = now + Duration::from_hours(SESSION_IDLE_LIMIT_DAYS * 24);
+        assert_eq!(effective_expire_time(now, now), expected);
+    }
+
+    #[test]
+    fn test_effective_expire_time_cap_binds_near_year_end() {
+        // Active well into the session's life: the idle window would run past the 1-year
+        // cap, so the cap binds instead.
+        let create_time = Timestamp::from_str("2026-01-01T00:00:00Z").unwrap();
+        let now = create_time + Duration::from_hours(350 * 24);
+        let expected = create_time + Duration::from_hours(SESSION_LIFETIME_DAYS * 24);
+        assert_eq!(effective_expire_time(now, create_time), expected);
     }
 }

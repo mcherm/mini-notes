@@ -55,14 +55,14 @@ Making it an LSI instead of a GSI gives me immediate consistency (nice) and will
 * token: string [32 chars from the mini-notes ID alphabet]
 
 In DynamoDB this is stored as a single string field on the User in the form
-`<rfc3339-timestamp>|<token>`. The pipe is the separator; both halves are
-parsed back into the struct on read.
+`<rfc3339-timestamp>|<token>` (using a pipe separator).
 
 ### Session
 **Fields:**
-* session_id: string
-* user_id: string
-* expire_time: date
+* session_id: string -- a unique ID for the session. Knowing this is a "bearer token" giving access to the user's notes.
+* user_id: string -- the user_id of the user this session is for
+* expire_time: timestamp -- this is the date at which it will expire regardless of use
+* last_used: timestamp -- this is approximately the last time it was used (to within ~24 hrs)
 
 ## Tables
 

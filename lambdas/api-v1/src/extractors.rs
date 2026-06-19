@@ -10,7 +10,7 @@ use serde_json::json;
 use time::UtcDateTime;
 
 use crate::passwords;
-use crate::utils::{generate_id, random_u32};
+use crate::utils::{generate_id, random_u32, effective_expire_time, SESSION_REFRESH_THRESHOLD_HOURS};
 use crate::models::{Session, Timestamp};
 
 pub type HandlerErrOutput = (StatusCode, Json<serde_json::Value>);
@@ -36,7 +36,11 @@ pub struct AppState {
 }
 
 
-/// Extractor for getting the user session from a cookie
+/// Extractor for getting the user session from a cookie.
+///
+/// Beyond reading, this extractor has two side effects on the sessions table: it deletes a
+/// session that has expired (returning no session), and it lazily refreshes `last_used` /
+/// `expire_time` on a still-valid session whose `last_used` has gone stale.
 pub struct UserSession(pub Option<Session>);
 
 impl FromRequestParts<AppState> for UserSession {
@@ -61,7 +65,7 @@ impl FromRequestParts<AppState> for UserSession {
             .key("session_id", AttributeValue::S(session_id))
             .send()
             .await;
-        let session: Session = match result {
+        let mut session: Session = match result {
             Ok(output) => match output.item {
                 Some(item) => match Session::try_from(item) {
                     Ok(session) => session,
@@ -72,9 +76,37 @@ impl FromRequestParts<AppState> for UserSession {
             Err(_) => return Ok(UserSession(None)),
         };
         let now = Timestamp::from_date_time(UtcDateTime::now());
+
+        // Enforce expiry explicitly: a single check covers both the idle window and the
+        // absolute cap, since expire_time folds them together. DynamoDB TTL is only a
+        // cleanup backstop (and lags by up to ~48h), so it is never relied on here. Delete
+        // the expired row on the way out so it doesn't linger.
         if session.expire_time <= now {
+            let _ = state.dynamo_client
+                .delete_item()
+                .table_name(&state.sessions_table_name)
+                .key("session_id", AttributeValue::S(session.session_id.clone()))
+                .send()
+                .await;
             return Ok(UserSession(None));
         }
+
+        // Lazily refresh the sliding window. To keep write traffic to at most once per
+        // session per day, only write when last_used is more than the refresh threshold
+        // stale. Simultaneous requests may each write, which is harmless and simpler than
+        // guarding against it.
+        let last_used_age_secs = now.unix_timestamp() - session.last_used.unix_timestamp();
+        if last_used_age_secs > (SESSION_REFRESH_THRESHOLD_HOURS as i64) * 3600 {
+            session.last_used = now;
+            session.expire_time = effective_expire_time(session.last_used, session.create_time);
+            let _ = state.dynamo_client
+                .put_item()
+                .table_name(&state.sessions_table_name)
+                .set_item(Some(session.to_item()))
+                .send()
+                .await;
+        }
+
         Ok(UserSession(Some(session)))
     }
 }

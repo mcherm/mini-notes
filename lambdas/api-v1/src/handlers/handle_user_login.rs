@@ -11,7 +11,7 @@ use tracing::info;
 use crate::extractors::{AppState, HandlerErrOutput, CurrentTime, IdGenerator, CryptographicOps, http_error};
 use crate::handlers::common::{self, SERVER_ERROR_MESSAGE};
 use crate::models::{User, Session};
-use crate::utils::SESSION_LIFETIME_DAYS;
+use crate::utils::{SESSION_LIFETIME_DAYS, effective_expire_time};
 
 
 /// A struct for the things that are passed in as part of the body when a user login occurs.
@@ -77,23 +77,23 @@ pub async fn handle_user_login(
         return Err(http_error(401, "invalid email or password"));
     }
 
-    // Create a session
+    // Create a session. At creation last_used == create_time == now, so the effective
+    // expiry is the sliding idle window (now + idle limit).
     let session_id = generate_id();
-    let expire_time = current_time.timestamp + std::time::Duration::from_hours(SESSION_LIFETIME_DAYS * 24);
+    let now = current_time.timestamp;
     let session = Session {
         session_id,
         user_id: user.user_id,
-        expire_time,
+        create_time: now,
+        last_used: now,
+        expire_time: effective_expire_time(now, now),
     };
 
     // Write the new session to the Sessions table
     let result = state.dynamo_client
         .put_item()
         .table_name(&state.sessions_table_name)
-        .item("session_id", AttributeValue::S(session.session_id.clone()))
-        .item("user_id", AttributeValue::S(session.user_id.clone()))
-        .item("expire_time", AttributeValue::S(session.expire_time.to_string()))
-        .item("ttl_expire", AttributeValue::N(session.expire_time.unix_timestamp().to_string()))
+        .set_item(Some(session.to_item()))
         .send()
         .await;
     if let Err(err) = result {
@@ -101,11 +101,14 @@ pub async fn handle_user_login(
         return Err(http_error(500, SERVER_ERROR_MESSAGE));
     }
 
-    // Return a response with a Set-Cookie header containing the session_id
+    // Return a response with a Set-Cookie header containing the session_id. The cookie
+    // Max-Age matches the absolute session cap, so the browser keeps presenting it for as
+    // long as the server might honor it; the server is the authority on validity (sliding
+    // idle window) via its own expiry check.
     let cookie_value = format!(
         "session_id={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
         session.session_id,
-        30 * 24 * 60 * 60, // 30 days in seconds
+        SESSION_LIFETIME_DAYS * 24 * 60 * 60,  // SESSION_LIFETIME_DAYS in seconds
     );
     let headers = [(header::SET_COOKIE, cookie_value.parse().unwrap())];
     let body = Json(json!({"session_id": session.session_id}));

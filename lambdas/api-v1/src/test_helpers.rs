@@ -63,6 +63,8 @@ pub fn test_user_session(s: &str) -> UserSession {
     UserSession(Some(Session{
         session_id: "test-session-id".to_string(),
         user_id: s.to_string(),
+        create_time: Timestamp::from_str("2026-02-08T00:00:00Z").unwrap(),
+        last_used: Timestamp::from_str("2026-03-09T00:00:00Z").unwrap(),
         expire_time: Timestamp::from_str("2026-03-10T00:00:00Z").unwrap(),
     }))
 }

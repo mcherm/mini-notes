@@ -307,7 +307,7 @@ mod tests {
         use http_body_util::BodyExt;
 
         // Canned DynamoDB responses: session lookup, GetItem (existing note), UpdateItem (success with AllNew)
-        let session_response = r#"{"Item":{"session_id":{"S":"test-session-id"},"user_id":{"S":"Xq3_mK8~pL"},"expire_time":{"S":"2099-12-31T00:00:00.000000000Z"}}}"#;
+        let session_response = r#"{"Item":{"session_id":{"S":"test-session-id"},"user_id":{"S":"Xq3_mK8~pL"},"create_time":{"S":"2099-01-01T00:00:00.000000000Z"},"last_used":{"S":"2099-12-31T00:00:00.000000000Z"},"expire_time":{"S":"2099-12-31T00:00:00.000000000Z"}}}"#;
         let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"3"},"title":{"S":"Old Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-10T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"Old body"}}}"#;
         let update_item_response = r#"{"Attributes":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"4"},"title":{"S":"New Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-15T12:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"New body"}}}"#;
 
