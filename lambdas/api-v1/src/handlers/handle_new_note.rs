@@ -1,4 +1,3 @@
-use aws_sdk_dynamodb::types::AttributeValue;
 use axum::{
     extract::State,
     response::Json,
@@ -58,15 +57,7 @@ pub async fn handle_new_note(
     let result = state.dynamo_client
         .put_item()
         .table_name(&state.notes_table_name)
-        .item("user_id", AttributeValue::S(note.user_id.clone()))
-        .item("note_id", AttributeValue::S(note.note_id.clone()))
-        .item("version_id", AttributeValue::N(note.version_id.to_string()))
-        .item("title", AttributeValue::S(note.title.clone()))
-        .item("create_time", AttributeValue::S(note.create_time.to_string()))
-        .item("modify_time", AttributeValue::S(note.modify_time.to_string()))
-        .item("format", AttributeValue::S(note.format.to_string()))
-        .item("body", AttributeValue::S(note.body.clone()))
-        .item("undo_stack", AttributeValue::L(Vec::new()))
+        .set_item(Some(note.to_item()))
         .send()
         .await;
     if let Err(err) = result {

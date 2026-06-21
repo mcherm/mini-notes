@@ -65,14 +65,7 @@ async fn put_note(state: &AppState, note: Note) -> Result<(), String> {
     state.dynamo_client
         .put_item()
         .table_name(&state.notes_table_name)
-        .item("user_id", AttributeValue::S(note.user_id))
-        .item("note_id", AttributeValue::S(note.note_id))
-        .item("version_id", AttributeValue::N(note.version_id.to_string()))
-        .item("title", AttributeValue::S(note.title))
-        .item("create_time", AttributeValue::S(note.create_time.to_string()))
-        .item("modify_time", AttributeValue::S(note.modify_time.to_string()))
-        .item("format", AttributeValue::S(note.format.to_string()))
-        .item("body", AttributeValue::S(note.body))
+        .set_item(Some(note.to_item()))
         .send()
         .await
         .map_err(|err| err.to_string())?;

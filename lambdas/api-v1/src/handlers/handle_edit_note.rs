@@ -272,14 +272,7 @@ async fn write_note(state: &AppState, note: &Note) -> Result<(), (StatusCode, Js
     state.dynamo_client
         .put_item()
         .table_name(&state.notes_table_name)
-        .item("user_id", AttributeValue::S(note.user_id.clone()))
-        .item("note_id", AttributeValue::S(note.note_id.clone()))
-        .item("version_id", AttributeValue::N(note.version_id.to_string()))
-        .item("title", AttributeValue::S(note.title.clone()))
-        .item("create_time", AttributeValue::S(note.create_time.to_string()))
-        .item("modify_time", AttributeValue::S(note.modify_time.to_string()))
-        .item("format", AttributeValue::S(note.format.to_string()))
-        .item("body", AttributeValue::S(note.body.clone()))
+        .set_item(Some(note.to_item()))
         .send()
         .await
         .map_err(|err| {

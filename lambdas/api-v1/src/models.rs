@@ -278,6 +278,31 @@ impl TryFrom<DynamoDBRecord> for Note {
     }
 }
 
+impl Note {
+    /// Build the DynamoDB item for this note. Inverse of the `TryFrom<DynamoDBRecord>`
+    /// read path; used by the new-note, edit, and import write paths. `delete_time` is
+    /// emitted only when set (the read path treats it as optional).
+    pub fn to_item(&self) -> DynamoDBRecord {
+        let mut item = DynamoDBRecord::from([
+            ("user_id".to_string(), AttributeValue::S(self.user_id.clone())),
+            ("note_id".to_string(), AttributeValue::S(self.note_id.clone())),
+            ("version_id".to_string(), AttributeValue::N(self.version_id.to_string())),
+            ("title".to_string(), AttributeValue::S(self.title.clone())),
+            ("create_time".to_string(), AttributeValue::S(self.create_time.to_string())),
+            ("modify_time".to_string(), AttributeValue::S(self.modify_time.to_string())),
+            ("format".to_string(), AttributeValue::S(self.format.to_string())),
+            ("body".to_string(), AttributeValue::S(self.body.clone())),
+            ("undo_stack".to_string(), AttributeValue::L(
+                self.undo_stack.iter().map(|s| AttributeValue::S(s.clone())).collect()
+            )),
+        ]);
+        if let Some(ref delete_time) = self.delete_time {
+            item.insert("delete_time".to_string(), AttributeValue::S(delete_time.to_string()));
+        }
+        item
+    }
+}
+
 /// Convert a Note into a JsonValue suitable to return to the caller.
 impl From<Note> for JsonValue {
     fn from(note: Note) -> Self {
