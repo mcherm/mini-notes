@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git mv:*)",
       "Bash(make build:*)",
       "Bash(make zip:*)",
       "Bash(cargo check:*)",
@@ -24,7 +23,10 @@
       "Bash(zig version *)",
       "Bash(cargo zigbuild *)",
       "Bash(cargo lambda *)",
-      "Bash(cargo tree *)"
+      "Bash(cargo tree *)",
+      "Bash(just --dry-run build-api-v1)",
+      "Bash(cargo-lambda zig *)",
+      "Bash(docker info *)"
     ]
   }
 }

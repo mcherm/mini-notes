@@ -12,7 +12,14 @@ just deploy         # deploy to dev (STAGE=prod just deploy for prod)
 
 Run `just` (or `just --list`) to see all recipes. Each lambda has its own targets, e.g. `just build-api-v1`, `just zip-api-v1`, `just deploy-api-v1`.
 
-Requires `just` (`cargo install just`) and `cargo-lambda` (`cargo install cargo-lambda`).
+Builds compile inside a Linux container via `cargo lambda build --compiler cross`
+(cross-rs + Docker) rather than the default zig cross-compiler, which fails to link
+`aws-lc-sys` (the AWS SDK's TLS crypto library). So a build needs the **Docker daemon
+running** and the `cross` tool installed; the build recipe checks both and fails fast
+with guidance if either is missing.
+
+Requires `just` (`cargo install just`), `cargo-lambda` (`cargo install cargo-lambda`),
+`cross` (`cargo install cross`), and a running Docker daemon.
 
 ## Project Structure
 
