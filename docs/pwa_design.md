@@ -74,7 +74,7 @@ There are two caches between the app and the origin: the service worker's Cache 
 - **`sw.js` must be served `Cache-Control: no-cache`** ("always revalidate," not "never store"). Otherwise the browser's HTTP cache can keep returning the old `sw.js`, and a version change is never noticed until the ~24h forced bypass.
 - **Shell assets** need no special headers, because the service worker fetches them with `{cache: 'reload'}` at install time, bypassing the HTTP cache. Their HTTP headers are therefore irrelevant to correctness.
 
-CloudFront staleness is a non-issue: `make deploy-frontend` already issues a CloudFront `/*` invalidation on every deploy, so the CDN is flushed each time. The only remaining actor is each browser's HTTP cache, fully handled by the two points above.
+CloudFront staleness is a non-issue: `just deploy-frontend` already issues a CloudFront `/*` invalidation on every deploy, so the CDN is flushed each time. The only remaining actor is each browser's HTTP cache, fully handled by the two points above.
 
 ### Forced refresh on service-version mismatch
 
@@ -92,11 +92,11 @@ This same machinery also applies when (in the future) the app wants to apply a n
 
 ### Build / deploy changes
 
-A new **stamping step** must be inserted into the frontend deploy path (currently `make deploy-frontend`, which is a raw `aws s3 sync html/ --delete` plus a CloudFront `/*` invalidation):
+A new **stamping step** must be inserted into the frontend deploy path (currently `just deploy-frontend`, which is a raw `aws s3 sync html/ --delete` plus a CloudFront `/*` invalidation):
 
 1. Compute a content hash over the shell assets.
 2. Write that hash into `sw.js` as `ASSET_VERSION` before the sync.
 3. Sync to S3, ensuring `sw.js` is served with `Cache-Control: no-cache`.
 4. Invalidate CloudFront (already done today).
 
-This step fits equally well in `make` or a future `just`-based build; switching build tools is not a prerequisite for this work.
+This step fits naturally into the `just`-based build.

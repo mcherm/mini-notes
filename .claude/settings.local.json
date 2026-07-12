@@ -17,7 +17,14 @@
       "Bash(jj log:*)",
       "Bash(cargo build *)",
       "Bash(node --check /Users/mcherm/repos/mini-notes/html/main.js)",
-      "Bash(node --check /Users/mcherm/repos/mini-notes/html/admin.js)"
+      "Bash(node --check /Users/mcherm/repos/mini-notes/html/admin.js)",
+      "Bash(just --list)",
+      "Bash(just --dry-run deploy)",
+      "Bash(rustc --version)",
+      "Bash(zig version *)",
+      "Bash(cargo zigbuild *)",
+      "Bash(cargo lambda *)",
+      "Bash(cargo tree *)"
     ]
   }
 }

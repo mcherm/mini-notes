@@ -206,7 +206,7 @@ self-contained unit to be reviewed before moving to the next.
       out of sandbox in us-east-1 from prior projects (50,000/day quota), so
       no production-access submission needed and no recipient verification
       needed for testing.
-- [x] **30.** `make build && make zip && make deploy` (dev).
+- [x] **30.** `just build && just zip && just deploy` (dev).
 - [x] **31.** Upload static assets to dev.
 - [x] **32.** Manual end-to-end on dev: forgot-password → email → link → set new
       password → land on login → log in with new → other sessions gone → old

@@ -5,12 +5,14 @@ Personal web app for storing/editing notes. Plain HTML/JS frontend, Rust Lambda 
 ## Build & Deploy
 
 ```bash
-make build          # cargo-lambda, ARM64 target
-make zip            # package for Lambda
-make deploy         # deploy to dev (STAGE=prod make deploy for prod)
+just build          # cargo-lambda, ARM64 target
+just zip            # package for Lambda
+just deploy         # deploy to dev (STAGE=prod just deploy for prod)
 ```
 
-Requires `cargo-lambda` (`cargo install cargo-lambda`).
+Run `just` (or `just --list`) to see all recipes. Each lambda has its own targets, e.g. `just build-api-v1`, `just zip-api-v1`, `just deploy-api-v1`.
+
+Requires `just` (`cargo install just`) and `cargo-lambda` (`cargo install cargo-lambda`).
 
 ## Project Structure
 
