@@ -23,6 +23,8 @@ The app shell currently consists of these assets, all served from the site root:
 - `manifest.json`
 - The six icons: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `mini-notes-192x192.png`, `mini-notes-512x512.png`
 
+The canonical, machine-read form of this list is `html/shell-assets.txt` (one path per line). The deploy both hashes the listed files and stamps the list into `sw.js` — see the build/deploy section below — so the list is maintained in exactly one place.
+
 Explicitly **not** part of the app shell:
 
 - `admin.html` / `admin.css` / `admin.js` — an online-only operational tool. No offline support.
@@ -57,7 +59,7 @@ Because the cache is all-or-nothing on activation, one combined hash for the who
 ### Service worker lifecycle
 
 - **install** — open `app-shell-<asset-version>` and populate it with the shell assets. Each asset is fetched with `{cache: 'reload'}` so the fetch bypasses the browser's HTTP cache and pulls the freshly deployed bytes from the network. This closes the trap where a new cache version is filled with stale assets out of the HTTP cache. Population is all-or-nothing (`cache.addAll` or equivalent): if any single fetch fails, the whole install fails and nothing is kept. That failure is safe — the previous service worker and its cache remain in place and in control, and the browser simply retries the install at the next update trigger.
-- **activate** — delete every cache whose name does not match the current `app-shell-<asset-version>`. This is the cleanup of superseded shells.
+- **activate** — delete every cache whose name starts with `app-shell-` but does not match the current `app-shell-<asset-version>`. This is the cleanup of superseded shells; caches under other names are left alone, since other features (such as the future note data store) may own caches of their own.
 - **fetch** — the handler is an **allowlist**, not a catch-all. Requests for known shell assets are served cache-first: return the cached response without touching the network. If the entry is unexpectedly missing — browsers may evict Cache Storage under storage pressure — fall back to fetching from the network rather than failing. Navigation requests to `/` (and `/index.html`) are served the cached `index.html`. Every other request — `admin.html`, `reset-password.html` and their css/js, API calls, and anything unrecognized — is passed through to the network untouched. (The service worker's scope covers the whole origin, so it *sees* requests for the excluded pages; it must never answer a navigation to them with `index.html`. `reset-password.html` in particular is reached from an email link and must always come from the network.)
 
 To make eviction unlikely in the first place, the app requests persistent storage once via `navigator.storage.persist()`. This will matter even more for the note data (later section), which lives in the same evictable storage bucket as the shell cache.
@@ -87,6 +89,8 @@ CloudFront staleness is a non-issue: `just deploy-frontend` already issues a Clo
 
 When the backend rejects a request because the client's service version is too old, the frontend must perform a *forced* refresh — not a polite "new version available, reload?" prompt. This is driven entirely by application code.
 
+> **Implementation status:** the page-side routine described here is deliberately **not yet implemented**, because its trigger does not exist: the backend does not yet send a service version or reject requests over it. It will be implemented together with that server-side handshake. The service worker's supporting pieces (the `skipWaiting` message handler and `clients.claim()` on activate) are already in place.
+
 A plain `location.reload()` is **not** sufficient, for two reasons. First, there may be no new service worker available yet: update checks happen only on navigation, so a long-lived session may not have noticed the deploy at all. Second, even if a new worker is sitting in the waiting state, a reload simply re-serves the old assets from the old cache.
 
 One thing the routine must **never** do is delete caches by hand. The lifecycle already guarantees safety: the new worker's install builds a complete new cache before the worker becomes eligible to activate, and its activate deletes the superseded caches — so there is no moment without one fully populated shell cache. If page code deleted the current cache before a new worker had successfully installed, any failure after that point (network drop, install error) would leave the app with no working shell at all.
@@ -110,18 +114,19 @@ This same machinery also applies when (in the future) the app wants to apply a n
 
 A new **stamping step** must be inserted into the frontend deploy path (currently `just deploy-frontend`, which is a raw `aws s3 sync html/ --delete` plus a CloudFront `/*` invalidation). Stamping happens in a **staging directory**, never in `html/` itself: the source tree contains only sources, deploys never mutate a checked-in file, and derived artifacts live under `target/` — the same pattern the Lambda zips follow.
 
-The checked-in `html/sw.js` is the real source file and carries a valid default:
+Two values are stamped into `sw.js`: `ASSET_VERSION` (the content hash) and `SHELL_ASSETS` (the asset list, read from the canonical `html/shell-assets.txt`). The checked-in `html/sw.js` carries placeholders:
 
 ```js
-const ASSET_VERSION = 'dev';
+const ASSET_VERSION = "dev";
+const SHELL_ASSETS = [];
 ```
 
-so serving `html/` directly on a local machine always works, even on a fresh checkout. (The fixed `'dev'` cache name means local service-worker testing can serve stale assets between edits; DevTools' "Update on reload" is the standard workaround. This affects only local testing, never a deployment.)
+An unstamped `sw.js` therefore caches nothing: serving `html/` directly on a local machine still runs the app, but always from the network. This is deliberate — local serving never fights a stale service-worker cache, and offline/caching behavior is tested against the dev stage (or a stamped staging copy under `target/`), which exercises the real deploy path.
 
 The deploy steps:
 
 1. Delete and re-create the staging directory (under `target/`), then copy `html/` into it. Starting fresh each time ensures no stale files from a previous deploy survive.
-2. Compute a content hash over the shell assets and rewrite `ASSET_VERSION` in the **staging copy** of `sw.js`.
+2. Read the shell asset list from `shell-assets.txt`, compute a content hash over those files, and rewrite `ASSET_VERSION` and `SHELL_ASSETS` in the **staging copy** of `sw.js`, failing the deploy if either stamp did not take effect.
 3. Sync the staging directory to S3, ensuring `sw.js`, the HTML pages, and the online-only pages' assets are served with `Cache-Control: no-cache` (see the headers section above).
 4. Invalidate CloudFront (already done today).
 

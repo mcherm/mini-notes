@@ -331,6 +331,11 @@ SOFTWARE.
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js');
         }
+        // Ask the browser not to evict our storage (the app-shell cache now;
+        // note data later) under storage pressure.
+        if (navigator.storage && navigator.storage.persist) {
+            navigator.storage.persist();
+        }
     </script>
 </body>
 </html>

@@ -1,0 +1,13 @@
+# The app shell: the static assets that make up the core Mini-Notes application.
+# One path per line. `just deploy-frontend` hashes these files to produce
+# ASSET_VERSION and stamps this list into sw.js as SHELL_ASSETS.
+/index.html
+/main.css
+/main.js
+/manifest.json
+/favicon.ico
+/favicon-16x16.png
+/favicon-32x32.png
+/apple-touch-icon.png
+/mini-notes-192x192.png
+/mini-notes-512x512.png

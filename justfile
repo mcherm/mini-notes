@@ -123,7 +123,41 @@ deploy-frontend: _check-aws-env
         exit 0
     fi
     dist_id="{{ if STAGE == "prod" { CF_DIST_ID_prod } else { CF_DIST_ID_dev } }}"
-    aws s3 sync html/ s3://mini-notes-frontend-{{STAGE}}/ --delete
+
+    # Stage the deploy under target/ so html/ (sources only) is never mutated,
+    # then stamp sw.js: SHELL_ASSETS from the canonical list in shell-assets.txt,
+    # and ASSET_VERSION as a content hash of those assets so the browser sees a
+    # changed service worker whenever any shell asset changes.
+    staging="target/frontend-staging"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    cp -R html/. "$staging"
+    shell_assets=($(grep -v '^#' html/shell-assets.txt || true))
+    [ "${#shell_assets[@]}" -gt 0 ] || { echo "html/shell-assets.txt lists no assets" >&2; exit 1; }
+    hash=$(cd "$staging" && cat "${shell_assets[@]#/}" | shasum -a 256 | cut -c1-16)
+    assets_js=$(printf '"%s", ' "${shell_assets[@]}")
+    sed -i '' -e "s|^const ASSET_VERSION = .*|const ASSET_VERSION = \"$hash\";|" \
+              -e "s|^const SHELL_ASSETS = .*|const SHELL_ASSETS = [${assets_js%, }];|" \
+        "$staging/sw.js"
+    grep -q "const ASSET_VERSION = \"$hash\";" "$staging/sw.js" \
+        || { echo "failed to stamp ASSET_VERSION into sw.js" >&2; exit 1; }
+    grep -qF '"/index.html"' "$staging/sw.js" \
+        || { echo "failed to stamp SHELL_ASSETS into sw.js" >&2; exit 1; }
+
+    # Upload in two passes to set Cache-Control: no-cache on exactly the files
+    # the service worker never serves from its cache: sw.js itself, the HTML
+    # pages, and the online-only pages' assets. Everything else keeps default
+    # headers. (--exclude also protects those files from --delete in pass one.)
+    no_cache_patterns=("sw.js" "*.html" "admin.*" "reset-password.*")
+    exclude_no_cache=()
+    include_no_cache=()
+    for pattern in "${no_cache_patterns[@]}"; do
+        exclude_no_cache+=(--exclude "$pattern")
+        include_no_cache+=(--include "$pattern")
+    done
+    aws s3 sync "$staging/" s3://mini-notes-frontend-{{STAGE}}/ --delete "${exclude_no_cache[@]}"
+    aws s3 sync "$staging/" s3://mini-notes-frontend-{{STAGE}}/ --cache-control no-cache \
+        --exclude "*" "${include_no_cache[@]}"
     aws cloudfront create-invalidation \
         --distribution-id "$dist_id" \
         --paths "/*"
