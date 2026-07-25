@@ -35,6 +35,9 @@ let lastActiveTime = Date.now();
 let autoTitleActive = false;
 let unfocusedEditsPending = false;
 let unfocusedEditDebounceTimer = null;
+/** Promise for the save currently in flight, or null when none is. */
+let saveInFlight = null;
+/** Boolean, where true means we are viewing the trash rather than normal notes. */
 let trashView = false;
 /** Queue of alerts; first one is visible */
 const floatingAlertMessages = [];
@@ -771,20 +774,41 @@ async function searchNotes(searchString, continueKey) {
 /** Saves the current note if the title or body has changed. */
 async function saveNoteIfChanged() {
     if (trashView) return;
+
+    // Wait for any save already in flight before deciding whether to save.
+    // currentNote.version_id isn't updated until the in-flight save's response
+    // arrives; sending a second save before then would carry a stale
+    // source_version_id, which the backend treats as an edit conflict and
+    // answers with a "[CONFLICTED]" note. Errors are reported by the call
+    // that initiated the save, so waiters ignore them.
+    while (saveInFlight) {
+        try {
+            await saveInFlight;
+        } catch (e) {
+            // Ignored: the initiating caller handles it.
+        }
+    }
+
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
     const newTitle = titleInput.value;
     const newBody = bodyTextarea.value;
 
-
+    // No await may occur between the checks above and setting saveInFlight
+    // below, or another caller could slip in and start a concurrent save.
     if (currentNote === null) {
         // User started editing when there wasn't a note displayed: create a new one
         if (newTitle === "" && newBody === "") return;
-        await createNewNote(newTitle, newBody)
+        saveInFlight = createNewNote(newTitle, newBody);
     } else {
         // User was editing an existing note
         if (newTitle === currentNote.title && newBody === currentNote.body) return;
-        await saveNote(newTitle, newBody);
+        saveInFlight = saveNote(newTitle, newBody);
+    }
+    try {
+        await saveInFlight;
+    } finally {
+        saveInFlight = null;
     }
 }
 
@@ -1700,6 +1724,11 @@ async function checkAndRefreshIfStale() {
     if (!isLoggedIn()) return;
     const elapsed = Date.now() - lastActiveTime;
     if (elapsed > STALE_THRESHOLD_MS) {
+        // Returning to the tab fires both "focus" and "visibilitychange",
+        // each of which lands here. Mark the tab active (synchronously,
+        // before any await) so the second event sees a fresh timestamp and
+        // skips instead of launching a duplicate refresh.
+        lastActiveTime = Date.now();
         await refreshAfterStale();
     }
 }
