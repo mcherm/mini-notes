@@ -1030,22 +1030,18 @@ async function loadUser() {
     document.getElementById("user-email-display").value = "";
     document.getElementById("user-type-display").value = "";
     document.getElementById("user-create-date-display").value = "";
-    console.log("DDD: begin"); // FIXME: Remove
     let response;
     try {
         response = await apiFetch(`${getApiBaseUrl()}/api/v1/user`);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showInlineAlert("#user-info-alert", null, FALLBACK_ERROR_MESSAGE);
-        console.log("AAA: exit"); // FIXME: Remove
         return;
     }
     if (!response.ok) {
         showInlineAlert("#user-info-alert", null, await extractErrorMessage(response));
-        console.log("BBB: exit"); // FIXME: Remove
         return;
     }
-    console.log("CCC: success"); // FIXME: Remove
     const data = await response.json();
     const user = data.user;
     document.getElementById("user-email-display").value = user.email;
