@@ -134,4 +134,86 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 
 ## Note Data Caching
 
-The design for how to store the notes data has not been written yet.
+### Goals
+
+The goal is that users can continue to perform normal note viewing and note editing work with a spotty connection or a fully inactive connection and it will correct itself as soon as a connection can be re-established. Specialized operations, like editing a user's properties do not need to be supported whie offline.
+
+### List of Commands
+
+Here is a pair of tables listing all the read-only commands and the write commands marking which commands need to be supported for offline operations and which do not.
+
+| Read Command            | Offline Use |
+|-------------------------|-------------|
+| get-notes               | Yes         |
+| get-note                | Yes         |
+| get-deleted-notes       | Yes         |
+| export-notes            | No          |
+| search-notes            | Yes         |
+| get-user                | No          |
+| get-user-detail         | No          |
+| site-data               | No          |
+| users-detail            | No          |
+
+
+| Write Command           | Offline Use |
+|-------------------------|-------------|
+| new-note                | Yes         |
+| edit-note               | Yes         |
+| delete-note             | Yes         |
+| recover-deleted-note    | Yes         |
+| destroy-deleted-note    | No          |
+| import-notes            | No          |
+| delete-user             | No          |
+| user-edit               | No          |
+| user-login              | No          |
+| user-logout             | No          |
+| user-create             | No          |
+| send-password-reset     | No          |
+| complete-password-reset | No          |
+
+### Device Data Storage
+
+I expect to store two things on the device. I will store a complete list of all of the notes (see below for the specific fields stored). This will be stored using `IndexedDB`. And I will store a list of the queued updates not yet sent to the server; maybe **[TODO: finalize this]** this will be stored using `Cache API`.
+
+Storing the full note information seems reasonable, given typical note sizes and typical device capabilities. If that proves to be a problem we could revisit the option of storing only the most recently used notes on the device.
+
+### Updating Device Data
+
+We want to ensure that the device data is fairly well up-to-date. To ensure this we will use three mechanisms.
+
+#### Mechanism 1: Update on Edit
+
+Whenever a user begins editing a note, we will attempt to fetch that note from the server (we do this today). That will ensure that we always have the latest version of a note that is being edited, unless the device is unable to communicate with the server. In that case, we will work with whatever value is cached. We will use a timeout for this, tuned so it will usually leave enough time for the server's response, but won't feel *too* slow for a user who is offline.
+
+#### Mechanism 2: Updates Made Here
+
+When an update is made to a note, we will attempt to write that update (whch will succeed except when the device is offline). If it fails (if the device is offline), we will update the device data based on the update made. (Note: it does *not* need some special marker that it is potentially inaccurate, because the queued update message will take care of that.) If it *succeeds* (device is not offline) then we will update the data to match what the server returns. **[TODO: Any offline-capable write commands that do not return the updated note will need to be modified to do so.]**
+
+#### Mechanism 3: Background Updates
+
+In order to receive edits that were made from a different device, the device will retrieve any changes from the server. It will launch a background thread to run "while the app is in use" every so often (maybe once per hour while in use?). This will retrieve the full list of notes (which includes each note's version_id), and then the full list of deleted notes. It will retrieve from the server and update in storage any note which has been removed, added, or has a new version_id. This process can be low-priority since it only needs to catch changes made to notes that are edited on another device and not edited here.
+
+I think this mechanism can also be used to populate the local copy of the list of notes initially.
+
+### Delivering Delayed Updates
+
+When a write command that supports offline use is invoked, we should call the server to perform the update. If that fails, then the device is considered offline. We should store the command somewhere **[TODO: probably in `Cache API`]** in an ordered list. Then when the device is online again we can send the update again. The updates should be sent in the order in which they were performed: so every time we want to perform another update, we will try again with the first update. **[TODO: handle error responses differently than timeouts]**
+
+**[TODO: Open design question -- when we get a response from one of these, should we update the local cache? Ideally, we want to do that if this is the LAST command to affect that note, but not if it is any earlier command. But maybe that's too complex? ]**
+
+### Note Fields on Device
+
+The notes stored in the `IndexedDB` will need to have the following fields. This table shows the fields, along with a note about how each is populated when we perform an offline update.
+
+| Field       | Source during offline update                         |
+|-------------|------------------------------------------------------|
+| user_id     | This is a constant, per user.                        |
+| note_id     | This is in the update command.                       |
+| version_id  | Increment the existing value.                        |
+| title       | This is in the update command.                       |
+| body        | This is in the update command.                       |
+| create_time | Set by new-note; left as-is for other commands.      |
+| modify_time | Set by system clock.                                 |
+| format      | This is a constant.                                  |
+| undo_stack  | A diff needs to be generated; this is slightly hard. |
+| delete_time | **[TODO: Needs work]**                               |
