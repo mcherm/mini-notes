@@ -138,6 +138,16 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 
 The goal is that users can continue to perform normal note viewing and note editing work with a spotty connection or a fully inactive connection and it will correct itself as soon as a connection can be re-established. Specialized operations, like editing a user's properties do not need to be supported whie offline.
 
+Offline note storage must work across a range of environments (iOS Safari, Firefox on Android, assorted desktop browsers). Where an environment does not support the needed local storage, the app degrades to working online-only rather than failing. This has an architectural consequence: UI code must not talk to local storage (or the network) directly, but through a single data-access interface. Behind that interface sit two implementations — the full offline store, or a passthrough straight to the network — selected by feature detection at startup. Designing this seam in from the start is cheap; retrofitting it later would not be. A related constraint: nothing may depend on the Background Sync API (Chromium-only); all sync activity is driven from page code.
+
+### Where the Layer Lives
+
+The offline data layer is **page-level application code**: UI code calls the data-access interface, which reads and writes local storage and the network. The service worker is not involved — it remains exactly what the App Shell section made it, an app-shell cache whose fetch handler passes API requests through untouched. All sync activity (queue draining, background refresh) is triggered from page code. The Web Locks API is used so that exactly one tab runs the queue-draining sync engine no matter how many tabs are open; like the rest of the storage stack, it is feature-detected, and environments without it degrade to online-only. Tabs are not otherwise notified of each other's changes: a tab refreshes from the local store on the existing visibility-change trigger (no `BroadcastChannel`).
+
+### Feature Detection
+
+The choice between the two implementations is made at each app launch, by trying the storage rather than asking about it: the data layer attempts to open the `IndexedDB` database and perform a trivial write. If that succeeds, the offline implementation is used for the session. If it fails (or the needed APIs are absent — e.g. private-browsing modes, restricted WebViews), the session runs in "no-offline-support" mode: writes go directly to the server with no queuing, and reads simply fail when the server is unavailable. The choice is not revisited mid-session; an environment that gains storage support picks up offline mode at the next launch.
+
 ### List of Commands
 
 Here is a pair of tables listing all the read-only commands and the write commands marking which commands need to be supported for offline operations and which do not.
@@ -173,9 +183,49 @@ Here is a pair of tables listing all the read-only commands and the write comman
 
 ### Device Data Storage
 
-I expect to store two things on the device. I will store a complete list of all of the notes (see below for the specific fields stored). This will be stored using `IndexedDB`. And I will store a list of the queued updates not yet sent to the server; maybe **[TODO: finalize this]** this will be stored using `Cache API`.
+I expect to store two things on the device. I will store a complete list of all of the notes (see below for the specific fields stored). This will be stored using `IndexedDB`. And I will store a list of the queued updates not yet sent to the server. This also lives in `IndexedDB`, as a second object store in the same database as the notes, so a single transaction can update a note and the queue atomically. The queue's primary key is a monotonically increasing sequence number (the order in which the updates are to be applied), with a secondary index on `note_id` (which note each update affects).
 
 Storing the full note information seems reasonable, given typical note sizes and typical device capabilities. If that proves to be a problem we could revisit the option of storing only the most recently used notes on the device.
+
+**Known limitation (accepted):** despite the `navigator.storage.persist()` request, the browser may still evict this storage under pressure; if that happens, any queued-but-unsent edits are lost.
+
+**Known limitation (accepted):** the local layer does not replicate the server's `[CONFLICTED]`-copy behavior. If two tabs edit the same note while offline, the result is last-write-wins rather than a conflict copy. (The overwritten text remains reachable via the note's undo history, since each replayed edit still generates an undo diff.) Online, the server's conflict handling applies as usual.
+
+Logging out wipes all local note data: both the mirror and the queue are deleted. Any unsent changes in the queue are lost, with no warning. (A possible future feature is to warn the user at logout when the queue is non-empty.) The same wipe applies when the server rejects the session as invalid — the user is effectively logged out, and pending edits are lost, which is accepted.
+
+The wipe rules above guarantee that local note data exists only if a user was logged in when the device was last online. An offline app launch therefore treats the presence of the local database as an authenticated session and opens the mirror; the session is validated against the server whenever connectivity returns, and a rejection triggers the wipe described above.
+
+#### Queue Records and Indexing
+
+Each queue record has the shape `{ update_queue_seq, note_id, command_type, payload, source_version_id }`, where `update_queue_seq` is the auto-incrementing primary key and `note_id` is a top-level field so a secondary index can be built on it. (Because `new-note` ids are client-generated, every offline-capable write command has a real `note_id` at enqueue time.) The queue is accessed two ways — by delivery order (the `update_queue_seq` primary key) and by note (the `note_id` index) — and these cover every operation performed on it:
+
+1. **Next command to deliver** — a cursor on the primary key; the first record is the head of the queue. *(primary key)*
+2. **Remove a delivered/failed command** — delete by `update_queue_seq`. *(primary key)*
+3. **Does note X have pending commands?** — an existence check, `index.count(X) > 0`. This is the read-barrier test: a server read (Mechanism 1 or Mechanism 3) writes a note into the mirror only if this count is zero; otherwise the note is skipped entirely, since local state plus its queued commands is ahead of the server. *(note_id index)*
+4. **All pending commands for note X, in order** — a cursor over the index range for X, used by the fix-up passes (see Delivering Delayed Updates). The failed head is removed before a fix-up pass runs, so "all remaining" and "all later" commands for X are the same set; and within one index key, IndexedDB iterates in primary-key order, so the cursor walks them in queue order. *(note_id index)*
+5. **Was that the last pending command for note X?** — the same existence check as #3, run after removing a delivered command, to decide whether the server's returned note may be written to the mirror. *(note_id index)*
+
+The read-barrier check (#3, #5) and the mirror write it guards are performed in a single IndexedDB transaction spanning both object stores, so no command can be enqueued between the check and the write.
+
+### The Read Path
+
+When the server is unreachable, the offline-capable read commands are served from the mirror: `get-notes` and `get-deleted-notes` return the mirrored active and trashed notes, and `get-note` returns the mirrored note. `search-notes` offline is a client-side search over the mirrored notes' titles and bodies — a second, JavaScript implementation of the search semantics. Fetching a note at the start of an edit is governed by Mechanism 1 (see Updating Device Data).
+
+### The Write Path
+
+Every offline-capable write command goes through a single path — there is no separate "try the server directly, and fall back to the queue if that fails" logic. A write is committed by updating the local mirror and appending the command to the queue in one IndexedDB transaction. Because enqueueing a command triggers an immediate delivery attempt (see Delivering Delayed Updates), the server call still happens right away whenever the device is online; being offline only affects how quickly the queue drains.
+
+For `new-note`, the `note_id` is generated **on the client** (using the standard 10-character ID scheme) and included in the command. This means a newly created note has its permanent id immediately — later queued commands can reference it, and no id-rewriting is needed when the create is eventually delivered. This requires a backend change: the `new-note` API must accept a client-supplied `note_id` (as `import-notes` already does).
+
+The data layer's write call returns a promise that resolves with the outcome of that **first** delivery attempt, giving the UI feedback just as immediate as today's direct calls. The outcome is one of:
+
+- **delivered** — the server accepted the command. The mirror is updated with the note object the server returned, and the UI proceeds exactly as an online save does today.
+- **queued** — the server could not be reached (network error or timeout). The change is already safely committed locally and will be delivered by the background retry loop. Because nothing has been lost, this outcome is *not* reported with today's "Failed to save changes to note" alert. For now, we will not display this to the user, but we will retain the option to change that treatment later if desired.
+- **rejected** — the server answered with a definitive error. This is surfaced to the user immediately through the same paths used today: a 409 feeds the existing conflict-handling flow, and other errors feed the existing alert.
+
+Retries after the first attempt happen silently in the background; their outcomes are handled by the sync engine, not reported through this promise.
+
+In environments that degrade to online-only passthrough mode (see Goals), there is no queue: the write call goes directly to the server, the **queued** outcome cannot occur, and a network failure is reported as a true save failure, as today.
 
 ### Updating Device Data
 
@@ -187,33 +237,87 @@ Whenever a user begins editing a note, we will attempt to fetch that note from t
 
 #### Mechanism 2: Updates Made Here
 
-When an update is made to a note, we will attempt to write that update (whch will succeed except when the device is offline). If it fails (if the device is offline), we will update the device data based on the update made. (Note: it does *not* need some special marker that it is potentially inaccurate, because the queued update message will take care of that.) If it *succeeds* (device is not offline) then we will update the data to match what the server returns. **[TODO: Any offline-capable write commands that do not return the updated note will need to be modified to do so.]**
+When an update is made to a note, it goes through the write path (see The Write Path above): the local mirror is updated from the command immediately, as part of enqueueing it. (Note: the mirror entry does *not* need some special marker that it is potentially inaccurate, because the presence of the queued command takes care of that.) When delivery to the server succeeds, the mirror is updated again to match what the server returns (only when no later commands for that note remain queued — see Delivering Delayed Updates). This requires a backend change: `delete-note` and `recover-deleted-note` must be modified to return the updated note (`edit-note` and `new-note` already do).
 
 #### Mechanism 3: Background Updates
 
-In order to receive edits that were made from a different device, the device will retrieve any changes from the server. It will launch a background thread to run "while the app is in use" every so often (maybe once per hour while in use?). This will retrieve the full list of notes (which includes each note's version_id), and then the full list of deleted notes. It will retrieve from the server and update in storage any note which has been removed, added, or has a new version_id. This process can be low-priority since it only needs to catch changes made to notes that are edited on another device and not edited here.
+In order to receive edits that were made from a different device, the device will retrieve any changes from the server. It will launch a background thread to run "while the app is in use" every so often (maybe once per hour while in use?). This will retrieve the full list of notes (which includes each note's version_id), and then the full list of deleted notes. It will retrieve from the server and update in storage any note which has been removed, added, or has a new version_id. Notes in the trash are mirrored with their full bodies too: since get-deleted-notes returns only headers, the background pass fetches each added or changed trashed note individually with get-note. This process can be low-priority since it only needs to catch changes made to notes that are edited on another device and not edited here.
 
 I think this mechanism can also be used to populate the local copy of the list of notes initially.
 
 ### Delivering Delayed Updates
 
-When a write command that supports offline use is invoked, we should call the server to perform the update. If that fails, then the device is considered offline. We should store the command somewhere **[TODO: probably in `Cache API`]** in an ordered list. Then when the device is online again we can send the update again. The updates should be sent in the order in which they were performed: so every time we want to perform another update, we will try again with the first update. **[TODO: handle error responses differently than timeouts]**
+Every offline-capable write command is appended to the `IndexedDB` queue store (see Device Data Storage above) as part of the write path, and the sync engine delivers the queued commands to the server. The updates are sent in the order in which they were performed: the command at the head of the queue is delivered (and on failure, retried) before any later command is sent.
 
-**[TODO: Open design question -- when we get a response from one of these, should we update the local cache? Ideally, we want to do that if this is the LAST command to affect that note, but not if it is any earlier command. But maybe that's too complex? ]**
+The `source_version_id` stored on each queued command is a precomputation of what the server's version will be when that command is delivered. This works because the local layer changes `version_id` by exactly the same rule the server uses, per command type: set to 1 by `new-note`, incremented by `edit-note`, and left unchanged by `delete-note` and `recover-deleted-note` — and because every queued command is normally applied in order. When something breaks the every-command-applied assumption, the queue is repaired by one of the fix-up passes below.
+
+#### Delivery Outcomes
+
+Each delivery attempt of the head command ends one of four ways:
+
+- **Success (2xx):** the command is removed from the queue, and the mirror is updated from the returned note as described in Mechanism 2.
+- **Conflict (409):** the server created a new `[CONFLICTED]` note (at version `source_version_id + 1`) and left the original untouched. The command is removed from the queue (its content lives in the conflict note), and the conflict fix-up pass below is applied.
+- **Definitive failure (other 4xx):** the command is complete — and has failed. It is removed from the queue, the failure is surfaced to the user, and the removal fix-up pass below is applied. (Exception: a 401 means the session is invalid; all local note data is wiped, as described in Device Data Storage.)
+- **Transient failure (network error, timeout, or 5xx):** the command stays at the head of the queue and the retry loop's backoff applies.
+
+#### Duplicate Deliveries and Idempotency
+
+A transient failure is ambiguous: the request may never have reached the server, or it may have been applied and only the *response* was lost. Since the sync engine re-sends after a transient failure, the server can receive the same command twice. No idempotency keys are used; instead, duplicates are detected from the data itself.
+
+Two rules make this sound:
+
+- **Single command in flight.** The sync engine never pipelines: only the head command is ever unacknowledged. A duplicate therefore always carries a `source_version_id` exactly 1 behind the server's current `version_id` (unless another device has also edited, in which case conflict handling is correct anyway).
+- **Server-side duplicate detection for edit-note.** When an `edit-note` arrives whose `source_version_id` is exactly 1 behind the note's current `version_id`, and whose title and body are byte-identical to the note's current title and body, the server treats it as a duplicate of the edit it already applied: it makes no change and returns 200 with the current note, rather than creating a `[CONFLICTED]` copy. (The edit payload is a complete snapshot, so this comparison fully determines whether the earlier delivery already produced this result.) In every other case the existing conflict behavior applies unchanged.
+
+The other three offline-capable commands are made idempotent by no-op rules:
+
+- **new-note**: if a note with the client-supplied `note_id` already exists for this user, return success with the existing note (it is the retry) instead of an error.
+- **delete-note**: deleting an already-deleted note returns success.
+- **recover-deleted-note**: recovering a note that is not deleted returns success.
+
+Each no-op rule also guarantees that a retried command cannot apply its effect (including any `version_id` bump) twice.
+
+#### Detecting a Poisoned Command
+
+A transient failure normally means the device is offline, but it could also mean this specific command triggers a server bug. To distinguish them: after N consecutive transient failures of the same command, the sync engine calls a health endpoint (`GET /api/v1/health` — a new, unauthenticated endpoint returning 200). If the health check fails, the device really is offline and backoff continues indefinitely. If the health check succeeds, the command is retried once more; if it still fails, it is declared poisoned: removed from the queue, surfaced to the user, and the removal fix-up pass is applied.
+
+#### Fix-up Pass: Command Removed Undelivered
+
+When a command for a note is removed without having been applied (definitive failure or poisoned), the server never advanced past it, so every later queued command for that note has its `source_version_id` decremented by 1. (If the removed command was the `new-note`, the later commands reference a note the server never created; they will fail definitively and be removed one at a time by this same rule.)
+
+#### Fix-up Pass: Conflict
+
+When a command gets a 409, the branch of history in the queue continues on the conflict note. In one pass over the later queued commands for the original note: rewrite their `note_id` to the conflict note's `note_id`, and prepend `"[CONFLICTED] "` to each queued edit's title (so the marker survives the later edits overwriting the title). Their `source_version_id`s are left unchanged — the conflict note continues the same version sequence, so they are already correct. The mirror entry for the original note is re-keyed to the conflict note's `note_id` in the same pass; the original note then has no pending commands, so the normal mechanisms re-fetch the server's version of it. If the note is open in the UI, the open note follows the branch to the conflict note (the offline analog of today's online conflict handling).
+
+Whenever the queue is non-empty, a background retry loop attempts delivery, with exponential backoff between attempts, capped at a few hours (a long-offline device being hours out of date is acceptable). Three events reset the backoff and trigger an immediate attempt: the browser's `online` event, app launch, and a new command being enqueued. The retry loop runs in whichever tab holds the Web Lock for the sync engine.
+
+When a delivery response returns a note, the mirror is updated from it only if the queue contains no remaining commands for that note (queue-index use case 5); if later commands are still pending, the mirror already reflects them and the response is not written.
 
 ### Note Fields on Device
 
 The notes stored in the `IndexedDB` will need to have the following fields. This table shows the fields, along with a note about how each is populated when we perform an offline update.
 
-| Field       | Source during offline update                         |
-|-------------|------------------------------------------------------|
-| user_id     | This is a constant, per user.                        |
-| note_id     | This is in the update command.                       |
-| version_id  | Increment the existing value.                        |
-| title       | This is in the update command.                       |
-| body        | This is in the update command.                       |
-| create_time | Set by new-note; left as-is for other commands.      |
-| modify_time | Set by system clock.                                 |
-| format      | This is a constant.                                  |
-| undo_stack  | A diff needs to be generated; this is slightly hard. |
-| delete_time | **[TODO: Needs work]**                               |
+| Field       | Source during offline update                                         |
+|-------------|----------------------------------------------------------------------|
+| user_id     | This is a constant, per user.                                        |
+| note_id     | In the update command (client-generated for new-note).               |
+| version_id  | 1 for new-note; incremented by edit-note; unchanged by delete/recover. |
+| title       | This is in the update command.                                       |
+| body        | This is in the update command.                                       |
+| create_time | Set by new-note; left as-is for other commands.                      |
+| modify_time | Set by system clock.                                                 |
+| format      | This is a constant.                                                  |
+| undo_stack  | A diff is generated locally (see below).                             |
+| delete_time | Set by system clock on delete-note; cleared by recover-deleted-note. |
+
+Generating the undo diff for offline edits requires a JavaScript implementation of the diff format (specified in `design_notes.md`), maintained in parallel with the Rust implementation. A shared file of test vectors that both implementations must pass keeps the two in agreement.
+
+### Required Backend Changes
+
+The design above requires these server-side changes (each is also a contract change to record in `design_notes.md`):
+
+- **new-note**: accept a client-supplied `note_id`; if a note with that id already exists for this user, make no change and return success with the existing note.
+- **edit-note**: duplicate detection — when `source_version_id` is exactly 1 behind the note's current `version_id` and the incoming title and body are byte-identical to the note's current title and body, make no change and return 200 with the current note instead of creating a `[CONFLICTED]` copy.
+- **delete-note**: return the updated note instead of a bare 204; deleting an already-deleted note returns success; add a `condition_expression` so deleting a nonexistent note returns 404 instead of creating a phantom item (also listed in `todo.md`).
+- **recover-deleted-note**: return the updated note instead of a bare 204. (Its no-op idempotency rule is already implemented.)
+- **`GET /api/v1/health`**: new unauthenticated endpoint returning 200, used by the sync engine's poisoned-command detection.

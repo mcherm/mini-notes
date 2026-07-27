@@ -43,3 +43,6 @@ Requires `just` (`cargo install just`), `cargo-lambda` (`cargo install cargo-lam
 - Instead of customizing div or span elements, we create custom elements (with "-" in the name)
 - Most layout is handled using flex or grid
 - Instead of using inline lambdas when registering a listener, we create functions whose name begins with "action"
+
+## Documentation Standards
+- Design documents in `docs/` describe *what* the design is, with minimal (or no) explanation of *why*. At most a brief clause of justification (e.g. a short "accepted limitation" note); rationale belongs in discussion, not the doc.
