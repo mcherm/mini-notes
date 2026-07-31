@@ -96,7 +96,8 @@ mod tests {
 
     #[tokio::test]
     async fn direct_handle_destroy_deleted_note_not_deleted() {
-        let client = test_dynamo_client(vec![replay_conditional_check_failed_with_item()]);
+        let item = r#"{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"}}"#;
+        let client = test_dynamo_client(vec![replay_conditional_check_failed_with_item(item)]);
 
         let result = handle_destroy_deleted_note(
             test_state(client),

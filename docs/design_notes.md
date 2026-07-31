@@ -214,9 +214,13 @@ that is attempted.
 * note_id: [path] string
 
 **Outputs:**
+* note object: [body] object
 
 **Description:**
-Deletes the given note.
+Soft-deletes the given note, moving it to the trash where it can still be recovered
+for some period of time (~ 1 month). The deleted note is returned. Deleting a note
+that is already deleted makes no change and returns that note (so calls are
+idempotent). If the note to be deleted does not exist this returns a 404 error.
 
 ### Get Deleted Notes
 **Path:** /api/v1/deleted_notes [GET]\

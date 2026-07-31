@@ -105,13 +105,14 @@ pub fn replay_conditional_check_failed() -> ReplayEvent {
 
 /// Helper: build a ReplayEvent that returns a ConditionalCheckFailedException with an Item
 /// (as returned when ReturnValuesOnConditionCheckFailure is AllOld and the item exists).
-pub fn replay_conditional_check_failed_with_item() -> ReplayEvent {
-    let body = r#"{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException","message":"The conditional request failed","Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"}}}"#;
+/// `item` is the DynamoDB JSON for that item, eg: `{"user_id":{"S":"Xq3_mK8~pL"}}`.
+pub fn replay_conditional_check_failed_with_item(item: &str) -> ReplayEvent {
+    let body = format!(r#"{{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException","message":"The conditional request failed","Item":{item}}}"#);
     ReplayEvent::new(
         axum::http::Request::builder().body(SdkBody::empty()).unwrap(),
         axum::http::Response::builder()
             .status(400)
-            .body(SdkBody::from(body.to_string()))
+            .body(SdkBody::from(body))
             .unwrap(),
     )
 }
