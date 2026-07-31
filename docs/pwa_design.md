@@ -297,18 +297,18 @@ When a delivery response returns a note, the mirror is updated from it only if t
 
 The notes stored in the `IndexedDB` will need to have the following fields. This table shows the fields, along with a note about how each is populated when we perform an offline update.
 
-| Field       | Source during offline update                                         |
-|-------------|----------------------------------------------------------------------|
-| user_id     | This is a constant, per user.                                        |
-| note_id     | In the update command (client-generated for new-note).               |
+| Field       | Source during offline update                                           |
+|-------------|------------------------------------------------------------------------|
+| user_id     | This is a constant, per user.                                          |
+| note_id     | In the update command (client-generated for new-note).                 |
 | version_id  | 1 for new-note; incremented by edit-note; unchanged by delete/recover. |
-| title       | This is in the update command.                                       |
-| body        | This is in the update command.                                       |
-| create_time | Set by new-note; left as-is for other commands.                      |
-| modify_time | Set by system clock.                                                 |
-| format      | This is a constant.                                                  |
-| undo_stack  | A diff is generated locally (see below).                             |
-| delete_time | Set by system clock on delete-note; cleared by recover-deleted-note. |
+| title       | This is in the update command.                                         |
+| body        | This is in the update command.                                         |
+| create_time | Set by new-note; left as-is for other commands.                        |
+| modify_time | Set by system clock.                                                   |
+| format      | This is a constant.                                                    |
+| undo_stack  | A diff is generated locally (see below).                               |
+| delete_time | Set by system clock on delete-note; cleared by recover-deleted-note.   |
 
 Generating the undo diff for offline edits requires a JavaScript implementation of the diff format (specified in `design_notes.md`), maintained in parallel with the Rust implementation. A shared file of test vectors that both implementations must pass keeps the two in agreement.
 
@@ -319,5 +319,5 @@ The design above requires these server-side changes (each is also a contract cha
 - **new-note**: accept a client-supplied `note_id`; if a note with that id already exists for this user, make no change and return success with the existing note.
 - **edit-note**: duplicate detection — when `source_version_id` is exactly 1 behind the note's current `version_id` and the incoming title and body are byte-identical to the note's current title and body, make no change and return 200 with the current note instead of creating a `[CONFLICTED]` copy.
 - **delete-note**: return the updated note instead of a bare 204; deleting an already-deleted note returns success; add a `condition_expression` so deleting a nonexistent note returns 404 instead of creating a phantom item (also listed in `todo.md`).
-- **recover-deleted-note**: return the updated note instead of a bare 204. (Its no-op idempotency rule is already implemented.)
-- **`GET /api/v1/health-check`**: new unauthenticated endpoint returning 200, used by the sync engine's poisoned-command detection.
+- **recover-deleted-note**: return the updated note instead of a bare 204. (Its no-op idempotency rule is already implemented.) **[DONE]**
+- **`GET /api/v1/health-check`**: new unauthenticated endpoint returning 200, used by the sync engine's poisoned-command detection. **[DONE]**
