@@ -1,4 +1,5 @@
 pub mod common;
+pub mod handle_health_check;
 pub mod handle_user_create;
 pub mod handle_get_user;
 pub mod handle_get_user_detail;

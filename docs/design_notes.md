@@ -89,6 +89,7 @@ In DynamoDB this is stored as a single string field on the User in the form
 
 | Path                                     | Command                                             |
 |------------------------------------------|-----------------------------------------------------|
+| `GET    /api/v1/health-check`            | [Health Check](#health-check)                       |
 | `GET    /api/v1/notes`                   | [Get Notes](#get-notes)                             |
 | `POST   /api/v1/notes`                   | [New Note](#new-note)                               |
 | `GET    /api/v1/notes/{note_id}`         | [Get Note](#get-note)                               |
@@ -111,6 +112,23 @@ In DynamoDB this is stored as a single string field on the User in the form
 | `POST   /api/v1/pwd_reset/change_pwd`    | [Complete Password Reset](#complete-password-reset) |
 | `GET    /api/v1/admin/site_data`         | [Site Data](#site-data)                             |
 | `GET    /api/v1/admin/users_detail`      | [Site Data](#users-detail)                          |
+
+### Health Check
+**Path:** /api/v1/health-check [GET]\
+**Path:** /api/v1/health-check?detail={detail} [GET]
+
+**Inputs:**
+* detail: [query] string
+
+**Outputs:**
+* A JSON object describing the back-ends checked (an empty object for a shallow health check).
+
+**Description:**
+Used as a health-check endpoint. This returns a 200 OK if possible. The `detail` parameter controls what other checks
+are performed. A value of "None" (or omitting the `detail` parameter) will do a shallow check that just returns; a
+value of "All" will perform all tests (currently, just checking DynamoDB connectivity). The body of the response will
+be a JSON struct containing information about the back-ends checked -- an empty "{}" for a shallow check.
+
 
 ### Get Notes
 **Path:** /api/v1/notes [GET]\

@@ -18,6 +18,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 use extractors::AppState;
 use handlers::{
+    handle_health_check::handle_health_check,
     handle_get_notes::handle_get_notes,
     handle_new_note::handle_new_note,
     handle_get_note::handle_get_note,
@@ -79,6 +80,7 @@ async fn main() -> Result<(), lambda_http::Error> {
         frontend_base_url,
     };
     let app = Router::new()
+        .route("/api/v1/health-check", get(handle_health_check))
         .route("/api/v1/notes", get(handle_get_notes))
         .route("/api/v1/notes", post(handle_new_note))
         .route("/api/v1/notes/{note_id}", get(handle_get_note))

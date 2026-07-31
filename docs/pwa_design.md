@@ -279,7 +279,7 @@ Each no-op rule also guarantees that a retried command cannot apply its effect (
 
 #### Detecting a Poisoned Command
 
-A transient failure normally means the device is offline, but it could also mean this specific command triggers a server bug. To distinguish them: after N consecutive transient failures of the same command, the sync engine calls a health endpoint (`GET /api/v1/health` — a new, unauthenticated endpoint returning 200). If the health check fails, the device really is offline and backoff continues indefinitely. If the health check succeeds, the command is retried once more; if it still fails, it is declared poisoned: removed from the queue, surfaced to the user, and the removal fix-up pass is applied.
+A transient failure normally means the device is offline, but it could also mean this specific command triggers a server bug. To distinguish them: after N consecutive transient failures of the same command, the sync engine calls a health endpoint (`GET /api/v1/health-check` — a new, unauthenticated endpoint returning 200). If the health check fails, the device really is offline and backoff continues indefinitely. If the health check succeeds, the command is retried once more; if it still fails, it is declared poisoned: removed from the queue, surfaced to the user, and the removal fix-up pass is applied.
 
 #### Fix-up Pass: Command Removed Undelivered
 
@@ -320,4 +320,4 @@ The design above requires these server-side changes (each is also a contract cha
 - **edit-note**: duplicate detection — when `source_version_id` is exactly 1 behind the note's current `version_id` and the incoming title and body are byte-identical to the note's current title and body, make no change and return 200 with the current note instead of creating a `[CONFLICTED]` copy.
 - **delete-note**: return the updated note instead of a bare 204; deleting an already-deleted note returns success; add a `condition_expression` so deleting a nonexistent note returns 404 instead of creating a phantom item (also listed in `todo.md`).
 - **recover-deleted-note**: return the updated note instead of a bare 204. (Its no-op idempotency rule is already implemented.)
-- **`GET /api/v1/health`**: new unauthenticated endpoint returning 200, used by the sync engine's poisoned-command detection.
+- **`GET /api/v1/health-check`**: new unauthenticated endpoint returning 200, used by the sync engine's poisoned-command detection.
