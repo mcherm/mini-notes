@@ -95,6 +95,8 @@ The frontend has exactly one fallback string, used when there is no parseable bo
 const FALLBACK_ERROR_MESSAGE = "Error in operation.";
 ```
 
+`data-layer.js` makes that split explicit in the results it returns: `errorMessage` carries the backend's copy and is null when the server did not answer, while `failureDetail` carries a diagnostic description — the HTTP status, or the browser error behind a request that never completed — which is logged and passed up but not displayed. A caller seeing a null `errorMessage` supplies its own wording: `FALLBACK_ERROR_MESSAGE`, or something more specific such as "Failed to save changes to note."
+
 ### Backend 500 messages
 
 Where the failure condition is distinctive enough to be useful information for the user (or for support diagnosis), 500 responses carry a specific descriptive string — e.g. `"Unable to delete note"`, `"Password verification error"`, `"Update note failed"`. Where the condition is genuinely uninformative — typically a `DynamoDB SDK` error that could mean almost anything — the response uses the shared constant from `lambdas/api-v1/src/handlers/common.rs`:
@@ -111,7 +113,7 @@ A `tower_http::set_header::SetResponseHeaderLayer` in `lambdas/api-v1/src/main.r
 
 ### 401 short-circuit
 
-`apiFetch` in `main.js` (and `admin.js`, `reset-password.js`) intercepts 401 responses, calls `stateUpdateForLogout()`, and throws `LoggedOutError`. Every error-handling site catches `LoggedOutError` and exits silently — the logout flow handles the UI, and surfacing an additional error message would just be noise.
+`apiFetch` in `api.js` (and the copies in `admin.js`, `reset-password.js`) intercepts 401 responses, calls the handler registered with `setSessionExpiredHandler` — `stateUpdateForLogout()`, registered by `main.js` — and throws `LoggedOutError`. Every error-handling site catches `LoggedOutError` and exits silently — the logout flow handles the UI, and surfacing an additional error message would just be noise.
 
 ```js
 try {
@@ -125,7 +127,7 @@ try {
 
 ## JS helpers
 
-All in `html/main.js` (duplicated for `admin.js` and `reset-password.js`, which are separate-page contexts).
+`FALLBACK_ERROR_MESSAGE` and `extractErrorMessage` live in `html/api.js`; the display helpers live in `html/main.js`. Both sets are duplicated for `admin.js` and `reset-password.js`, which are separate-page contexts.
 
 | Helper | Purpose |
 |---|---|

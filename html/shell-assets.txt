@@ -4,6 +4,8 @@
 /index.html
 /main.css
 /main.js
+/api.js
+/data-layer.js
 /manifest.json
 /favicon.ico
 /favicon-16x16.png

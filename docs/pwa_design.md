@@ -20,6 +20,8 @@ The app shell currently consists of these assets, all served from the site root:
 - `index.html`
 - `main.css`
 - `main.js`
+- `api.js`
+- `data-layer.js`
 - `manifest.json`
 - The six icons: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `mini-notes-192x192.png`, `mini-notes-512x512.png`
 
@@ -134,6 +136,14 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 
 ## Note Data Caching
 
+> **Implementation status:** this section is only partly implemented. The
+> backend changes below are done, and the data-access interface exists
+> (`html/data-layer.js`) with the passthrough implementation as its only
+> implementation. Nothing else is: there is no local store, no update queue, no
+> sync engine, and no feature detection, so every read and write still goes
+> straight to the server, the `queued` outcome never occurs, and the app does
+> not yet function offline.
+
 ### Goals
 
 The goal is that users can continue to perform normal note viewing and note editing work with a spotty connection or a fully inactive connection and it will correct itself as soon as a connection can be re-established. Specialized operations, like editing a user's properties do not need to be supported whie offline.
@@ -213,7 +223,7 @@ When the server is unreachable, the offline-capable read commands are served fro
 
 ### The Write Path
 
-Every offline-capable write command goes through a single path — there is no separate "try the server directly, and fall back to the queue if that fails" logic. A write is committed by updating the local mirror and appending the command to the queue in one IndexedDB transaction. Because enqueueing a command triggers an immediate delivery attempt (see Delivering Delayed Updates), the server call still happens right away whenever the device is online; being offline only affects how quickly the queue drains.
+Every offline-capable write command goes through a single path — there is no separate "try the server directly, and fall back to the queue if that fails" logic. A write is committed by updating the local mirror and appending the command to the queue in one IndexedDB transaction. If that transaction fails, nothing was committed and the write is rejected. Because enqueueing a command triggers an immediate delivery attempt (see Delivering Delayed Updates), the server call still happens right away whenever the device is online; being offline only affects how quickly the queue drains.
 
 For `new-note`, the `note_id` is generated **on the client** (using the standard 10-character ID scheme) and included in the command. This means a newly created note has its permanent id immediately — later queued commands can reference it, and no id-rewriting is needed when the create is eventually delivered. This requires a backend change: the `new-note` API must accept a client-supplied `note_id` (as `import-notes` already does).
 
@@ -221,7 +231,7 @@ The data layer's write call returns a promise that resolves with the outcome of 
 
 - **delivered** — the server accepted the command. The mirror is updated with the note object the server returned, and the UI proceeds exactly as an online save does today.
 - **queued** — the server could not be reached (network error or timeout). The change is already safely committed locally and will be delivered by the background retry loop. Because nothing has been lost, this outcome is *not* reported with today's "Failed to save changes to note" alert. For now, we will not display this to the user, but we will retain the option to change that treatment later if desired.
-- **rejected** — the server answered with a definitive error. This is surfaced to the user immediately through the same paths used today: a 409 feeds the existing conflict-handling flow, and other errors feed the existing alert.
+- **rejected** — the command definitively failed and will not be retried, either because the server answered with a definitive error or because the device could not commit it locally. This is surfaced to the user immediately through the same paths used today: a 409 feeds the existing conflict-handling flow, and other errors feed the existing alert.
 
 Retries after the first attempt happen silently in the background; their outcomes are handled by the sync engine, not reported through this promise.
 

@@ -1,26 +1,17 @@
-"use strict";
-
-/** Thrown by apiFetch when a 401 triggers logout, to abort the caller's flow. */
-class LoggedOutError extends Error {
-    constructor() { super("Session expired — logged out"); }
-}
+import {
+    apiFetch,
+    extractErrorMessage,
+    FALLBACK_ERROR_MESSAGE,
+    getApiBaseUrl,
+    LoggedOutError,
+    setSessionExpiredHandler,
+} from "./api.js";
+import { dataLayer } from "./data-layer.js";
 
 // ========== Constants ==========
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const STALE_UNFOCUSED_EDIT_MS = 60 * 1000; // 1 minute
-
-// ========== Configuration ==========
-
-/** Returns the API base URL, choosing prod or dev based on the current hostname. */
-function getApiBaseUrl() {
-    const hostname = window.location.hostname;
-    if (hostname === "mini-notes.com") {
-        return "https://api.mini-notes.com";
-    } else {
-        return "https://dev-api.mini-notes.com";
-    }
-}
 
 // ========== State ==========
 
@@ -184,7 +175,7 @@ async function stateUpdateForLogin() {
     setLoggedIn(true);
     document.querySelector("#email-entry").value = "";
     document.querySelector("#password-entry").value = "";
-    await loadNoteHeaders();
+    await loadNoteHeaders(null);
 }
 
 /** Enters trash view: shows deleted notes in read-only mode. */
@@ -200,7 +191,7 @@ async function enterTrashView() {
     renderNote();
     document.querySelector("article input.title").setAttribute("readonly", "");
     document.querySelector("article textarea.note-body").setAttribute("readonly", "");
-    await loadTrashNoteHeaders();
+    await loadTrashNoteHeaders(null);
 }
 
 /** Exits trash view: returns to normal notes mode. */
@@ -214,7 +205,7 @@ async function exitTrashView() {
     renderNote();
     document.querySelector("article input.title").removeAttribute("readonly");
     document.querySelector("article textarea.note-body").removeAttribute("readonly");
-    await loadNoteHeaders();
+    await loadNoteHeaders(null);
 }
 
 // ========== Rendering ==========
@@ -409,39 +400,10 @@ function applyNoteToUI(note) {
 }
 
 // ========== API Calls ==========
-
-/** Wrapper around fetch that adds credentials and handles 401 by logging out. */
-async function apiFetch(url, options = {}) {
-    const response = await fetch(url, { credentials: "include", ...options });
-    if (response.status === 401) {
-        stateUpdateForLogout();
-        throw new LoggedOutError();
-    }
-    return response;
-}
-
-/**
- * Message displayed when there's no parseable backend `error` body
- * (network failure, gateway error page, malformed response).
- */
-const FALLBACK_ERROR_MESSAGE = "Error in operation.";
-
-/**
- * Reads the backend's user-facing error message from a non-OK response.
- * Returns the fallback string if the body can't be parsed or has no
- * `error` field.
- */
-async function extractErrorMessage(response) {
-    try {
-        const data = await response.json();
-        if (data && typeof data.error === "string" && data.error.length > 0) {
-            return data.error;
-        }
-    } catch (e) {
-        // Body wasn't JSON — fall through to fallback.
-    }
-    return FALLBACK_ERROR_MESSAGE;
-}
+//
+// Note data is read and written through dataLayer (see data-layer.js). The
+// calls below are the ones with no offline support by design — user, session,
+// import and export — and they talk to the server directly.
 
 /**
  * Tracks the auto-clear input listener (if any) attached to each
@@ -677,13 +639,14 @@ async function sendPasswordResetEmail() {
 }
 
 /**
- * Loads one page of note headers from the API and updates the list.
+ * Loads one page of note headers and updates the list.
  *
- * buildUrl(continueKey) -> string: caller-supplied URL builder that knows
- *   which endpoint and which extra query params to use. Called once per
- *   invocation with the continueKey passed below.
- * continueKey: undefined for a fresh first-page load (replaces the list),
- *   or the continuation token from a previous response (appends).
+ * fetchPage(continueKey) -> Promise of a dataLayer read result:
+ *   caller-supplied function that knows which dataLayer method to call and
+ *   with what extra arguments. Called once per invocation with the
+ *   continueKey passed below.
+ * continueKey: null for a fresh first-page load (replaces the list), or the
+ *   continuation token from a previous result (appends).
  *
  * Returns true on success, false on failure (so callers like searchNotes
  * can decide whether to auto-follow further pages).
@@ -698,35 +661,34 @@ async function sendPasswordResetEmail() {
  * sentinel remains visible. A real scroll still fires the observer
  * normally because that's a genuine intersection-state change.
  */
-async function loadNotePage(buildUrl, continueKey) {
+async function loadNotePage(fetchPage, continueKey) {
     isLoadingNotes = true;
     clearInlineAlert("#note-list-alert");
     try {
-        const response = await apiFetch(buildUrl(continueKey));
-        if (!response.ok) {
-            if (!continueKey) clearNoteListForError();
-            showInlineAlert("#note-list-alert", null, await extractErrorMessage(response));
+        const result = await fetchPage(continueKey);
+        if (!result.ok) {
+            if (continueKey === null) clearNoteListForError();
+            showInlineAlert("#note-list-alert", null, result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
             return false;
         }
-        const data = await response.json();
-        const newHeaders = data.note_headers;
-        continuationKey = data.continue_key || null;
+        const newHeaders = result.noteHeaders;
+        continuationKey = result.continueKey;
 
-        if (continueKey) {
-            // Subsequent page: append
-            noteHeaders = noteHeaders.concat(newHeaders);
-            appendNoteHeaders(newHeaders);
-        } else {
+        if (continueKey === null) {
             // First page: replace
             noteHeaders = newHeaders;
             renderNoteList();
+        } else {
+            // Subsequent page: append
+            noteHeaders = noteHeaders.concat(newHeaders);
+            appendNoteHeaders(newHeaders);
         }
         updateSentinel();
         reobserveSentinel();
         return true;
     } catch (e) {
         if (e instanceof LoggedOutError) return false;
-        if (!continueKey) clearNoteListForError();
+        if (continueKey === null) clearNoteListForError();
         showInlineAlert("#note-list-alert", null, FALLBACK_ERROR_MESSAGE);
         return false;
     } finally {
@@ -734,34 +696,23 @@ async function loadNotePage(buildUrl, continueKey) {
     }
 }
 
-/** Builds a `?continue_key=...` query suffix (or empty string when absent). */
-function continueKeyQuery(continueKey, leadingChar) {
-    return continueKey ? `${leadingChar}continue_key=${encodeURIComponent(continueKey)}` : "";
-}
-
 /**
- * Fetches note headers from the API and renders the note list. continueKey is
- * optional; omit it to get the first block of values.
+ * Fetches note headers and renders the note list. Pass null as continueKey
+ * to get the first block of values.
  */
 async function loadNoteHeaders(continueKey) {
-    await loadNotePage(
-        (ck) => `${getApiBaseUrl()}/api/v1/notes${continueKeyQuery(ck, "?")}`,
-        continueKey,
-    );
+    await loadNotePage((ck) => dataLayer.getNotes(ck), continueKey);
 }
 
-/** Fetches deleted note headers from the API and renders the note list. */
+/** Fetches deleted note headers and renders the note list. */
 async function loadTrashNoteHeaders(continueKey) {
-    await loadNotePage(
-        (ck) => `${getApiBaseUrl()}/api/v1/deleted_notes${continueKeyQuery(ck, "?")}`,
-        continueKey,
-    );
+    await loadNotePage((ck) => dataLayer.getDeletedNotes(ck), continueKey);
 }
 
 /** Fetches note headers matching a search string and renders the note list. */
 async function searchNotes(searchString, continueKey) {
     const succeeded = await loadNotePage(
-        (ck) => `${getApiBaseUrl()}/api/v1/note_search?search_string=${encodeURIComponent(searchString)}${continueKeyQuery(ck, "&")}`,
+        (ck) => dataLayer.searchNotes(searchString, ck),
         continueKey,
     );
     // Auto-follow continuation keys since search results are filtered and small.
@@ -816,29 +767,30 @@ async function saveNoteIfChanged() {
 async function saveNote(title, body) {
     const noteId = currentNote.note_id;
     const versionId = currentNote.version_id;
-    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    let response;
+    let result;
     try {
-        response = await apiFetch(url, {
-            method: "PUT",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({title: title, body: body, source_version_id: versionId}),
+        result = await dataLayer.editNote({
+            noteId: noteId,
+            title: title,
+            body: body,
+            sourceVersionId: versionId,
         });
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert("Failed to save changes to note.");
         return;
     }
-    if (response.status === 409) {
-        await handleConflict();
+    if (result.outcome === "rejected") {
+        if (result.status === 409) {
+            await handleConflict();
+            return;
+        }
+        showFloatingAlert(result.errorMessage ?? "Failed to save changes to note.");
         return;
     }
-    if (!response.ok) {
-        showFloatingAlert(await extractErrorMessage(response));
-        return;
+    if (result.note !== null) {
+        applyNoteToUI(result.note);
     }
-    const data = await response.json();
-    applyNoteToUI(data.note);
 }
 
 /** Handles an edit conflict by doing a full state refresh. */
@@ -848,7 +800,7 @@ async function handleConflict() {
     setIntendedNote(null);
     setCurrentNote(null);
     renderNote();
-    await loadNoteHeaders();
+    await loadNoteHeaders(null);
     // Select the first note in the list (probably the conflict note, which likely has the newest modify_time)
     if (noteHeaders.length > 0) {
         if (setIntendedNoteIfUnchanged(conflictingNoteId, noteHeaders[0].note_id)) {
@@ -868,7 +820,7 @@ async function refreshAfterStale() {
     const priorIntended = intendedCurrentNoteId;
     await saveNoteIfChanged();
     const selectedNoteId = currentNote ? currentNote.note_id : null;
-    await (trashView ? loadTrashNoteHeaders() : loadNoteHeaders());
+    await (trashView ? loadTrashNoteHeaders(null) : loadNoteHeaders(null));
     if (selectedNoteId) {
         const stillExists = noteHeaders.some(h => h.note_id === selectedNoteId);
         if (stillExists) {
@@ -888,26 +840,20 @@ async function refreshAfterStale() {
  * switches to displaying it.
  */
 async function createNewNote(newTitle = "", newBody = "") {
-    const url = `${getApiBaseUrl()}/api/v1/notes`;
-    let response;
+    let result;
     try {
-        response = await apiFetch(url, {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({title: newTitle, body: newBody, format: "PlainText"}),
-        });
+        result = await dataLayer.newNote({title: newTitle, body: newBody, format: "PlainText"});
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert("Failed to create new note.");
         return;
     }
-    if (!response.ok) {
-        showFloatingAlert(await extractErrorMessage(response));
+    if (result.outcome === "rejected") {
+        showFloatingAlert(result.errorMessage ?? "Failed to create new note.");
         return;
     }
-    const data = await response.json();
-    if (setIntendedNoteIfUnchanged(null, data.note.note_id)) {
-        applyNoteToUI(data.note);
+    if (result.note !== null && setIntendedNoteIfUnchanged(null, result.note.note_id)) {
+        applyNoteToUI(result.note);
     }
 }
 
@@ -938,18 +884,17 @@ async function deleteCurrentNote() {
     setCurrentNote(null);
     renderNote();
 
-    // Fire the API call; surface failures via a floating-alert.
-    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    let response;
+    // Fire the write; surface failures via a floating-alert.
+    let result;
     try {
-        response = await apiFetch(url, { method: "DELETE" });
+        result = await dataLayer.deleteNote(noteId);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert(FALLBACK_ERROR_MESSAGE);
         return;
     }
-    if (!response.ok) {
-        showFloatingAlert(await extractErrorMessage(response));
+    if (result.outcome === "rejected") {
+        showFloatingAlert(result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
     }
 }
 
@@ -987,17 +932,16 @@ async function recoverCurrentNote() {
     const noteId = currentNote.note_id;
     removeCurrentNoteFromTrashList();
 
-    const url = `${getApiBaseUrl()}/api/v1/recover_note/${encodeURIComponent(noteId)}`;
-    let response;
+    let result;
     try {
-        response = await apiFetch(url, { method: "POST" });
+        result = await dataLayer.recoverNote(noteId);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert(FALLBACK_ERROR_MESSAGE);
         return;
     }
-    if (!response.ok) {
-        showFloatingAlert(await extractErrorMessage(response));
+    if (result.outcome === "rejected") {
+        showFloatingAlert(result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
     }
 }
 
@@ -1010,17 +954,16 @@ async function destroyCurrentNote() {
     const noteId = currentNote.note_id;
     removeCurrentNoteFromTrashList();
 
-    const url = `${getApiBaseUrl()}/api/v1/deleted_notes/${encodeURIComponent(noteId)}`;
-    let response;
+    let result;
     try {
-        response = await apiFetch(url, { method: "DELETE" });
+        result = await dataLayer.destroyNote(noteId);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert(FALLBACK_ERROR_MESSAGE);
         return;
     }
-    if (!response.ok) {
-        showFloatingAlert(await extractErrorMessage(response));
+    if (result.outcome === "rejected") {
+        showFloatingAlert(result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
     }
 }
 
@@ -1109,7 +1052,7 @@ async function importNotes(file) {
     }
     const data = await response.json();
     completeProgressBox("#import-progress", `Done: ${data.notes_created} created, ${data.notes_updated} updated.`);
-    await loadNoteHeaders();
+    await loadNoteHeaders(null);
 }
 
 /**
@@ -1126,10 +1069,9 @@ async function loadNote(noteId) {
     clearInlineAlert("#note-pane-alert");
     setCurrentNote(null);
     renderNote();
-    const url = `${getApiBaseUrl()}/api/v1/notes/${encodeURIComponent(noteId)}`;
-    let response;
+    let result;
     try {
-        response = await apiFetch(url);
+        result = await dataLayer.getNote(noteId);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         if (intendedCurrentNoteId === noteId) {
@@ -1137,15 +1079,14 @@ async function loadNote(noteId) {
         }
         return;
     }
-    if (!response.ok) {
+    if (!result.ok) {
         if (intendedCurrentNoteId === noteId) {
-            showInlineAlert("#note-pane-alert", null, await extractErrorMessage(response));
+            showInlineAlert("#note-pane-alert", null, result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
         }
         return;
     }
-    const data = await response.json();
     if (intendedCurrentNoteId === noteId) {
-        setCurrentNote(data.note);
+        setCurrentNote(result.note);
         renderNote();
     }
 }
@@ -1666,11 +1607,11 @@ function actionSearchInput(event) {
 
     if (searchString === "") {
         // Empty search: reload full note list
-        loadNoteHeaders();
+        loadNoteHeaders(null);
     } else {
         // Debounce: wait 300ms after typing stops, then search
         searchDebounceTimer = setTimeout(() => {
-            searchNotes(searchString);
+            searchNotes(searchString, null);
         }, 300);
     }
 }
@@ -1747,9 +1688,21 @@ function actionOnWindowBlur() {
 
 // ========== Initialization ==========
 
+// Route apiFetch's handling of a rejected session into this page's logout.
+setSessionExpiredHandler(stateUpdateForLogout);
+
+/**
+ * Prepares the data layer, then loads the first page of notes. Kicked off
+ * (not awaited) from the DOMContentLoaded handler so that event listeners are
+ * all registered before anything waits on the network.
+ */
+async function startUp() {
+    await dataLayer.init();
+    await loadNoteHeaders(null);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
-    loadNoteHeaders();
 
     document.querySelector("#user-btn").addEventListener("click", actionUserBtn);
     document.querySelector("#login-btn").addEventListener("click", actionLoginBtn);
@@ -1806,4 +1759,6 @@ document.addEventListener("DOMContentLoaded", () => {
             a.href = a.href.replace("https://api.mini-notes.com", getApiBaseUrl());
         }
     });
+
+    startUp();
 });
