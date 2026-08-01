@@ -12,7 +12,7 @@ use time::UtcDateTime;
 
 /// An enum for the various kinds of notes we support. Right now it is ONLY one
 /// kind (plain text).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
 pub enum NoteFormat {
     PlainText,
 }

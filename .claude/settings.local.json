@@ -26,7 +26,9 @@
       "Bash(cargo tree *)",
       "Bash(just --dry-run build-api-v1)",
       "Bash(cargo-lambda zig *)",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Bash(jj st *)",
+      "Bash(jj diff *)"
     ]
   }
 }

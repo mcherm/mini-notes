@@ -3,7 +3,7 @@
 ## Data Structures
 
 ### IDs
-I will use 10-digit base-64 (A-Za-z0-9_$) for my IDs.
+I will use 10-digit base-64 (A-Za-z0-9_~) for my IDs.
 
 ### Note
 **Fields:**
@@ -154,16 +154,21 @@ the notes.
 
 **Inputs:**
 * session_id: [header] string
+* note_id: [body] optional string
 * title: [body] string
 * body: [body] string
 * format: [body] enum
 
 **Outputs:**
+Returns the newly created note object.
 
-**Description**
+**Description:**
 Create a new note. The title of a note cannot be more than 1,000 bytes in UTF-8.
-The body of a note cannot be more than 100,000 bytes in UTF-8. Exceeding these
-will return a 400 error.
+The body of a note cannot be more than 100,000 bytes in UTF-8. The note_id is not
+required (if it is not, one will be assigned). If it IS provided it must be a
+string of exactly 10 characters chosen uniformly at random (using a RELIABLE source
+of randomness) from "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_~".
+Violating any of these field constraints will return a 400 error.
 
 ### Get Note
 **Path:** /api/v1/notes/*{note_id}* [GET]

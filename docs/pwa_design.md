@@ -249,7 +249,7 @@ I think this mechanism can also be used to populate the local copy of the list o
 
 Every offline-capable write command is appended to the `IndexedDB` queue store (see Device Data Storage above) as part of the write path, and the sync engine delivers the queued commands to the server. The updates are sent in the order in which they were performed: the command at the head of the queue is delivered (and on failure, retried) before any later command is sent.
 
-The `source_version_id` stored on each queued command is a precomputation of what the server's version will be when that command is delivered. This works because the local layer changes `version_id` by exactly the same rule the server uses, per command type: set to 1 by `new-note`, incremented by `edit-note`, and left unchanged by `delete-note` and `recover-deleted-note` — and because every queued command is normally applied in order. When something breaks the every-command-applied assumption, the queue is repaired by one of the fix-up passes below.
+The `source_version_id` stored on each queued command is a precomputation of what the server's version will be when that command is delivered. This works because the local layer changes `version_id` by exactly the same rule the server uses, per command type: set to 0 by `new-note`, incremented by `edit-note`, and left unchanged by `delete-note` and `recover-deleted-note` — and because every queued command is normally applied in order. When something breaks the every-command-applied assumption, the queue is repaired by one of the fix-up passes below.
 
 #### Delivery Outcomes
 
@@ -271,7 +271,7 @@ Two rules make this sound:
 
 The other three offline-capable commands are made idempotent by no-op rules:
 
-- **new-note**: if a note with the client-supplied `note_id` already exists for this user, return success with the existing note (it is the retry) instead of an error.
+- **new-note**: if a note with the client-supplied `note_id` already exists for this user and has the same fields, return success with the existing note (it is the retry) instead of an error.
 - **delete-note**: deleting an already-deleted note returns success.
 - **recover-deleted-note**: recovering a note that is not deleted returns success.
 
@@ -301,7 +301,7 @@ The notes stored in the `IndexedDB` will need to have the following fields. This
 |-------------|------------------------------------------------------------------------|
 | user_id     | This is a constant, per user.                                          |
 | note_id     | In the update command (client-generated for new-note).                 |
-| version_id  | 1 for new-note; incremented by edit-note; unchanged by delete/recover. |
+| version_id  | 0 for new-note; incremented by edit-note; unchanged by delete/recover. |
 | title       | This is in the update command.                                         |
 | body        | This is in the update command.                                         |
 | create_time | Set by new-note; left as-is for other commands.                        |
@@ -316,7 +316,7 @@ Generating the undo diff for offline edits requires a JavaScript implementation 
 
 The design above requires these server-side changes (each is also a contract change to record in `design_notes.md`):
 
-- **new-note**: accept a client-supplied `note_id`; if a note with that id already exists for this user, make no change and return success with the existing note.
+- **new-note**: accept a client-supplied `note_id`; if a note with that id already exists for this user, make no change and return success with the existing note. **[DONE]**
 - **edit-note**: duplicate detection — when `source_version_id` is exactly 1 behind the note's current `version_id` and the incoming title and body are byte-identical to the note's current title and body, make no change and return 200 with the current note instead of creating a `[CONFLICTED]` copy.
 - **delete-note**: return the updated note instead of a bare 204; deleting an already-deleted note returns success; add a `condition_expression` so deleting a nonexistent note returns 404 instead of creating a phantom item (also listed in `todo.md`). **[DONE]**
 - **recover-deleted-note**: return the updated note instead of a bare 204. (Its no-op idempotency rule is already implemented.) **[DONE]**
