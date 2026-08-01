@@ -67,6 +67,16 @@ pub async fn handle_edit_note(
 
     // --- Bail now if we find that it's not the right version ---
     if let Some(note) = existing_note.as_ref() && note.version_id != edit_note_fields.source_version_id {
+        // Check to see if this may be an "idempotent" call
+        if note.version_id == edit_note_fields.source_version_id + 1
+            && note.title == edit_note_fields.title
+            && note.body == edit_note_fields.body {
+            // This is an idempotent call! Return success instead
+            let note_json: JsonValue = note.into();
+            let body_json = json!({"note": note_json});
+            return Ok(Json(body_json));
+        }
+        // It's a conflict.
         return handle_conflict(
             &state, &user_id, &note_id, &edit_note_fields, &current_time, generate_id, new_version_id,
         ).await;
@@ -83,8 +93,6 @@ pub async fn handle_edit_note(
             note.undo_stack
         )
     };
-    info!(note_diff_opt, "Reviewing diffs for a note"); // FIXME: Eventually remove this
-    info!( "Existing diffs for a note:  {:?}", undo_stack.join("%")); // FIXME: Eventually remove this
     if let Some(note_diff) = note_diff_opt {
         undo_stack.push(note_diff);
     }
@@ -402,6 +410,72 @@ mod tests {
         assert_eq!(json["note"]["create_time"], "2026-03-01T00:00:00Z"); // copied from original
         assert_eq!(json["note"]["format"], "PlainText"); // copied from original
         assert_eq!(json["note"]["undo_stack"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_note_idempotent_retry() {
+        // The note is already at the version this edit would produce and its title and body
+        // already match, so this is a re-delivery of an edit that was already applied. Only the
+        // GetItem is supplied here: any attempt to write would run out of canned responses.
+        let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"4"},"title":{"S":"New Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-15T11:59:58.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"New body"},"undo_stack":{"L":[{"S":"t:earlier-diff"}]}}}"#;
+        let client = test_dynamo_client(vec![replay_ok(get_item_response)]);
+
+        let result = handle_edit_note(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            Path("ab12cd34ef".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            Json(EditNoteBody {
+                title: "New Title".to_string(),
+                body: "New body".to_string(),
+                source_version_id: 3,
+            }),
+        ).await;
+
+        let Json(json) = result.unwrap();
+        assert_eq!(json["note"]["note_id"], "ab12cd34ef");
+        assert_eq!(json["note"]["version_id"], 4);
+        assert_eq!(json["note"]["title"], "New Title");
+        assert_eq!(json["note"]["body"], "New body");
+        // The note comes back exactly as the first delivery stored it: the version is not bumped
+        // a second time, modify_time is not restamped, and the diff is not pushed again
+        assert_eq!(json["note"]["modify_time"], "2026-03-15T11:59:58Z");
+        assert_eq!(json["note"]["undo_stack"], json!(["t:earlier-diff"]));
+    }
+
+    #[tokio::test]
+    async fn direct_handle_edit_note_two_versions_ahead() {
+        // The title and body match the stored note, but the version is 2 ahead rather than 1, so
+        // this is not a duplicate delivery and must still produce a conflict note
+        let existing_note_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"5"},"title":{"S":"New Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-14T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"New body"}}}"#;
+        let get_item_response = r#"{"Item":{"user_id":{"S":"Xq3_mK8~pL"},"note_id":{"S":"ab12cd34ef"},"version_id":{"N":"5"},"title":{"S":"New Title"},"create_time":{"S":"2026-03-01T00:00:00.000000000Z"},"modify_time":{"S":"2026-03-14T00:00:00.000000000Z"},"format":{"S":"PlainText"},"body":{"S":"New body"},"undo_stack":{"L":[]}}}"#;
+        let put_response = r#"{}"#;
+        let client = test_dynamo_client(vec![
+            replay_ok(existing_note_response),
+            replay_ok(get_item_response),
+            replay_ok(put_response),
+        ]);
+
+        let result = handle_edit_note(
+            test_state(client),
+            test_user_session("Xq3_mK8~pL"),
+            Path("ab12cd34ef".to_string()),
+            current_time_stub("2026-03-15T12:00:00.000000000Z"),
+            IdGenerator(fake_id),
+            Json(EditNoteBody {
+                title: "New Title".to_string(),
+                body: "New body".to_string(),
+                source_version_id: 3,
+            }),
+        ).await;
+
+        let (status, Json(json)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(json["note"]["note_id"], "CONFLICT_ID");
+        assert_eq!(json["note"]["version_id"], 4);
+        assert_eq!(json["note"]["title"], "[CONFLICTED] New Title");
+        assert_eq!(json["note"]["body"], "New body");
     }
 
     #[tokio::test]

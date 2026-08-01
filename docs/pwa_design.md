@@ -317,7 +317,7 @@ Generating the undo diff for offline edits requires a JavaScript implementation 
 The design above requires these server-side changes (each is also a contract change to record in `design_notes.md`):
 
 - **new-note**: accept a client-supplied `note_id`; if a note with that id already exists for this user, make no change and return success with the existing note. **[DONE]**
-- **edit-note**: duplicate detection — when `source_version_id` is exactly 1 behind the note's current `version_id` and the incoming title and body are byte-identical to the note's current title and body, make no change and return 200 with the current note instead of creating a `[CONFLICTED]` copy.
+- **edit-note**: duplicate detection — when `source_version_id` is exactly 1 behind the note's current `version_id` and the incoming title and body are byte-identical to the note's current title and body, make no change and return 200 with the current note instead of creating a `[CONFLICTED]` copy. **[DONE]**
 - **delete-note**: return the updated note instead of a bare 204; deleting an already-deleted note returns success; add a `condition_expression` so deleting a nonexistent note returns 404 instead of creating a phantom item (also listed in `todo.md`). **[DONE]**
 - **recover-deleted-note**: return the updated note instead of a bare 204. (Its no-op idempotency rule is already implemented.) **[DONE]**
 - **`GET /api/v1/health-check`**: new unauthenticated endpoint returning 200, used by the sync engine's poisoned-command detection. **[DONE]**

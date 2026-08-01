@@ -306,6 +306,13 @@ impl Note {
 /// Convert a Note into a JsonValue suitable to return to the caller.
 impl From<Note> for JsonValue {
     fn from(note: Note) -> Self {
+        (&note).into()
+    }
+}
+
+/// Convert a reference to a Note into a JsonValue suitable to return to the caller.
+impl From<&Note> for JsonValue {
+    fn from(note: &Note) -> Self {
         let mut obj = json!({
             "user_id": note.user_id,
             "note_id": note.note_id,

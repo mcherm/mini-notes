@@ -199,16 +199,18 @@ Returns all of the fields of a single note.
 Accepts in the body all of the editable fields of the note_id. If non-editable
 fields like last-modified are provided they will be silently ignored. It updates
 the note to match this new value. The source_version_id must be provided; if the
-note's current version_id differs from source_version_id, the edit is treated as
-a conflict. On conflict, a new note is created with "[CONFLICTED] " prepended to
-the title and a version_id of source_version_id + 1, and the response is 409 with
-that new note (which has a different note_id). The original note is left untouched.
-If the note was deleted (delete-edit conflict), the note is re-created at the
-original note_id without the "[CONFLICTED] " prefix, and the response is 200. The
-title of a note cannot be more than 1,000 bytes in UTF-8. The body of a note
-cannot be more than 100,000 bytes in UTF-8. Exceeding these will return a 400
-error. This cannot operate on a soft-deleted note and will return a 403 error if
-that is attempted.
+note's current version_id differs from source_version_id, the edit is normally
+treated as a conflict -- the exception would be an "idempotent call": if the
+exact same update with the same source_version_id is made twice in a row, the
+second call will return the same as the first one. For any other conflict, a new
+note is created with "[CONFLICTED] " prepended to the title and a version_id of
+source_version_id + 1, and the response is 409 with that new note (which has a
+different note_id). The original note is left untouched. If the note was deleted
+(delete-edit conflict), the note is re-created at the original note_id without
+the "[CONFLICTED] " prefix, and the response is 200. The title of a note cannot
+be more than 1,000 bytes in UTF-8. The body of a note cannot be more than
+100,000 bytes in UTF-8. Exceeding these will return a 400 error. This cannot
+operate on a soft-deleted note and will return a 403 error if that is attempted.
 
 
 ### Delete Note
