@@ -166,6 +166,8 @@ function stateUpdateForLogout() {
     clearInlineAlert("#note-list-alert");
     clearInlineAlert("#note-pane-alert");
     clearAllFloatingAlerts();
+    // Local note data never outlives the session (see docs/pwa_design.md).
+    dataLayer.wipeLocalData();
 }
 
 /**

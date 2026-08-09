@@ -3,10 +3,11 @@
  *
  * UI code never reads or writes notes over the network itself; it calls the
  * `dataLayer` object exported here. Behind that interface sits one of two
- * implementations, chosen by feature detection in `init()`: the passthrough
- * `NetworkDataSource` below (today the only one), or — once it exists — an
- * offline implementation that reads and writes a local store and queues
- * commands for later delivery. See docs/pwa_design.md ("Note Data Caching").
+ * implementations, chosen by feature detection in `init()`: the
+ * `OfflineDataSource`, which serves every call from the network and writes
+ * successful responses through to a local mirror, or the passthrough
+ * `NetworkDataSource` for environments without usable local storage. See
+ * docs/pwa_design.md ("Note Data Caching").
  *
  * The commands with no offline support by design are not part of this
  * interface: export, import, and every user, session and admin command. Their
@@ -49,6 +50,7 @@
  */
 
 import { apiFetch, extractErrorMessage, getApiBaseUrl, LoggedOutError } from "./api.js";
+import { openNoteStore } from "./store.js";
 
 /** Builds a `?continue_key=...` query suffix (empty string for the first page). */
 function continueKeyQuery(continueKey, leadingChar) {
@@ -241,6 +243,165 @@ class NetworkDataSource {
     destroyNote(noteId) {
         return sendWriteCommand(noteUrl("/api/v1/deleted_notes/", noteId), {method: "DELETE"});
     }
+
+    /** Nothing is stored locally in this mode, so there is nothing to wipe. */
+    async wipeLocalData() {}
+}
+
+/**
+ * True when a note header agrees with a mirrored note: same version, same
+ * modify time, and the same side of the active/trash divide as the list the
+ * header came from.
+ */
+function headerMatchesNote(header, note, fromTrashList) {
+    return header.version_id === note.version_id
+        && header.modify_time === note.modify_time
+        && fromTrashList === (note.delete_time !== undefined);
+}
+
+/**
+ * The implementation used when a working IndexedDB is available. Every call
+ * is served by the network — it holds a NetworkDataSource and delegates to
+ * it — and a successful response is then written through to the local
+ * mirror, keeping the mirror an accurate copy of what the server holds. All
+ * mirror updates go through NoteStore's read-barrier-guarded operations, and
+ * a local-store failure never changes a call's result: the network's answer
+ * stands.
+ */
+export class OfflineDataSource {
+    constructor(store, network) {
+        this.store = store;
+        this.network = network;
+    }
+
+    /**
+     * Runs one local-store update, absorbing any failure, since a local
+     * problem must not turn a successful network operation into a failed one.
+     */
+    async attemptLocalWrite(description, action) {
+        try {
+            await action();
+        } catch (e) {
+            recordFailure(description, e);
+        }
+    }
+
+    /**
+     * Brings the mirror in line with one page of note headers from the
+     * active-notes or trash list. A mirrored note whose header shows a
+     * different version, modify time, or trash status is evicted: the mirror
+     * only ever holds notes whose full content was seen at exactly the state
+     * the server reports, and an evicted note returns to the mirror the next
+     * time its content is fetched. Headers for notes that are not mirrored
+     * are ignored — a header carries no body to mirror.
+     */
+    async reconcileHeaders(noteHeaders, fromTrashList) {
+        for (const header of noteHeaders) {
+            const mirrored = await this.store.getNote(header.note_id);
+            if (mirrored === undefined || headerMatchesNote(header, mirrored, fromTrashList)) {
+                continue;
+            }
+            await this.store.deleteNoteFromServer(header.note_id);
+        }
+    }
+
+    /**
+     * Write-through shared by the commands whose delivery returns the
+     * updated note: the returned note replaces the mirrored copy. An outcome
+     * without a note (a rejected command, or a delivered response whose body
+     * was unreadable) leaves the mirror alone.
+     */
+    async mirrorWriteOutcome(outcome) {
+        if (outcome.outcome === "delivered" && outcome.note !== null) {
+            await this.attemptLocalWrite(
+                "could not mirror the note returned by a write",
+                () => this.store.putNoteFromServer(outcome.note)
+            );
+        }
+        return outcome;
+    }
+
+    async getNotes(continueKey) {
+        const result = await this.network.getNotes(continueKey);
+        if (result.ok) {
+            await this.attemptLocalWrite(
+                "could not reconcile the mirror against active note headers",
+                () => this.reconcileHeaders(result.noteHeaders, false)
+            );
+        }
+        return result;
+    }
+
+    async getDeletedNotes(continueKey) {
+        const result = await this.network.getDeletedNotes(continueKey);
+        if (result.ok) {
+            await this.attemptLocalWrite(
+                "could not reconcile the mirror against trash note headers",
+                () => this.reconcileHeaders(result.noteHeaders, true)
+            );
+        }
+        return result;
+    }
+
+    /** Served by the network; search pages are not used to maintain the mirror. */
+    searchNotes(searchString, continueKey) {
+        return this.network.searchNotes(searchString, continueKey);
+    }
+
+    async getNote(noteId) {
+        const result = await this.network.getNote(noteId);
+        if (result.ok) {
+            await this.attemptLocalWrite(
+                "could not mirror a fetched note",
+                () => this.store.putNoteFromServer(result.note)
+            );
+        }
+        return result;
+    }
+
+    async newNote({title, body, format}) {
+        return this.mirrorWriteOutcome(
+            await this.network.newNote({title: title, body: body, format: format})
+        );
+    }
+
+    async editNote({noteId, title, body, sourceVersionId}) {
+        return this.mirrorWriteOutcome(
+            await this.network.editNote({
+                noteId: noteId,
+                title: title,
+                body: body,
+                sourceVersionId: sourceVersionId,
+            })
+        );
+    }
+
+    async deleteNote(noteId) {
+        return this.mirrorWriteOutcome(await this.network.deleteNote(noteId));
+    }
+
+    async recoverNote(noteId) {
+        return this.mirrorWriteOutcome(await this.network.recoverNote(noteId));
+    }
+
+    async destroyNote(noteId) {
+        const outcome = await this.network.destroyNote(noteId);
+        if (outcome.outcome === "delivered") {
+            await this.attemptLocalWrite(
+                "could not remove a destroyed note from the mirror",
+                () => this.store.deleteNoteFromServer(noteId)
+            );
+        }
+        return outcome;
+    }
+
+    /** Erases the mirror and the queue. Never rejects; a failure is logged. */
+    wipeLocalData() {
+        return this.attemptLocalWrite(
+            "could not wipe local note data",
+            () => this.store.wipe()
+        );
+    }
 }
 
 /** The implementation selected by init(); null until then. */
@@ -253,11 +414,22 @@ let dataSource = null;
 export const dataLayer = {
     /**
      * Selects the implementation to use for this session; must be awaited
-     * before any other method is called. Today the network passthrough is the
-     * only implementation, so there is nothing to detect yet.
+     * before any other method is called. Offline note storage is used
+     * whenever a working IndexedDB is present, proven by opening it and
+     * performing a trivial write rather than by asking about API support;
+     * otherwise the session runs online-only. The choice is not revisited
+     * until the next launch.
      */
     async init() {
-        dataSource = new NetworkDataSource();
+        const network = new NetworkDataSource();
+        try {
+            const store = await openNoteStore();
+            dataSource = new OfflineDataSource(store, network);
+            console.log("data layer: offline note storage is active");
+        } catch (e) {
+            dataSource = network;
+            console.warn("data layer: local note storage is unavailable; running online-only:", e);
+        }
     },
 
     /**
@@ -321,5 +493,17 @@ export const dataLayer = {
     /** Permanently destroys a trashed note. Resolves to a write outcome. */
     destroyNote(noteId) {
         return dataSource.destroyNote(noteId);
+    },
+
+    /**
+     * Erases all locally stored note data; called at logout, including the
+     * forced logout when the server rejects the session. Never rejects: a
+     * failure to wipe is logged. Safe to call before init() has finished — a
+     * session that never selected an implementation has stored nothing.
+     */
+    async wipeLocalData() {
+        if (dataSource !== null) {
+            await dataSource.wipeLocalData();
+        }
     },
 };

@@ -22,6 +22,8 @@ The app shell currently consists of these assets, all served from the site root:
 - `main.js`
 - `api.js`
 - `data-layer.js`
+- `diff.js`
+- `store.js`
 - `manifest.json`
 - The six icons: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `mini-notes-192x192.png`, `mini-notes-512x512.png`
 
@@ -136,14 +138,17 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 
 ## Note Data Caching
 
-> **Implementation status:** this section is only partly implemented. The
-> backend changes below are done, the data-access interface exists
-> (`html/data-layer.js`) with the passthrough implementation as its only
-> implementation, and the diff generator exists (`html/diff.js`) but has no
-> caller yet. Nothing else is: there is no local store, no update queue, no
-> sync engine, and no feature detection, so every read and write still goes
-> straight to the server, the `queued` outcome never occurs, and the app does
-> not yet function offline.
+> **Implementation status:** this section is partly implemented. The backend
+> changes below are done. The data-access interface (`html/data-layer.js`),
+> the diff generator (`html/diff.js`), and the local store (`html/store.js` —
+> the mirror and the update queue, with the read barrier) all exist. Feature
+> detection at startup selects the offline or passthrough implementation; in
+> offline mode every successful server response is written through to the
+> mirror, and the mirror is wiped at logout and on a rejected session. Not
+> yet implemented: reads never fall back to the mirror, no command is ever
+> enqueued (writes go straight to the server, so the `queued` outcome never
+> occurs and the diff generator still has no caller), and there is no sync
+> engine — the app does not yet function offline.
 
 ### Goals
 
