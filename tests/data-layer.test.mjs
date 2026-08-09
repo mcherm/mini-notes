@@ -1,6 +1,7 @@
 /**
  * Tests for html/data-layer.js's OfflineDataSource: the write-through of
- * server responses into the local mirror. The network side is a stub that
+ * server responses into the local mirror, and the serving of reads from the
+ * mirror when the server is unreachable. The network side is a stub that
  * returns canned results; the store side is a real NoteStore over the fake
  * backend, so these tests also exercise the read barrier end to end.
  */
@@ -49,6 +50,26 @@ function deliveredOutcome(note) {
     return {outcome: "delivered", note: note, status: 200, errorMessage: null, failureDetail: null};
 }
 
+/** A read failure as the fetch helpers build one when the server is unreachable. */
+function unreachableFailure() {
+    return {
+        ok: false,
+        errorMessage: null,
+        failureDetail: "request did not complete: TypeError: Failed to fetch",
+        unreachable: true,
+    };
+}
+
+/** A read failure as the fetch helpers build one when the server answered with an error. */
+function httpFailure(status) {
+    return {
+        ok: false,
+        errorMessage: "the server explained the problem",
+        failureDetail: `HTTP ${status}`,
+        unreachable: false,
+    };
+}
+
 let backend;
 let store;
 
@@ -68,7 +89,7 @@ describe("read write-through", () => {
 
     test("a failed fetch leaves the mirror alone", async () => {
         await store.putNoteFromServer(makeNote("note_00001", 3));
-        const result = {ok: false, errorMessage: null, failureDetail: "HTTP 500"};
+        const result = httpFailure(500);
         const source = new OfflineDataSource(store, networkAnswering("getNote", result));
         assert.equal(await source.getNote("note_00001"), result);
         assert.equal((await store.getNote("note_00001")).version_id, 3);
@@ -139,6 +160,83 @@ describe("header reconciliation", () => {
     test("headers for notes that are not mirrored are ignored", async () => {
         await reconcile([headerFor(makeNote("note_00001", 3))], false);
         assert.deepEqual(backend.contents(NOTES_STORE), []);
+    });
+});
+
+describe("offline read fallback", () => {
+    /** Mirrors three notes: two active (note 2 modified later) and one trashed. */
+    async function mirrorThreeNotes() {
+        const active1 = makeNote("note_00001", 3);
+        active1.modify_time = "2026-08-07T10:00:00Z";
+        const active2 = makeNote("note_00002", 5);
+        active2.modify_time = "2026-08-08T10:00:00Z";
+        const trashed = makeNote("note_00003", 1);
+        trashed.delete_time = "2026-08-09T10:00:00Z";
+        await store.putNoteFromServer(active1);
+        await store.putNoteFromServer(active2);
+        await store.putNoteFromServer(trashed);
+        return {active1, active2, trashed};
+    }
+
+    test("an unreachable getNotes serves the mirrored active notes, newest first", async () => {
+        const {active1, active2} = await mirrorThreeNotes();
+        const source = new OfflineDataSource(
+            store, networkAnswering("getNotes", unreachableFailure()));
+        assert.deepEqual(await source.getNotes(null), {
+            ok: true,
+            noteHeaders: [headerFor(active2), headerFor(active1)],
+            continueKey: null,
+        });
+    });
+
+    test("an unreachable getDeletedNotes serves the mirrored trashed notes", async () => {
+        const {trashed} = await mirrorThreeNotes();
+        const source = new OfflineDataSource(
+            store, networkAnswering("getDeletedNotes", unreachableFailure()));
+        assert.deepEqual(await source.getDeletedNotes(null), {
+            ok: true,
+            noteHeaders: [headerFor(trashed)],
+            continueKey: null,
+        });
+    });
+
+    test("an unreachable later page is not served from the mirror", async () => {
+        await mirrorThreeNotes();
+        const failure = unreachableFailure();
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", failure));
+        assert.equal(await source.getNotes("a-continuation-key"), failure);
+    });
+
+    test("a list failure the server answered with is not served from the mirror", async () => {
+        await mirrorThreeNotes();
+        const failure = httpFailure(500);
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", failure));
+        assert.equal(await source.getNotes(null), failure);
+    });
+
+    test("an unreachable getNote serves the mirrored note", async () => {
+        const note = makeNote("note_00001", 3);
+        await store.putNoteFromServer(note);
+        const source = new OfflineDataSource(
+            store, networkAnswering("getNote", unreachableFailure()));
+        assert.deepEqual(await source.getNote("note_00001"), {ok: true, note: note});
+    });
+
+    test("an unreachable getNote for an unmirrored note returns the failure", async () => {
+        const failure = unreachableFailure();
+        const source = new OfflineDataSource(store, networkAnswering("getNote", failure));
+        assert.equal(await source.getNote("note_00001"), failure);
+    });
+
+    test("a mirror read failure returns the network's failure", async () => {
+        const brokenStore = {
+            getAllNotes: async () => {
+                throw new Error("local storage failed");
+            },
+        };
+        const failure = unreachableFailure();
+        const source = new OfflineDataSource(brokenStore, networkAnswering("getNotes", failure));
+        assert.equal(await source.getNotes(null), failure);
     });
 });
 

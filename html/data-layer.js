@@ -16,7 +16,12 @@
  * ## Result shapes
  *
  * Read methods resolve to `{ok: true, ...the data}` on success, or to
- * `{ok: false, errorMessage, failureDetail}` on failure.
+ * `{ok: false, errorMessage, failureDetail, unreachable}` on failure —
+ * `unreachable` is true when the request never completed (the server could
+ * not be reached), and false when the server answered, whether with an
+ * error status or a body that could not be read. When the server is
+ * unreachable, the offline implementation serves reads from the local
+ * mirror instead of failing (see OfflineDataSource).
  *
  * Write methods resolve to an outcome object `{outcome, note, status,
  * errorMessage, failureDetail}`, where outcome is one of:
@@ -75,8 +80,13 @@ function recordFailure(description, error) {
 }
 
 /** Builds the failure form of a read result. */
-function readFailure(errorMessage, failureDetail) {
-    return {ok: false, errorMessage: errorMessage, failureDetail: failureDetail};
+function readFailure(errorMessage, failureDetail, unreachable) {
+    return {
+        ok: false,
+        errorMessage: errorMessage,
+        failureDetail: failureDetail,
+        unreachable: unreachable,
+    };
 }
 
 /** Builds the delivered form of a write outcome. */
@@ -122,14 +132,15 @@ async function fetchNoteHeaderPage(url) {
         response = await apiFetch(url, {method: "GET"});
     } catch (e) {
         if (e instanceof LoggedOutError) throw e;
-        return readFailure(null, recordFailure(`request to ${url} did not complete`, e));
+        return readFailure(null, recordFailure(`request to ${url} did not complete`, e), true);
     }
     if (!response.ok) {
-        return readFailure(await extractErrorMessage(response), `HTTP ${response.status} from ${url}`);
+        return readFailure(
+            await extractErrorMessage(response), `HTTP ${response.status} from ${url}`, false);
     }
     const parsed = await readJson(response, url);
     if (parsed.failureDetail !== null) {
-        return readFailure(null, parsed.failureDetail);
+        return readFailure(null, parsed.failureDetail, false);
     }
     return {
         ok: true,
@@ -145,14 +156,15 @@ async function fetchNote(url) {
         response = await apiFetch(url, {method: "GET"});
     } catch (e) {
         if (e instanceof LoggedOutError) throw e;
-        return readFailure(null, recordFailure(`request to ${url} did not complete`, e));
+        return readFailure(null, recordFailure(`request to ${url} did not complete`, e), true);
     }
     if (!response.ok) {
-        return readFailure(await extractErrorMessage(response), `HTTP ${response.status} from ${url}`);
+        return readFailure(
+            await extractErrorMessage(response), `HTTP ${response.status} from ${url}`, false);
     }
     const parsed = await readJson(response, url);
     if (parsed.failureDetail !== null) {
-        return readFailure(null, parsed.failureDetail);
+        return readFailure(null, parsed.failureDetail, false);
     }
     return {ok: true, note: parsed.data.note};
 }
@@ -260,12 +272,49 @@ function headerMatchesNote(header, note, fromTrashList) {
 }
 
 /**
+ * Sort comparator putting the newest modify_time first. Modify times are
+ * RFC 3339 strings in UTC, which order chronologically when compared as
+ * strings.
+ */
+function byModifyTimeNewestFirst(a, b) {
+    if (a.modify_time < b.modify_time) return 1;
+    if (a.modify_time > b.modify_time) return -1;
+    return 0;
+}
+
+/** The note header a list endpoint would send for this note. */
+function headerFromNote(note) {
+    return {
+        user_id: note.user_id,
+        note_id: note.note_id,
+        version_id: note.version_id,
+        title: note.title,
+        modify_time: note.modify_time,
+        format: note.format,
+    };
+}
+
+/**
+ * The headers of the mirrored notes on one side of the active/trash divide,
+ * newest first — the offline substitute for one of the server's two note
+ * lists.
+ */
+function mirroredHeaders(notes, fromTrashList) {
+    return notes
+        .filter((note) => fromTrashList === (note.delete_time !== undefined))
+        .sort(byModifyTimeNewestFirst)
+        .map(headerFromNote);
+}
+
+/**
  * The implementation used when a working IndexedDB is available. Every call
  * is served by the network — it holds a NetworkDataSource and delegates to
  * it — and a successful response is then written through to the local
- * mirror, keeping the mirror an accurate copy of what the server holds. All
- * mirror updates go through NoteStore's read-barrier-guarded operations, and
- * a local-store failure never changes a call's result: the network's answer
+ * mirror, keeping the mirror an accurate copy of what the server holds.
+ * When the server is unreachable, the offline-capable reads are served from
+ * the mirror instead (docs/pwa_design.md → "The Read Path"). All mirror
+ * updates go through NoteStore's read-barrier-guarded operations, and a
+ * local-store failure never changes a call's result: the network's answer
  * stands.
  */
 export class OfflineDataSource {
@@ -321,25 +370,75 @@ export class OfflineDataSource {
         return outcome;
     }
 
+    /**
+     * Offline fallback for the header-list reads: when the server was
+     * unreachable, the first page is answered from the mirror — every
+     * mirrored note on the requested side of the active/trash divide,
+     * newest first, in a single page with no continuation key. Every other
+     * failure is returned unchanged: a failure the server answered with, an
+     * unreachable *later* page (the mirror's complete list cannot continue
+     * a partially delivered server listing), and the case where the mirror
+     * itself cannot be read.
+     */
+    async serveHeadersFromMirror(networkFailure, continueKey, fromTrashList) {
+        if (!networkFailure.unreachable || continueKey !== null) {
+            return networkFailure;
+        }
+        try {
+            const notes = await this.store.getAllNotes();
+            console.log("data layer: serving the note list from the local mirror");
+            return {ok: true, noteHeaders: mirroredHeaders(notes, fromTrashList), continueKey: null};
+        } catch (e) {
+            recordFailure("could not serve the note list from the mirror", e);
+            return networkFailure;
+        }
+    }
+
+    /**
+     * Offline fallback for a single-note read: when the server was
+     * unreachable and the note is mirrored, the mirrored copy is served.
+     * Every other failure returns the network's failure unchanged: a
+     * failure the server answered with, a note that is not in the mirror,
+     * and the case where the mirror itself cannot be read.
+     */
+    async serveNoteFromMirror(networkFailure, noteId) {
+        if (!networkFailure.unreachable) {
+            return networkFailure;
+        }
+        try {
+            const mirrored = await this.store.getNote(noteId);
+            if (mirrored === undefined) {
+                return networkFailure;
+            }
+            console.log(`data layer: serving note ${noteId} from the local mirror`);
+            return {ok: true, note: mirrored};
+        } catch (e) {
+            recordFailure("could not serve a note from the mirror", e);
+            return networkFailure;
+        }
+    }
+
     async getNotes(continueKey) {
         const result = await this.network.getNotes(continueKey);
-        if (result.ok) {
-            await this.attemptLocalWrite(
-                "could not reconcile the mirror against active note headers",
-                () => this.reconcileHeaders(result.noteHeaders, false)
-            );
+        if (!result.ok) {
+            return this.serveHeadersFromMirror(result, continueKey, false);
         }
+        await this.attemptLocalWrite(
+            "could not reconcile the mirror against active note headers",
+            () => this.reconcileHeaders(result.noteHeaders, false)
+        );
         return result;
     }
 
     async getDeletedNotes(continueKey) {
         const result = await this.network.getDeletedNotes(continueKey);
-        if (result.ok) {
-            await this.attemptLocalWrite(
-                "could not reconcile the mirror against trash note headers",
-                () => this.reconcileHeaders(result.noteHeaders, true)
-            );
+        if (!result.ok) {
+            return this.serveHeadersFromMirror(result, continueKey, true);
         }
+        await this.attemptLocalWrite(
+            "could not reconcile the mirror against trash note headers",
+            () => this.reconcileHeaders(result.noteHeaders, true)
+        );
         return result;
     }
 
@@ -350,12 +449,13 @@ export class OfflineDataSource {
 
     async getNote(noteId) {
         const result = await this.network.getNote(noteId);
-        if (result.ok) {
-            await this.attemptLocalWrite(
-                "could not mirror a fetched note",
-                () => this.store.putNoteFromServer(result.note)
-            );
+        if (!result.ok) {
+            return this.serveNoteFromMirror(result, noteId);
         }
+        await this.attemptLocalWrite(
+            "could not mirror a fetched note",
+            () => this.store.putNoteFromServer(result.note)
+        );
         return result;
     }
 

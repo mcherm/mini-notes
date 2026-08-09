@@ -28,7 +28,8 @@
  * `NoteStore` needs):
  *
  * - `get(key)` — the stored value, or undefined
- * - `getAll(limit)` — all values in key order, or just the first `limit`
+ * - `getAll(limit)` — values in key order: all of them when `limit` is
+ *   undefined, otherwise just the first `limit`
  * - `put(value)` — insert or replace; resolves with the value's key
  * - `delete(key)`
  * - `clear()`
@@ -193,6 +194,13 @@ export class NoteStore {
     getNote(noteId) {
         return this.backend.transaction([NOTES_STORE], "readonly",
             (stores) => stores[NOTES_STORE].get(noteId)
+        );
+    }
+
+    /** Resolves with every mirrored note, in note_id order. */
+    getAllNotes() {
+        return this.backend.transaction([NOTES_STORE], "readonly",
+            (stores) => stores[NOTES_STORE].getAll(undefined)
         );
     }
 
