@@ -1,0 +1,210 @@
+{
+  "_description": [
+    "Shared test vectors for the two diff implementations, lambdas/api-v1/src/diff.rs and",
+    "html/diff.js. They are ports of one another and must produce byte-identical output,",
+    "so both test suites assert exact equality against note_diff.",
+    "",
+    "note_diff is the note diff in the UNDO direction -- what handle_edit_note.rs stores in",
+    "a note's undo_stack. It is format_note_diff(diff(new_title, old_title),",
+    "diff(new_body, old_body)). Applying it to the new note reproduces the old note;",
+    "applying it reversed to the old note reproduces the new note. It is null when nothing",
+    "changed.",
+    "",
+    "Regenerate by hand only with care: cargo test and node --test both check these values,",
+    "so an unexplained change here means one implementation drifted from the other."
+  ],
+  "vectors": [
+    {
+      "name": "nothing changed at all",
+      "old_title": "Shopping",
+      "new_title": "Shopping",
+      "old_body": "milk\neggs",
+      "new_body": "milk\neggs",
+      "note_diff": null
+    },
+    {
+      "name": "title only",
+      "old_title": "Shopping",
+      "new_title": "Shopping List",
+      "old_body": "milk\neggs",
+      "new_body": "milk\neggs",
+      "note_diff": "t:8[ List|]"
+    },
+    {
+      "name": "body only",
+      "old_title": "Shopping",
+      "new_title": "Shopping",
+      "old_body": "milk\neggs",
+      "new_body": "milk\neggs\nbread",
+      "note_diff": "b:9[\nbread|]"
+    },
+    {
+      "name": "both title and body",
+      "old_title": "Shopping",
+      "new_title": "Groceries",
+      "old_body": "milk\neggs",
+      "new_body": "milk\nbread",
+      "note_diff": "t:[Groceries|Shopping]|b:5[bread|eggs]"
+    },
+    {
+      "name": "delete in the middle",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "dog cat bat kit pop",
+      "new_body": "dog kit pop",
+      "note_diff": "b:4[|cat bat ]7"
+    },
+    {
+      "name": "delete at the start",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "abc def",
+      "new_body": "def",
+      "note_diff": "b:[|abc ]3"
+    },
+    {
+      "name": "delete at the end",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "abc def",
+      "new_body": "abc",
+      "note_diff": "b:3[| def]"
+    },
+    {
+      "name": "delete everything",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "hello",
+      "new_body": "",
+      "note_diff": "b:[|hello]"
+    },
+    {
+      "name": "insert in the middle",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "dog pop",
+      "new_body": "dog cat pop",
+      "note_diff": "b:4[cat |]3"
+    },
+    {
+      "name": "insert at the start",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "def",
+      "new_body": "abc def",
+      "note_diff": "b:[abc |]3"
+    },
+    {
+      "name": "insert at the end",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "abc",
+      "new_body": "abc def",
+      "note_diff": "b:3[ def|]"
+    },
+    {
+      "name": "insert into empty",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "",
+      "new_body": "hello",
+      "note_diff": "b:[hello|]"
+    },
+    {
+      "name": "replace in the middle",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "the cat sat",
+      "new_body": "the dog sat",
+      "note_diff": "b:4[dog|cat]4"
+    },
+    {
+      "name": "complete replacement",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "abc",
+      "new_body": "xyz",
+      "note_diff": "b:[xyz|abc]"
+    },
+    {
+      "name": "two edits sharing an anchor",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "The first paragraph mentions a cat. The second paragraph mentions a rat.",
+      "new_body": "The first paragraph mentions a dog. The second paragraph mentions a bat.",
+      "note_diff": "b:31[dog|cat]34[b|r]3"
+    },
+    {
+      "name": "unrelated text is not aligned",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "Alpha bravo charlie delta",
+      "new_body": "Zulu yankee xray whiskey",
+      "note_diff": "b:[Zulu yankee xray whiskey|Alpha bravo charlie delta]"
+    },
+    {
+      "name": "escaped characters in content",
+      "old_title": "a]b",
+      "new_title": "a|b",
+      "old_body": "back\\slash",
+      "new_body": "back|pipe",
+      "note_diff": "t:1[\\||\\]]1|b:4[\\|pipe|\\\\slash]"
+    },
+    {
+      "name": "all three escaped characters",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "]|\\",
+      "new_body": "\\|]",
+      "note_diff": "b:[\\\\\\|\\]|\\]\\|\\\\]"
+    },
+    {
+      "name": "unicode character counting",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "café ok",
+      "new_body": "café no",
+      "note_diff": "b:5[no|ok]"
+    },
+    {
+      "name": "emoji is one character",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "I like 🐱 pets",
+      "new_body": "I like 🐶 pets",
+      "note_diff": "b:7[🐶|🐱]5"
+    },
+    {
+      "name": "grapheme cluster may be split",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "café shop",
+      "new_body": "cafe shop",
+      "note_diff": "b:4[|́]5"
+    },
+    {
+      "name": "astral characters on both sides",
+      "old_title": "😀😁",
+      "new_title": "😀😂",
+      "old_body": "start 🚀 middle 🚁 end",
+      "new_body": "start 🚀 centre 🚁 end",
+      "note_diff": "t:1[😂|😁]|b:8[centr|middl]7"
+    },
+    {
+      "name": "multi-line note edited in two places",
+      "old_title": "Notes",
+      "new_title": "Notes",
+      "old_body": "Line one is here.\nLine two is here.\nLine three is here.\nLine four is here.",
+      "new_body": "Line one is HERE.\nLine two is here.\nLine three is here.\nLine four is THERE.",
+      "note_diff": "b:12[HERE|here]53[THERE|here]1"
+    },
+    {
+      "name": "newline inserted",
+      "old_title": "t",
+      "new_title": "t",
+      "old_body": "one two",
+      "new_body": "one\ntwo",
+      "note_diff": "b:3[\n| ]3"
+    }
+  ]
+}

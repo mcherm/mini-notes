@@ -28,7 +28,15 @@
       "Bash(cargo-lambda zig *)",
       "Bash(docker info *)",
       "Bash(jj st *)",
-      "Bash(jj diff *)"
+      "Bash(jj diff *)",
+      "WebFetch(domain:262.ecma-international.org)",
+      "Bash(node --test tests/)",
+      "Bash(node --test tests/diff.test.mjs)",
+      "Bash(node --test tests)",
+      "Bash(node --test)",
+      "Bash(node --test tests/*.test.mjs)",
+      "Bash(node --test \"tests/**/*.test.mjs\")",
+      "Bash(just test *)"
     ]
   }
 }

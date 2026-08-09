@@ -166,9 +166,20 @@ deploy-frontend: _check-aws-env
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
-# Run the test suite.
-test:
+# Run every test suite.
+test: test-rust test-js
+
+# Run the Rust test suite.
+test-rust:
     cargo test
+
+# Run the JavaScript test suite (requires node; no npm packages are used).
+test-js:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The glob is quoted so that node expands it rather than the shell: handing node
+    # a bare directory makes it treat the directory itself as a single test file.
+    node --test "tests/**/*.test.mjs"
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 

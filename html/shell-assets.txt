@@ -6,6 +6,7 @@
 /main.js
 /api.js
 /data-layer.js
+/diff.js
 /manifest.json
 /favicon.ico
 /favicon-16x16.png

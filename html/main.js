@@ -7,6 +7,7 @@ import {
     setSessionExpiredHandler,
 } from "./api.js";
 import { dataLayer } from "./data-layer.js";
+import { applyNoteDiff } from "./diff.js";
 
 // ========== Constants ==========
 
@@ -1128,180 +1129,18 @@ function updateNoteInfo() {
 // ========== Apply Diff ==========
 
 /**
- * This applies the given diff (in the format described below) to the title and body of the
- * currently-displayed note.
+ * This applies the given note diff to the title and body of the currently-displayed note,
+ * reading them from the page and writing the results back.
  *
- * The format of the diff is one if these ("{" and "}" enclose descriptive text describing content;
- * other characters are literal). It can be any of three forms: "b:{body-diff}", or "t:{title-diff},
- * or "t:{title-diff}|b:{body-diff}". In each case, {body-diff} is a string diff (as processed by
- * applyStringDiff).
+ * Takes a note diff string (in the format described by formatNoteDiff() in diff.js) and a
+ * boolean saying whether to reverse the effect of the diff instead of applying it.
  */
-function applyNoteDiff(diff, reverse=false) {
+function applyNoteDiffToPage(diff, reverse) {
     const titleInput = document.querySelector("article input.title");
     const bodyTextarea = document.querySelector("article textarea.note-body");
-
-    let section = diff;
-    while (section.length > 0) {
-        const colonPos = section.indexOf(":");
-        if (colonPos === -1) break;
-        const key = section.substring(0, colonPos);
-        const sectionDiff = section.substring(colonPos + 1);
-
-        if (key === "t") {
-            const result = applyStringDiff(titleInput.value, sectionDiff, reverse);
-            titleInput.value = result.asApplied;
-            section = result.remaining;
-        } else if (key === "b") {
-            const result = applyStringDiff(bodyTextarea.value, sectionDiff, reverse);
-            bodyTextarea.value = result.asApplied;
-            section = result.remaining;
-        } else {
-            break; // unknown key
-        }
-
-        // Strip leading '|' separator before next section
-        if (section.startsWith("|")) {
-            section = section.substring(1);
-        }
-    }
-}
-
-/**
- * This is passed a string and a "diff" in the format described below, and it returns a string made by
- * applying the diff. Alternately, if reverse=true is provided it will reverse the effect of the diff.
- * Actually, it is slightly more complex than that, because instead of being passed a diff, it can be
- * passed a diff followed by a "|" and other characters, and it will return the unparsed portion of
- * the string. So it ACTUALLY returns an object with three fields: "asApplied" (a string with the
- * result of applying the diff to s), "remaining" (a string containing the rest of the diff string
- * that was NOT part of the leading diff), and "appliesCleanly" (a boolean which is true normally, but
- * false if there was an error applying the diff.
- *
- * The format of the diff is a series of entries, where each entry is (1) an 'unedited range', which is
- * a series of 1 or more digits ("0".."9"), or (2) a 'change' which looks like
- * "[{text-to-remove}|{text-to-add}]" (note: "{" and "}" wrap descriptive text, "[", "|", and "]" are
- * literals).
- *
- * An 'unedited range' is interpreted as a number in base 10 and it means that many characters in the
- * original string should be left as-is (starting from the beginning, or wherever the last bit left off).
- * A 'change' expects to find the literal text-to-remove next, and it will remove that and replace it
- * with the text-to-add. Both text-to-remove and text-to-add allow escaped characters: a "\|" means a
- * single "|", a "\]" means a single "]", and a "\\" means a single "\".
- *
- * If at any point, the next bit of text does NOT perfectly match the text-to-remove, then the diff
- * does not apply cleanly. Instead of deleting anything, it will skip forward that many characters and
- * insert the text-to-add. If we reach the end of the source string without reaching the end of the
- * characters in the diff that also means it did not apply cleanly.
- *
- * Notice that a diff can contain a "|" character inside a 'change', and within a text-to-remove or
- * text-to-add if the "|" is preceeded by a "\", but it CANNOT contain a "|" outside of a 'change'.
- * If a "|" is encountered outside of a 'change' then that indicates the end of the diff and the
- * remainder of the diff input (including the "|") are returned in the "remaining" field.
- */
-function applyStringDiff(s, diff, reverse=false) {
-    const srcChars = Array.from(s); // split into Unicode code points
-    let srcPos = 0;
-    let diffPos = 0;
-    let asApplied = "";
-    let appliesCleanly = true;
-
-    while (diffPos < diff.length) {
-        const ch = diff[diffPos];
-
-        if (ch >= "0" && ch <= "9") {
-            // Unedited range: read all consecutive digits as a base-10 number
-            let numStr = "";
-            while (diffPos < diff.length && diff[diffPos] >= "0" && diff[diffPos] <= "9") {
-                numStr += diff[diffPos];
-                diffPos++;
-            }
-            const count = parseInt(numStr, 10);
-            for (let i = 0; i < count; i++) {
-                if (srcPos < srcChars.length) {
-                    asApplied += srcChars[srcPos];
-                    srcPos++;
-                } else {
-                    appliesCleanly = false;
-                }
-            }
-        } else if (ch === "[") {
-            // Change: parse [text-to-remove|text-to-add]
-            diffPos++; // skip '['
-            const textToRemove = readEscaped("|");
-            const textToAdd = readEscaped("]");
-
-            const expectedText = reverse ? textToAdd : textToRemove;
-            const insertText = reverse ? textToRemove : textToAdd;
-
-            // Check if source matches the expected text
-            const expectedChars = Array.from(expectedText);
-            let matches = true;
-            if (srcPos + expectedChars.length > srcChars.length) {
-                matches = false;
-            } else {
-                for (let i = 0; i < expectedChars.length; i++) {
-                    if (srcChars[srcPos + i] !== expectedChars[i]) {
-                        matches = false;
-                        break;
-                    }
-                }
-            }
-
-            if (matches) {
-                srcPos += expectedChars.length; // skip the matched text
-            } else {
-                appliesCleanly = false;
-                // Copy over expectedChars.length characters from source, then insert
-                const copyCount = Math.min(expectedChars.length, srcChars.length - srcPos);
-                for (let i = 0; i < copyCount; i++) {
-                    asApplied += srcChars[srcPos];
-                    srcPos++;
-                }
-            }
-            asApplied += insertText;
-        } else if (ch === "|") {
-            // Bare '|' outside a change: end of this diff
-            break;
-        } else {
-            throw new Error(`Invalid diff: unexpected character '${ch}' at position ${diffPos}`);
-        }
-    }
-
-    // Any remaining source characters
-    if (srcPos < srcChars.length) {
-        for (let i = srcPos; i < srcChars.length; i++) {
-            asApplied += srcChars[i];
-        }
-        appliesCleanly = false;
-    }
-
-    const remaining = diff.substring(diffPos);
-    return { asApplied, remaining, appliesCleanly };
-
-    /** Helper: read characters from diff until unescaped terminator, advancing diffPos. */
-    function readEscaped(terminator) {
-        let result = "";
-        while (diffPos < diff.length) {
-            const c = diff[diffPos];
-            if (c === "\\") {
-                diffPos++;
-                if (diffPos < diff.length) {
-                    const escaped = diff[diffPos];
-                    if (escaped !== "\\" && escaped !== "]" && escaped !== "|") {
-                        throw new Error(`Invalid diff: unexpected escape sequence '\\${escaped}' at position ${diffPos - 1}`);
-                    }
-                    result += escaped;
-                    diffPos++;
-                }
-            } else if (c === terminator) {
-                diffPos++; // skip the terminator
-                return result;
-            } else {
-                result += c;
-                diffPos++;
-            }
-        }
-        return result; // reached end without finding terminator
-    }
+    const result = applyNoteDiff({title: titleInput.value, body: bodyTextarea.value}, diff, reverse);
+    titleInput.value = result.title;
+    bodyTextarea.value = result.body;
 }
 
 // ========== Actions ==========
@@ -1489,7 +1328,7 @@ function actionUndoBtn() {
         return;
     }
     const diff = currentNote.undo_stack.pop();
-    applyNoteDiff(diff);
+    applyNoteDiffToPage(diff, false);
     redo_stack.push(diff);
     unfocusedEditsPending = true;
     restartUnfocusedEditTimer();
@@ -1502,7 +1341,7 @@ function actionRedoBtn() {
         return;
     }
     const diff = redo_stack.pop();
-    applyNoteDiff(diff, true);
+    applyNoteDiffToPage(diff, true);
     currentNote.undo_stack.push(diff);
     unfocusedEditsPending = true;
     restartUnfocusedEditTimer();

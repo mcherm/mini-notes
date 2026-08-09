@@ -137,9 +137,10 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 ## Note Data Caching
 
 > **Implementation status:** this section is only partly implemented. The
-> backend changes below are done, and the data-access interface exists
+> backend changes below are done, the data-access interface exists
 > (`html/data-layer.js`) with the passthrough implementation as its only
-> implementation. Nothing else is: there is no local store, no update queue, no
+> implementation, and the diff generator exists (`html/diff.js`) but has no
+> caller yet. Nothing else is: there is no local store, no update queue, no
 > sync engine, and no feature detection, so every read and write still goes
 > straight to the server, the `queued` outcome never occurs, and the app does
 > not yet function offline.
@@ -320,7 +321,10 @@ The notes stored in the `IndexedDB` will need to have the following fields. This
 | undo_stack  | A diff is generated locally (see below).                               |
 | delete_time | Set by system clock on delete-note; cleared by recover-deleted-note.   |
 
-Generating the undo diff for offline edits requires a JavaScript implementation of the diff format (specified in `design_notes.md`), maintained in parallel with the Rust implementation. A shared file of test vectors that both implementations must pass keeps the two in agreement.
+Generating the undo diff for offline edits requires a JavaScript implementation of the diff format (specified in
+`design_notes.md`), maintained in parallel with the Rust implementation. The two are ports of one another and produce
+byte-identical output; the shared test vectors in `tests/diff_vectors.json`, which both test suites assert against,
+keep them in agreement.
 
 ### Required Backend Changes
 

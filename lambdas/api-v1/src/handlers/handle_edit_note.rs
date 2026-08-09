@@ -86,7 +86,7 @@ pub async fn handle_edit_note(
     let (note_diff_opt, mut undo_stack): (Option<String>, Vec<String>) = match existing_note {
         None => (None, Vec::new()),
         Some(note) => (
-            format_note_diff(
+            diff::format_note_diff(
                 diff::diff(&edit_note_fields.title, &note.title),
                 diff::diff(&edit_note_fields.body, &note.body)
             ),
@@ -152,17 +152,6 @@ pub async fn handle_edit_note(
                 Err(http_error(500, "Update note failed"))
             }
         }
-    }
-}
-
-/// Combine a title_diff and a body_diff (both optional) into a single string
-/// representing differences in a note.
-fn format_note_diff(title_diff: Option<String>, body_diff: Option<String>) -> Option<String> {
-    match (title_diff, body_diff) {
-        (None, None) => None,
-        (None, Some(bd)) => Some(format!("b:{bd}")),
-        (Some(td), None) => Some(format!("t:{td}")),
-        (Some(td), Some(bd)) => Some(format!("t:{td}|b:{bd}")),
     }
 }
 

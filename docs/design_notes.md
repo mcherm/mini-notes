@@ -576,6 +576,11 @@ A block of text containing sections
 be deleted, then "text-to-insert" should be inserted. Both text strings are escaped: any "]", "|" or "\" character
 will be escaped by placing a "\" in front of it.
 
+Built using this is a format for describing the change to a note. That looks like he one of "t:{title-diff}" (if the
+title was the only part that changed, "b:{body-diff}" (if the body was the only part that changed), or
+"t:{title-diff}|b:{body-diff}" (if both changed). Within that notation "{" and "}" enclose descriptive text; other
+characters are literal.
+
 ## Import/Export of Notes
 
 **Design Ideation**:
