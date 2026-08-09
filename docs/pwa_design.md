@@ -144,11 +144,18 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > the mirror and the update queue, with the read barrier) all exist. Feature
 > detection at startup selects the offline or passthrough implementation; in
 > offline mode every successful server response is written through to the
-> mirror, and the mirror is wiped at logout and on a rejected session. Not
-> yet implemented: reads never fall back to the mirror, no command is ever
-> enqueued (writes go straight to the server, so the `queued` outcome never
-> occurs and the diff generator still has no caller), and there is no sync
-> engine — the app does not yet function offline.
+> mirror, and the mirror is wiped at logout and on a rejected session. The
+> read path is complete: when the server is unreachable, get-notes,
+> get-deleted-notes, get-note and search-notes are served from the mirror
+> (lists and search answer in a single page); get-note races the server
+> against a timeout and serves the mirrored copy when it expires
+> (Mechanism 1); and the Mechanism 3 background refresh runs at launch,
+> after login, and hourly while the app is visible — it is also what
+> populates an empty mirror. The app is usable read-only while offline. Not
+> yet implemented: no command is ever enqueued — writes go straight to the
+> server, so the `queued` outcome never occurs, the diff generator still has
+> no caller, and an offline edit fails exactly as before — and there is no
+> sync engine.
 
 ### Goals
 

@@ -6,13 +6,27 @@ import {
     LoggedOutError,
     setSessionExpiredHandler,
 } from "./api.js";
-import { dataLayer } from "./data-layer.js";
+import { byModifyTimeNewestFirst, dataLayer } from "./data-layer.js";
 import { applyNoteDiff } from "./diff.js";
 
 // ========== Constants ==========
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const STALE_UNFOCUSED_EDIT_MS = 60 * 1000; // 1 minute
+/**
+ * How long a note fetch may run before the locally mirrored copy (if any)
+ * is served instead. Tuned to usually leave the server enough time to
+ * answer — including a cold start — without making a user on a hanging
+ * connection wait long enough to feel stuck.
+ */
+const NOTE_FETCH_TIMEOUT_MS = 3 * 1000;
+/**
+ * How often the background pass keeping the local mirror in step with the
+ * server runs while the app stays open. Deliberately long: the pass only
+ * catches changes made from other devices, which the app also picks up
+ * when a note is opened and on the stale-tab refresh.
+ */
+const MIRROR_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 // ========== State ==========
 
@@ -179,6 +193,9 @@ async function stateUpdateForLogin() {
     document.querySelector("#email-entry").value = "";
     document.querySelector("#password-entry").value = "";
     await loadNoteHeaders(null);
+    // A fresh login starts with an empty mirror (logout wiped it); this
+    // populates it. Not awaited: it never rejects, and login must not wait.
+    dataLayer.refreshMirror();
 }
 
 /** Enters trash view: shows deleted notes in read-only mode. */
@@ -650,6 +667,10 @@ async function sendPasswordResetEmail() {
  *   continueKey passed below.
  * continueKey: null for a fresh first-page load (replaces the list), or the
  *   continuation token from a previous result (appends).
+ * sortByModifyTime: true to re-sort the whole accumulated list newest-first
+ *   after folding in the page, re-rendering it entirely. Search results
+ *   need this: their pages arrive in storage (note_id) order, unlike the
+ *   list endpoints, which deliver modify_time order themselves.
  *
  * Returns true on success, false on failure (so callers like searchNotes
  * can decide whether to auto-follow further pages).
@@ -664,7 +685,7 @@ async function sendPasswordResetEmail() {
  * sentinel remains visible. A real scroll still fires the observer
  * normally because that's a genuine intersection-state change.
  */
-async function loadNotePage(fetchPage, continueKey) {
+async function loadNotePage(fetchPage, continueKey, sortByModifyTime) {
     isLoadingNotes = true;
     clearInlineAlert("#note-list-alert");
     try {
@@ -680,10 +701,16 @@ async function loadNotePage(fetchPage, continueKey) {
         if (continueKey === null) {
             // First page: replace
             noteHeaders = newHeaders;
-            renderNoteList();
         } else {
             // Subsequent page: append
             noteHeaders = noteHeaders.concat(newHeaders);
+        }
+        if (sortByModifyTime) {
+            noteHeaders.sort(byModifyTimeNewestFirst);
+            renderNoteList();
+        } else if (continueKey === null) {
+            renderNoteList();
+        } else {
             appendNoteHeaders(newHeaders);
         }
         updateSentinel();
@@ -704,12 +731,12 @@ async function loadNotePage(fetchPage, continueKey) {
  * to get the first block of values.
  */
 async function loadNoteHeaders(continueKey) {
-    await loadNotePage((ck) => dataLayer.getNotes(ck), continueKey);
+    await loadNotePage((ck) => dataLayer.getNotes(ck), continueKey, false);
 }
 
 /** Fetches deleted note headers and renders the note list. */
 async function loadTrashNoteHeaders(continueKey) {
-    await loadNotePage((ck) => dataLayer.getDeletedNotes(ck), continueKey);
+    await loadNotePage((ck) => dataLayer.getDeletedNotes(ck), continueKey, false);
 }
 
 /** Fetches note headers matching a search string and renders the note list. */
@@ -717,6 +744,7 @@ async function searchNotes(searchString, continueKey) {
     const succeeded = await loadNotePage(
         (ck) => dataLayer.searchNotes(searchString, ck),
         continueKey,
+        true,
     );
     // Auto-follow continuation keys since search results are filtered and small.
     // Skip if the load failed — auto-follow would just fail the same way.
@@ -1074,7 +1102,7 @@ async function loadNote(noteId) {
     renderNote();
     let result;
     try {
-        result = await dataLayer.getNote(noteId);
+        result = await dataLayer.getNote(noteId, NOTE_FETCH_TIMEOUT_MS);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         if (intendedCurrentNoteId === noteId) {
@@ -1540,6 +1568,18 @@ setSessionExpiredHandler(stateUpdateForLogout);
 async function startUp() {
     await dataLayer.init();
     await loadNoteHeaders(null);
+    // The launch-time mirror refresh. The load above settles the login
+    // question first: a 401 has flipped the logged-in class off by now.
+    // Not awaited: it never rejects, and startup must not wait.
+    if (isLoggedIn()) {
+        dataLayer.refreshMirror();
+    }
+}
+
+/** Runs the periodic mirror refresh, skipped when logged out or hidden. */
+function actionMirrorRefreshTimer() {
+    if (!isLoggedIn() || document.visibilityState === "hidden") return;
+    dataLayer.refreshMirror();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1593,6 +1633,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.addEventListener("visibilitychange", actionOnVisibilityChange);
     window.addEventListener("focus", actionOnWindowFocus);
     window.addEventListener("blur", actionOnWindowBlur);
+    setInterval(actionMirrorRefreshTimer, MIRROR_REFRESH_INTERVAL_MS);
 
     // Fix any links to work in both dev & prod environments
     document.querySelectorAll("a").forEach(a => {

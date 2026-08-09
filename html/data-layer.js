@@ -197,6 +197,31 @@ async function sendWriteCommand(url, options) {
     return writeDelivered(note, response.status, parsed.failureDetail);
 }
 
+/** Sentinel resolved by raceAgainstTimeout when the timeout fires first. */
+const FETCH_TIMED_OUT = Symbol("fetch timed out");
+
+/**
+ * Resolves with the promise's value — or with FETCH_TIMED_OUT when the
+ * promise has not settled within timeoutMs. The promise keeps running
+ * either way. Its eventual settlement is always observed here, so a fetch
+ * abandoned to the timeout can never surface as an unhandled rejection.
+ */
+function raceAgainstTimeout(promise, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(FETCH_TIMED_OUT), timeoutMs);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
+
 /** Options for a write command that sends a JSON body. */
 function jsonRequest(method, body) {
     return {
@@ -228,7 +253,11 @@ class NetworkDataSource {
             `${getApiBaseUrl()}/api/v1/note_search?${query}${continueKeyQuery(continueKey, "&")}`);
     }
 
-    getNote(noteId) {
+    /**
+     * raceTimeoutMs is part of the shared interface but means nothing here:
+     * with no local copy to fall back to, the network is simply awaited.
+     */
+    getNote(noteId, raceTimeoutMs) {
         return fetchNote(noteUrl("/api/v1/notes/", noteId));
     }
 
@@ -256,6 +285,9 @@ class NetworkDataSource {
         return sendWriteCommand(noteUrl("/api/v1/deleted_notes/", noteId), {method: "DELETE"});
     }
 
+    /** There is no mirror in this mode, so there is nothing to refresh. */
+    async refreshMirror() {}
+
     /** Nothing is stored locally in this mode, so there is nothing to wipe. */
     async wipeLocalData() {}
 }
@@ -276,7 +308,7 @@ function headerMatchesNote(header, note, fromTrashList) {
  * RFC 3339 strings in UTC, which order chronologically when compared as
  * strings.
  */
-function byModifyTimeNewestFirst(a, b) {
+export function byModifyTimeNewestFirst(a, b) {
     if (a.modify_time < b.modify_time) return 1;
     if (a.modify_time > b.modify_time) return -1;
     return 0;
@@ -307,6 +339,23 @@ function mirroredHeaders(notes, fromTrashList) {
 }
 
 /**
+ * The headers of the mirrored active notes matching a search — the offline
+ * substitute for a server-side search, matching its semantics: the search
+ * string occurs somewhere in the title or body, compared case-insensitively;
+ * trashed notes are not searched; and results come in note_id order, exactly
+ * as the server returns them. Presentation order is the UI's concern — it
+ * sorts search results itself, whichever implementation served them.
+ */
+function searchMirroredNotes(notes, searchString) {
+    const searchLower = searchString.toLowerCase();
+    return notes
+        .filter((note) => note.delete_time === undefined)
+        .filter((note) => note.title.toLowerCase().includes(searchLower)
+            || note.body.toLowerCase().includes(searchLower))
+        .map(headerFromNote);
+}
+
+/**
  * The implementation used when a working IndexedDB is available. Every call
  * is served by the network — it holds a NetworkDataSource and delegates to
  * it — and a successful response is then written through to the local
@@ -321,6 +370,7 @@ export class OfflineDataSource {
     constructor(store, network) {
         this.store = store;
         this.network = network;
+        this.refreshInProgress = false;
     }
 
     /**
@@ -442,13 +492,49 @@ export class OfflineDataSource {
         return result;
     }
 
-    /** Served by the network; search pages are not used to maintain the mirror. */
-    searchNotes(searchString, continueKey) {
-        return this.network.searchNotes(searchString, continueKey);
+    /**
+     * Offline fallback for search: when the server was unreachable, the
+     * first page is answered by searching the mirror, with every match in a
+     * single page. The same failures pass through unchanged as for
+     * serveHeadersFromMirror.
+     */
+    async serveSearchFromMirror(networkFailure, searchString, continueKey) {
+        if (!networkFailure.unreachable || continueKey !== null) {
+            return networkFailure;
+        }
+        try {
+            const notes = await this.store.getAllNotes();
+            console.log("data layer: serving a search from the local mirror");
+            return {
+                ok: true,
+                noteHeaders: searchMirroredNotes(notes, searchString),
+                continueKey: null,
+            };
+        } catch (e) {
+            recordFailure("could not serve a search from the mirror", e);
+            return networkFailure;
+        }
     }
 
-    async getNote(noteId) {
-        const result = await this.network.getNote(noteId);
+    /**
+     * Served by the network when it answers; search pages are not used to
+     * maintain the mirror.
+     */
+    async searchNotes(searchString, continueKey) {
+        const result = await this.network.searchNotes(searchString, continueKey);
+        if (!result.ok) {
+            return this.serveSearchFromMirror(result, searchString, continueKey);
+        }
+        return result;
+    }
+
+    /**
+     * The network read of a single note, with its mirror bookkeeping: a
+     * fetched note is written through to the mirror, and an unreachable
+     * failure is served from it.
+     */
+    async readNoteFromNetwork(noteId) {
+        const result = await this.network.getNote(noteId, null);
         if (!result.ok) {
             return this.serveNoteFromMirror(result, noteId);
         }
@@ -457,6 +543,47 @@ export class OfflineDataSource {
             () => this.store.putNoteFromServer(result.note)
         );
         return result;
+    }
+
+    /**
+     * Reads a note, racing the network against raceTimeoutMs (Mechanism 1,
+     * docs/pwa_design.md → "Update on Edit"). Normally the network settles
+     * in time and its result stands, exactly as for the other reads. When
+     * it has not settled within raceTimeoutMs and the note is mirrored, the
+     * mirrored copy is served so that a connection that hangs — rather than
+     * failing fast — cannot stall opening a note; the abandoned fetch still
+     * finishes in the background, updating the mirror for later reads. When
+     * the note is not mirrored (or the mirror cannot be read), there is
+     * nothing to serve and the network is waited out after all. Pass null
+     * as raceTimeoutMs to wait for the network with no time limit.
+     *
+     * Always resolves to a read result ({ok: true, note} or the failure
+     * shape), despite the mixed-looking returns: as in any async function,
+     * a returned plain object becomes the resolution value, and a returned
+     * promise (networkRead) is adopted — the caller's promise settles with
+     * that promise's eventual result, never with the promise itself.
+     */
+    async getNote(noteId, raceTimeoutMs) {
+        const networkRead = this.readNoteFromNetwork(noteId);
+        if (raceTimeoutMs === null) {
+            return networkRead;
+        }
+        const raced = await raceAgainstTimeout(networkRead, raceTimeoutMs);
+        if (raced !== FETCH_TIMED_OUT) {
+            return raced;
+        }
+        let mirrored;
+        try {
+            mirrored = await this.store.getNote(noteId);
+        } catch (e) {
+            recordFailure("could not read the mirror while racing a slow note fetch", e);
+            mirrored = undefined;
+        }
+        if (mirrored === undefined) {
+            return networkRead;
+        }
+        console.log(`data layer: fetch timed out; serving note ${noteId} from the local mirror`);
+        return {ok: true, note: mirrored};
     }
 
     async newNote({title, body, format}) {
@@ -493,6 +620,94 @@ export class OfflineDataSource {
             );
         }
         return outcome;
+    }
+
+    /**
+     * Collects every header from one of the server's paged note lists by
+     * following continuation keys to the end. Resolves with the combined
+     * header array, or with null when any page fails — a partial listing
+     * must not be acted on, since a note missing from it would look
+     * deleted.
+     */
+    async collectAllHeaders(fetchPage) {
+        const headers = [];
+        let continueKey = null;
+        do {
+            const result = await fetchPage(continueKey);
+            if (!result.ok) {
+                return null;
+            }
+            headers.push(...result.noteHeaders);
+            continueKey = result.continueKey;
+        } while (continueKey !== null);
+        return headers;
+    }
+
+    /**
+     * One pass of the background refresh (docs/pwa_design.md →
+     * "Background Updates"): fetches the server's complete active and trash
+     * lists, refetches and mirrors every note that is new or differs from
+     * its mirrored copy, and removes mirrored notes the server no longer
+     * lists. This is also what populates an empty mirror. A note with
+     * queued commands is skipped (the read barrier); a note whose refetch
+     * fails is skipped, without stopping the pass.
+     *
+     * Never rejects, and never runs concurrently with itself: a call while
+     * a pass is already running resolves immediately, and any failure ends
+     * the pass quietly — the next pass starts over.
+     */
+    async refreshMirror() {
+        if (this.refreshInProgress) {
+            return;
+        }
+        this.refreshInProgress = true;
+        try {
+            await this.runRefreshPass();
+        } catch (e) {
+            if (!(e instanceof LoggedOutError)) {
+                recordFailure("the mirror refresh pass failed", e);
+            }
+        } finally {
+            this.refreshInProgress = false;
+        }
+    }
+
+    /** The body of refreshMirror, free to throw. */
+    async runRefreshPass() {
+        const activeHeaders =
+            await this.collectAllHeaders((ck) => this.network.getNotes(ck));
+        if (activeHeaders === null) {
+            return;
+        }
+        const trashedHeaders =
+            await this.collectAllHeaders((ck) => this.network.getDeletedNotes(ck));
+        if (trashedHeaders === null) {
+            return;
+        }
+        const listed = activeHeaders.map((header) => ({header: header, fromTrashList: false}))
+            .concat(trashedHeaders.map((header) => ({header: header, fromTrashList: true})));
+
+        for (const {header, fromTrashList} of listed) {
+            const mirrored = await this.store.getNote(header.note_id);
+            if (mirrored !== undefined && headerMatchesNote(header, mirrored, fromTrashList)) {
+                continue;
+            }
+            if (await this.store.hasQueuedCommands(header.note_id)) {
+                continue;
+            }
+            const result = await this.network.getNote(header.note_id, null);
+            if (!result.ok) {
+                continue;
+            }
+            await this.store.putNoteFromServer(result.note);
+        }
+
+        const serverNoteIds = new Set(listed.map(({header}) => header.note_id));
+        for (const mirrored of await this.store.getAllNotes()) {
+            if (!serverNoteIds.has(mirrored.note_id)) {
+                await this.store.deleteNoteFromServer(mirrored.note_id);
+            }
+        }
     }
 
     /** Erases the mirror and the queue. Never rejects; a failure is logged. */
@@ -556,9 +771,14 @@ export const dataLayer = {
     /**
      * Reads a single note, active or deleted.
      * Resolves to {ok: true, note} or {ok: false, errorMessage}.
+     * raceTimeoutMs bounds how long the caller can be left waiting when a
+     * locally mirrored copy could be served instead: when the network has
+     * not answered within that many milliseconds and the note is mirrored,
+     * the mirrored copy is returned. Pass null for no time limit. In
+     * online-only mode there is no mirror and the value is ignored.
      */
-    getNote(noteId) {
-        return dataSource.getNote(noteId);
+    getNote(noteId, raceTimeoutMs) {
+        return dataSource.getNote(noteId, raceTimeoutMs);
     },
 
     /** Creates a note. Resolves to a write outcome (see the file header). */
@@ -593,6 +813,17 @@ export const dataLayer = {
     /** Permanently destroys a trashed note. Resolves to a write outcome. */
     destroyNote(noteId) {
         return dataSource.destroyNote(noteId);
+    },
+
+    /**
+     * Runs one pass of the background refresh that keeps the local mirror
+     * in step with the server (and populates it in the first place); a
+     * no-op in online-only mode. The UI calls this at launch, after login,
+     * and periodically. Resolves when the pass is finished and never
+     * rejects, so it is safe to invoke without awaiting.
+     */
+    refreshMirror() {
+        return dataSource.refreshMirror();
     },
 
     /**
