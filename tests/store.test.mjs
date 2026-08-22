@@ -35,6 +35,16 @@ function makeCommand(noteId, sourceVersionId) {
     };
 }
 
+/** A queue record for a command whose payload is empty (delete or recover). */
+function makeBareCommand(noteId, commandType, sourceVersionId) {
+    return {
+        note_id: noteId,
+        command_type: commandType,
+        payload: {},
+        source_version_id: sourceVersionId,
+    };
+}
+
 let backend;
 let store;
 
@@ -275,6 +285,102 @@ describe("the write path", () => {
         const seq = await store.commitLocalWrite(null, makeCommand("note_00001", 3));
         await store.removeFailedCommand(seq, "note_00001");
         assert.equal(await store.hasQueuedCommands("note_00001"), false);
+    });
+
+    test("removeFailedCommand keeps the mirror while later commands remain", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        await store.removeFailedCommand(seq, "note_00001");
+        assert.equal((await store.getNote("note_00001")).version_id, 5);
+    });
+
+    test("removeFailedCommand of an edit decrements later commands' source_version_id", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        await store.commitLocalWrite(
+            null, makeBareCommand("note_00001", "delete-note", 5));
+        await store.removeFailedCommand(seq, "note_00001");
+        const remaining = await store.queuedCommandsForNote("note_00001");
+        assert.deepEqual(remaining.map((c) => c.update_queue_seq), [2, 3]);
+        assert.deepEqual(remaining.map((c) => c.source_version_id), [3, 4]);
+    });
+
+    test("removeFailedCommand of a delete leaves later source_version_ids alone", async () => {
+        // delete-note makes no version_id advance, so there is nothing for
+        // its removal to compensate for.
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeBareCommand("note_00001", "delete-note", 4));
+        await store.commitLocalWrite(
+            null, makeBareCommand("note_00001", "recover-deleted-note", 4));
+        await store.removeFailedCommand(seq, "note_00001");
+        const remaining = await store.queuedCommandsForNote("note_00001");
+        assert.deepEqual(remaining.map((c) => c.source_version_id), [4]);
+    });
+
+    test("removeFailedCommand does not decrement other notes' commands", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_other", 2), makeCommand("note_other", 1));
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        await store.removeFailedCommand(seq, "note_00001");
+        const others = await store.queuedCommandsForNote("note_other");
+        assert.deepEqual(others.map((c) => c.source_version_id), [1]);
+    });
+});
+
+describe("the conflict fix-up", () => {
+    test("re-addresses later commands to the conflict note, prefixing edit titles", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        await store.commitLocalWrite(
+            null, makeBareCommand("note_00001", "delete-note", 5));
+        await store.completeConflictCommand(seq, "note_00001", "conflict_01");
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        const moved = await store.queuedCommandsForNote("conflict_01");
+        assert.deepEqual(moved.map((c) => c.update_queue_seq), [2, 3]);
+        assert.deepEqual(moved.map((c) => c.source_version_id), [4, 5]);
+        assert.equal(moved[0].payload.title, "[CONFLICTED] new title");
+        assert.equal(moved[0].payload.body, "new body");
+        assert.deepEqual(moved[1].payload, {});
+    });
+
+    test("re-keys the mirror entry under the conflict id with a prefixed title", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.completeConflictCommand(seq, "note_00001", "conflict_01");
+        assert.equal(await store.getNote("note_00001"), undefined);
+        const rekeyed = await store.getNote("conflict_01");
+        assert.equal(rekeyed.title, "[CONFLICTED] Title of note_00001");
+        assert.equal(rekeyed.version_id, 4);
+        assert.equal(backend.contents(NOTES_STORE).length, 1);
+    });
+
+    test("leaves other notes' commands and mirror entries alone", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_other", 2), makeCommand("note_other", 1));
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.completeConflictCommand(seq, "note_00001", "conflict_01");
+        assert.equal((await store.getNote("note_other")).title, "Title of note_other");
+        const others = await store.queuedCommandsForNote("note_other");
+        assert.deepEqual(others.map((c) => c.update_queue_seq), [1]);
+        assert.equal(others[0].payload.title, "new title");
+    });
+
+    test("works when the note is not mirrored and has no later commands", async () => {
+        const seq = await store.commitLocalWrite(null, makeCommand("note_00001", 3));
+        await store.completeConflictCommand(seq, "note_00001", "conflict_01");
+        assert.equal(await store.getNote("conflict_01"), undefined);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        assert.equal(await store.hasQueuedCommands("conflict_01"), false);
     });
 });
 

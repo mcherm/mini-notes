@@ -42,6 +42,8 @@
  * timer) inside the callback would commit the transaction out from under it.
  */
 
+import { CONFLICT_TITLE_PREFIX, EDIT_NOTE } from "./commands.js";
+
 // ========== Schema ==========
 
 const DB_NAME = "mini-notes";
@@ -345,16 +347,78 @@ export class NoteStore {
 
     /**
      * Removes a command that definitively failed, and in the same
-     * transaction evicts the note's mirror entry (a no-op when the note is
-     * not mirrored): the mirrored state included the failed command's
-     * effect, which the server has now refused, so reads must fall back to
-     * the server's truth — the normal mechanisms re-fetch it.
+     * transaction repairs what its removal leaves behind (docs/pwa_design.md
+     * → "Fix-up Pass: Command Removed Undelivered"). When no later commands
+     * for the note remain queued, the note's mirror entry is evicted (a
+     * no-op when the note is not mirrored): the mirrored state included the
+     * failed command's effect, which the server has now refused, so reads
+     * must fall back to the server's truth — the normal mechanisms re-fetch
+     * it. When later commands remain, the mirror entry stays, since it
+     * still reflects them; and if the failed command was an edit-note — the
+     * one command type that advances version_id — each later command's
+     * source_version_id is decremented by 1, because the advance it was
+     * counting on never happened on the server.
      */
     removeFailedCommand(updateQueueSeq, noteId) {
         return this.backend.transaction([NOTES_STORE, QUEUE_STORE], "readwrite",
             async (stores) => {
+                const failed = await stores[QUEUE_STORE].get(updateQueueSeq);
                 await stores[QUEUE_STORE].delete(updateQueueSeq);
-                await stores[NOTES_STORE].delete(noteId);
+                const later =
+                    await stores[QUEUE_STORE].index(QUEUE_NOTE_ID_INDEX).getAll(noteId);
+                if (later.length === 0) {
+                    await stores[NOTES_STORE].delete(noteId);
+                    return;
+                }
+                if (failed !== undefined && failed.command_type === EDIT_NOTE) {
+                    for (const command of later) {
+                        command.source_version_id -= 1;
+                        await stores[QUEUE_STORE].put(command);
+                    }
+                }
+            }
+        );
+    }
+
+    /**
+     * Completes a command the server answered with a conflict (409): the
+     * server created a conflict note holding the command's content and left
+     * the original note untouched, so the queued branch of history
+     * continues on the conflict note (docs/pwa_design.md → "Fix-up Pass:
+     * Conflict"). In one transaction: the command is removed from the
+     * queue; every later queued command for the original note is
+     * re-addressed to the conflict note — keeping its sequence number, so
+     * delivery order is unchanged — with CONFLICT_TITLE_PREFIX prepended to
+     * each queued edit's title so the marker survives those edits
+     * overwriting the title, and source_version_id left alone, since the
+     * conflict note continues the same version sequence; and the original
+     * note's mirror entry is re-keyed to the conflict note's id, its title
+     * gaining the same prefix. The original note is left unmirrored with no
+     * pending commands, so the normal mechanisms re-fetch the server's
+     * version of it.
+     */
+    completeConflictCommand(updateQueueSeq, originalNoteId, conflictNoteId) {
+        return this.backend.transaction([NOTES_STORE, QUEUE_STORE], "readwrite",
+            async (stores) => {
+                await stores[QUEUE_STORE].delete(updateQueueSeq);
+                const later = await stores[QUEUE_STORE].index(QUEUE_NOTE_ID_INDEX)
+                    .getAll(originalNoteId);
+                for (const command of later) {
+                    command.note_id = conflictNoteId;
+                    if (command.command_type === EDIT_NOTE) {
+                        command.payload.title = CONFLICT_TITLE_PREFIX + command.payload.title;
+                    }
+                    await stores[QUEUE_STORE].put(command);
+                }
+                const mirrored = await stores[NOTES_STORE].get(originalNoteId);
+                if (mirrored !== undefined) {
+                    await stores[NOTES_STORE].delete(originalNoteId);
+                    await stores[NOTES_STORE].put({
+                        ...mirrored,
+                        note_id: conflictNoteId,
+                        title: CONFLICT_TITLE_PREFIX + mirrored.title,
+                    });
+                }
             }
         );
     }

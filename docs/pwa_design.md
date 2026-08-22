@@ -162,12 +162,14 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > (`html/sync-engine.js`) is in place: the Web Locks election (offline mode
 > now requires the API), the exponential backoff, its reset on the `online`
 > event, app launch, and enqueue, and the hourly idle recheck; a rejected
-> session wipes local data through the existing forced-logout path. Not
-> yet implemented, from "Delivering Delayed Updates": a definitive failure
-> (including a 409) is handled by removing the command, evicting the
-> note's mirror entry, and telling the user via a floating alert, with no
-> conflict or removal fix-up passes, so queued commands stacked behind a
-> failed one may fail in turn; and there is no poisoned-command detection.
+> session wipes local data through the existing forced-logout path. The
+> removal fix-up pass is in place: removing a definitively failed command
+> repairs the later queued commands for its note, and the note's mirror
+> entry is evicted only when no later commands remain. Not yet
+> implemented, from "Delivering Delayed Updates": the conflict fix-up
+> exists as a store operation but is not yet invoked — a 409 is still
+> handled as a definitive failure, removing the command and telling the
+> user via a floating alert; and there is no poisoned-command detection.
 
 ### Goals
 
@@ -318,7 +320,7 @@ A transient failure normally means the device is offline, but it could also mean
 
 #### Fix-up Pass: Command Removed Undelivered
 
-When a command for a note is removed without having been applied (definitive failure or poisoned), the server never advanced past it, so every later queued command for that note has its `source_version_id` decremented by 1. (If the removed command was the `new-note`, the later commands reference a note the server never created; they will fail definitively and be removed one at a time by this same rule.)
+When a command for a note is removed without having been applied (definitive failure or poisoned), the server never made the `version_id` advance that command promised. If the removed command was an `edit-note` — the one offline-capable command that advances `version_id` — every later queued command for that note has its `source_version_id` decremented by 1; removing a `delete-note` or `recover-deleted-note` changes no `source_version_id`, since those commands make no advance. (If the removed command was the `new-note`, the later commands reference a note the server never created; they will fail definitively and be removed one at a time by this same rule.)
 
 #### Fix-up Pass: Conflict
 

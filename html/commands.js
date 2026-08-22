@@ -52,6 +52,9 @@ export const EDIT_NOTE = "edit-note";
 export const DELETE_NOTE = "delete-note";
 export const RECOVER_NOTE = "recover-deleted-note";
 
+/** The title prefix the server gives a conflict note; must match its TITLE_PREFIX_FOR_CONFLICTS. */
+export const CONFLICT_TITLE_PREFIX = "[CONFLICTED] ";
+
 /** The note id scheme from docs/design_notes.md: 10 characters of base 64. */
 const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_~";
 const ID_LENGTH = 10;
