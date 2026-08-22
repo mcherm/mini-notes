@@ -293,6 +293,72 @@ export class NoteStore {
         );
     }
 
+    // ----- The write path -----
+
+    /**
+     * Commits one local write: puts the note into the mirror and appends the
+     * command to the queue, in a single transaction — the atomic commit the
+     * write path requires (docs/pwa_design.md → "The Write Path"). Pass null
+     * as the note when there is nothing to mirror (deleting or recovering a
+     * note that is not mirrored); the command is then enqueued alone. No
+     * read barrier applies here: a local write is deliberately ahead of the
+     * server, and the command this appends is exactly what marks it so.
+     * Resolves with the update_queue_seq assigned to the command.
+     */
+    commitLocalWrite(note, command) {
+        return this.backend.transaction([NOTES_STORE, QUEUE_STORE], "readwrite",
+            async (stores) => {
+                if (note !== null) {
+                    await stores[NOTES_STORE].put(note);
+                }
+                return await stores[QUEUE_STORE].put(command);
+            }
+        );
+    }
+
+    /**
+     * Completes a command the server accepted: removes it from the queue
+     * and writes the note the server returned into the mirror — but only
+     * when that was the last queued command for the note. If later commands
+     * remain, the mirror already reflects them and the server's older state
+     * must not overwrite it (docs/pwa_design.md → "Queue Records and
+     * Indexing", use case 5). Pass null as serverNote when the delivery
+     * returned no note; the mirror is then left alone. Resolves with true
+     * when the server's note was written, false when it was skipped.
+     */
+    completeDeliveredCommand(updateQueueSeq, noteId, serverNote) {
+        return this.backend.transaction([NOTES_STORE, QUEUE_STORE], "readwrite",
+            async (stores) => {
+                await stores[QUEUE_STORE].delete(updateQueueSeq);
+                if (serverNote === null) {
+                    return false;
+                }
+                const queueIndex = stores[QUEUE_STORE].index(QUEUE_NOTE_ID_INDEX);
+                if (await queueIndex.count(noteId) > 0) {
+                    return false;
+                }
+                await stores[NOTES_STORE].put(serverNote);
+                return true;
+            }
+        );
+    }
+
+    /**
+     * Removes a command that definitively failed, and in the same
+     * transaction evicts the note's mirror entry (a no-op when the note is
+     * not mirrored): the mirrored state included the failed command's
+     * effect, which the server has now refused, so reads must fall back to
+     * the server's truth — the normal mechanisms re-fetch it.
+     */
+    removeFailedCommand(updateQueueSeq, noteId) {
+        return this.backend.transaction([NOTES_STORE, QUEUE_STORE], "readwrite",
+            async (stores) => {
+                await stores[QUEUE_STORE].delete(updateQueueSeq);
+                await stores[NOTES_STORE].delete(noteId);
+            }
+        );
+    }
+
     // ----- Whole-store maintenance -----
 
     /**

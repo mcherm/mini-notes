@@ -176,6 +176,108 @@ describe("the update queue", () => {
     });
 });
 
+describe("the write path", () => {
+    test("commitLocalWrite stores the note and the command, resolving with the seq", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        assert.equal(seq, 1);
+        assert.equal((await store.getNote("note_00001")).version_id, 4);
+        const queued = await store.queuedCommandsForNote("note_00001");
+        assert.equal(queued.length, 1);
+        assert.equal(queued[0].update_queue_seq, 1);
+        assert.equal(queued[0].source_version_id, 3);
+    });
+
+    test("commitLocalWrite with a null note enqueues the command alone", async () => {
+        const seq = await store.commitLocalWrite(null, makeCommand("note_00001", 3));
+        assert.equal(seq, 1);
+        assert.deepEqual(backend.contents(NOTES_STORE), []);
+        assert.equal(await store.hasQueuedCommands("note_00001"), true);
+    });
+
+    test("commitLocalWrite is not stopped by the read barrier", async () => {
+        // A second local write lands while the note's first command is still
+        // queued: the mirror must take it — local writes are ahead of the
+        // server by design, unlike writes of server state.
+        await store.commitLocalWrite(makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        assert.equal((await store.getNote("note_00001")).version_id, 5);
+        assert.equal((await store.queuedCommandsForNote("note_00001")).length, 2);
+    });
+
+    test("completeDeliveredCommand removes the command and writes the server's note", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        const written = await store.completeDeliveredCommand(
+            seq, "note_00001", makeNote("note_00001", 9));
+        assert.equal(written, true);
+        assert.equal((await store.getNote("note_00001")).version_id, 9);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+    });
+
+    test("completeDeliveredCommand skips the mirror while later commands remain", async () => {
+        const first = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        const written = await store.completeDeliveredCommand(
+            first, "note_00001", makeNote("note_00001", 4));
+        assert.equal(written, false);
+        assert.equal((await store.getNote("note_00001")).version_id, 5);
+        assert.deepEqual(
+            (await store.queuedCommandsForNote("note_00001")).map((c) => c.update_queue_seq),
+            [2]
+        );
+    });
+
+    test("completeDeliveredCommand is not blocked by other notes' commands", async () => {
+        await store.commitLocalWrite(makeNote("note_other", 1), makeCommand("note_other", 0));
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        const written = await store.completeDeliveredCommand(
+            seq, "note_00001", makeNote("note_00001", 4));
+        assert.equal(written, true);
+    });
+
+    test("completeDeliveredCommand with a null server note leaves the mirror alone", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        const written = await store.completeDeliveredCommand(seq, "note_00001", null);
+        assert.equal(written, false);
+        assert.equal((await store.getNote("note_00001")).version_id, 4);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+    });
+
+    test("removeFailedCommand removes the command and evicts the mirrored note", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.removeFailedCommand(seq, "note_00001");
+        assert.equal(await store.getNote("note_00001"), undefined);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+    });
+
+    test("removeFailedCommand leaves other commands and other notes alone", async () => {
+        await store.commitLocalWrite(makeNote("note_other", 1), makeCommand("note_other", 0));
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), makeCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), makeCommand("note_00001", 4));
+        await store.removeFailedCommand(seq, "note_00001");
+        assert.notEqual(await store.getNote("note_other"), undefined);
+        assert.equal(await store.hasQueuedCommands("note_other"), true);
+        assert.deepEqual(
+            (await store.queuedCommandsForNote("note_00001")).map((c) => c.update_queue_seq),
+            [3]
+        );
+    });
+
+    test("removeFailedCommand works when the note is not mirrored", async () => {
+        const seq = await store.commitLocalWrite(null, makeCommand("note_00001", 3));
+        await store.removeFailedCommand(seq, "note_00001");
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+    });
+});
+
 describe("wipe", () => {
     test("empties both the mirror and the queue", async () => {
         await store.putNoteFromServer(makeNote("note_00001", 3));
