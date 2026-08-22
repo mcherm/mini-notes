@@ -152,11 +152,22 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > against a timeout and serves the mirrored copy when it expires
 > (Mechanism 1); and the Mechanism 3 background refresh runs at launch,
 > after login, and hourly while the app is visible — it is also what
-> populates an empty mirror. The app is usable read-only while offline. Not
-> yet implemented: no command is ever enqueued — writes go straight to the
-> server, so the `queued` outcome never occurs, the diff generator still has
-> no caller, and an offline edit fails exactly as before — and there is no
-> sync engine.
+> populates an empty mirror. The write path is complete: every
+> offline-capable write is applied to the mirror and appended to the queue
+> in one transaction (`html/commands.js` holds the per-command field logic;
+> new-note ids are client-generated), enqueueing triggers a delivery pass
+> that sends the queued commands in order — one in flight, stopping at the
+> first transient failure — and the write's promise reports delivered,
+> queued, or rejected as designed. A delivery pass also runs at app launch,
+> so commands queued in an earlier session are delivered then. Not yet
+> implemented, from "Delivering Delayed Updates": there is no retry loop —
+> a queued command is re-attempted only when a later write triggers a pass
+> or at the next launch; a definitive failure (including a 409) is handled
+> by removing the command and evicting the note's mirror entry, with no
+> conflict or removal fix-up passes, so queued commands stacked behind a
+> failed one may fail in turn; there is no poisoned-command detection; and
+> there is no Web Locks election — each tab may run its own delivery pass,
+> which the duplicate-delivery rules make safe.
 
 ### Goals
 

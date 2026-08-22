@@ -897,6 +897,7 @@ async function createNewNote(newTitle = "", newBody = "") {
 async function deleteCurrentNote() {
     if (!currentNote) return;
     const noteId = currentNote.note_id;
+    const versionId = currentNote.version_id;
     setIntendedNote(null);
 
     // Optimistic UI update: remove the note from local state before the API call.
@@ -918,7 +919,7 @@ async function deleteCurrentNote() {
     // Fire the write; surface failures via a floating-alert.
     let result;
     try {
-        result = await dataLayer.deleteNote(noteId);
+        result = await dataLayer.deleteNote(noteId, versionId);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert(FALLBACK_ERROR_MESSAGE);
@@ -961,11 +962,12 @@ function removeCurrentNoteFromTrashList() {
 async function recoverCurrentNote() {
     if (!currentNote) return;
     const noteId = currentNote.note_id;
+    const versionId = currentNote.version_id;
     removeCurrentNoteFromTrashList();
 
     let result;
     try {
-        result = await dataLayer.recoverNote(noteId);
+        result = await dataLayer.recoverNote(noteId, versionId);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         showFloatingAlert(FALLBACK_ERROR_MESSAGE);
@@ -1568,12 +1570,24 @@ setSessionExpiredHandler(stateUpdateForLogout);
 async function startUp() {
     await dataLayer.init();
     await loadNoteHeaders(null);
-    // The launch-time mirror refresh. The load above settles the login
-    // question first: a 401 has flipped the logged-in class off by now.
-    // Not awaited: it never rejects, and startup must not wait.
+    // The launch-time queue delivery and mirror refresh. The load above
+    // settles the login question first: a 401 has flipped the logged-in
+    // class off by now. Not awaited: neither ever rejects, and startup
+    // must not wait.
     if (isLoggedIn()) {
-        dataLayer.refreshMirror();
+        deliverThenRefresh();
     }
+}
+
+/**
+ * The launch-time local-store housekeeping: delivers any write commands
+ * queued in an earlier session, then refreshes the mirror. Delivery runs
+ * first so the refresh compares the mirror against the server's state
+ * with those commands applied.
+ */
+async function deliverThenRefresh() {
+    await dataLayer.drainQueue();
+    dataLayer.refreshMirror();
 }
 
 /** Runs the periodic mirror refresh, skipped when logged out or hidden. */

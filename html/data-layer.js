@@ -55,7 +55,11 @@
  */
 
 import { apiFetch, extractErrorMessage, getApiBaseUrl, LoggedOutError } from "./api.js";
-import { DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE } from "./commands.js";
+import {
+    DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE,
+    applyDeleteNote, applyEditNote, applyNewNote, applyRecoverNote,
+    currentTimestamp, generateId,
+} from "./commands.js";
 import { openNoteStore } from "./store.js";
 
 /** Builds a `?continue_key=...` query suffix (empty string for the first page). */
@@ -109,6 +113,22 @@ function writeRejected(status, errorMessage, failureDetail) {
         status: status,
         errorMessage: errorMessage,
         failureDetail: failureDetail,
+    };
+}
+
+/**
+ * Builds the queued form of a write outcome: the command is committed
+ * locally and will be delivered later. note is the locally updated note,
+ * or null for a command that could not update the mirror (deleting or
+ * recovering a note that is not mirrored).
+ */
+function writeQueued(note) {
+    return {
+        outcome: "queued",
+        note: note,
+        status: null,
+        errorMessage: null,
+        failureDetail: null,
     };
 }
 
@@ -283,11 +303,16 @@ class NetworkDataSource {
             jsonRequest("PUT", {title: title, body: body, source_version_id: sourceVersionId}));
     }
 
-    deleteNote(noteId) {
+    /**
+     * sourceVersionId is part of the shared interface but is not sent: the
+     * server derives everything it needs from the session and the note id.
+     */
+    deleteNote(noteId, sourceVersionId) {
         return sendWriteCommand(noteUrl("/api/v1/notes/", noteId), {method: "DELETE"});
     }
 
-    recoverNote(noteId) {
+    /** sourceVersionId is not sent; see deleteNote. */
+    recoverNote(noteId, sourceVersionId) {
         return sendWriteCommand(noteUrl("/api/v1/recover_note/", noteId), {method: "POST"});
     }
 
@@ -297,6 +322,11 @@ class NetworkDataSource {
 
     /** There is no mirror in this mode, so there is nothing to refresh. */
     async refreshMirror() {}
+
+    /** There is no queue in this mode, so there is nothing to deliver. */
+    async drainQueue() {
+        return new Map();
+    }
 
     /** Nothing is stored locally in this mode, so there is nothing to wipe. */
     async wipeLocalData() {}
@@ -326,9 +356,9 @@ function deliverCommand(network, command) {
                 sourceVersionId: command.source_version_id,
             });
         case DELETE_NOTE:
-            return network.deleteNote(command.note_id);
+            return network.deleteNote(command.note_id, command.source_version_id);
         case RECOVER_NOTE:
-            return network.recoverNote(command.note_id);
+            return network.recoverNote(command.note_id, command.source_version_id);
         default:
             throw new Error(`unknown queued command type "${command.command_type}"`);
     }
@@ -410,15 +440,16 @@ function searchMirroredNotes(notes, searchString) {
 }
 
 /**
- * The implementation used when a working IndexedDB is available. Every call
- * is served by the network — it holds a NetworkDataSource and delegates to
- * it — and a successful response is then written through to the local
- * mirror, keeping the mirror an accurate copy of what the server holds.
- * When the server is unreachable, the offline-capable reads are served from
- * the mirror instead (docs/pwa_design.md → "The Read Path"). All mirror
- * updates go through NoteStore's read-barrier-guarded operations, and a
- * local-store failure never changes a call's result: the network's answer
- * stands.
+ * The implementation used when a working IndexedDB is available. Reads are
+ * served by the network — it holds a NetworkDataSource and delegates to it
+ * — with successful responses written through to the local mirror and
+ * unreachable failures answered from it (docs/pwa_design.md → "The Read
+ * Path"). Offline-capable writes run the other way around: the command is
+ * committed locally first, mirror and queue in one transaction, and a
+ * delivery pass then pushes the queue to the server (→ "The Write Path").
+ * Writes of server state into the mirror go through NoteStore's
+ * read-barrier-guarded operations, and for reads a local-store failure
+ * never changes a call's result: the network's answer stands.
  */
 export class OfflineDataSource {
     constructor(store, network) {
@@ -457,22 +488,6 @@ export class OfflineDataSource {
             }
             await this.store.deleteNoteFromServer(header.note_id);
         }
-    }
-
-    /**
-     * Write-through shared by the commands whose delivery returns the
-     * updated note: the returned note replaces the mirrored copy. An outcome
-     * without a note (a rejected command, or a delivered response whose body
-     * was unreadable) leaves the mirror alone.
-     */
-    async mirrorWriteOutcome(outcome) {
-        if (outcome.outcome === "delivered" && outcome.note !== null) {
-            await this.attemptLocalWrite(
-                "could not mirror the note returned by a write",
-                () => this.store.putNoteFromServer(outcome.note)
-            );
-        }
-        return outcome;
     }
 
     /**
@@ -641,29 +656,98 @@ export class OfflineDataSource {
         return {ok: true, note: mirrored};
     }
 
-    async newNote({noteId, title, body, format}) {
-        return this.mirrorWriteOutcome(
-            await this.network.newNote({noteId: noteId, title: title, body: body, format: format})
-        );
+    /**
+     * Commits one offline-capable write command locally and reports the
+     * outcome of its first delivery attempt (docs/pwa_design.md → "The
+     * Write Path"). The mirror update and the queue append happen in one
+     * transaction; if that fails, nothing was committed and the write is
+     * rejected. The delivery pass that follows sends the whole queue in
+     * order, so the new command's own attempt happens only after every
+     * earlier command has delivered; when the pass stops before reaching
+     * it, or the command's own delivery fails transiently, the command is
+     * safely queued and the outcome says so.
+     */
+    async commitAndDeliver(localNote, command) {
+        let seq;
+        try {
+            seq = await this.store.commitLocalWrite(localNote, command);
+        } catch (e) {
+            return writeRejected(
+                null, null,
+                recordFailure(`could not commit a ${command.command_type} locally`, e));
+        }
+        let outcomes;
+        try {
+            outcomes = await this.drainQueue();
+        } catch (e) {
+            if (e instanceof LoggedOutError) throw e;
+            recordFailure("the delivery pass after a local commit failed", e);
+            return writeQueued(localNote);
+        }
+        const attempted = outcomes.get(seq);
+        if (attempted === undefined || isTransientFailure(attempted)) {
+            return writeQueued(localNote);
+        }
+        return attempted;
     }
 
-    async editNote({noteId, title, body, sourceVersionId}) {
-        return this.mirrorWriteOutcome(
-            await this.network.editNote({
-                noteId: noteId,
-                title: title,
-                body: body,
-                sourceVersionId: sourceVersionId,
-            })
-        );
+    /**
+     * Shared prologue of the writes that modify an existing note: reads the
+     * mirrored copy for buildWrite (a commands.js apply function) to work
+     * from, then commits and delivers what it built.
+     */
+    async writeAgainstMirror(noteId, buildWrite) {
+        let existing;
+        try {
+            existing = await this.store.getNote(noteId);
+        } catch (e) {
+            return writeRejected(
+                null, null,
+                recordFailure("could not read the mirror to apply a write", e));
+        }
+        const {note, command} = buildWrite(existing);
+        return this.commitAndDeliver(note, command);
     }
 
-    async deleteNote(noteId) {
-        return this.mirrorWriteOutcome(await this.network.deleteNote(noteId));
+    /**
+     * Creates the note locally under a client-generated id (unless the
+     * caller supplied one) and queues the new-note command. The note has
+     * its permanent id immediately, so the UI and any later queued
+     * commands can reference it before the server has seen the note.
+     */
+    newNote({noteId, title, body, format}) {
+        const assignedId = noteId === null ? generateId() : noteId;
+        const {note, command} = applyNewNote(
+            {noteId: assignedId, title: title, body: body, format: format},
+            currentTimestamp());
+        return this.commitAndDeliver(note, command);
     }
 
-    async recoverNote(noteId) {
-        return this.mirrorWriteOutcome(await this.network.recoverNote(noteId));
+    /**
+     * Applies the edit to the mirrored note and queues the edit-note
+     * command. The mirror's version wins over sourceVersionId when the two
+     * disagree — the local layer resolves concurrent offline edits by
+     * last-write-wins rather than conflict copies.
+     */
+    editNote({noteId, title, body, sourceVersionId}) {
+        return this.writeAgainstMirror(noteId, (existing) => applyEditNote(
+            existing,
+            {noteId: noteId, title: title, body: body, sourceVersionId: sourceVersionId},
+            currentTimestamp()));
+    }
+
+    deleteNote(noteId, sourceVersionId) {
+        return this.writeAgainstMirror(noteId, (existing) => applyDeleteNote(
+            existing,
+            {noteId: noteId, sourceVersionId: sourceVersionId},
+            currentTimestamp()));
+    }
+
+    recoverNote(noteId, sourceVersionId) {
+        return this.writeAgainstMirror(noteId, (existing) => applyRecoverNote(
+            existing,
+            {noteId: noteId, sourceVersionId: sourceVersionId},
+            currentTimestamp()));
     }
 
     async destroyNote(noteId) {
@@ -910,14 +994,22 @@ export const dataLayer = {
         });
     },
 
-    /** Moves a note to the trash. Resolves to a write outcome. */
-    deleteNote(noteId) {
-        return dataSource.deleteNote(noteId);
+    /**
+     * Moves a note to the trash. sourceVersionId is the note's version as
+     * the caller last saw it; the offline implementation records it on the
+     * queued command when the note is not mirrored. Resolves to a write
+     * outcome.
+     */
+    deleteNote(noteId, sourceVersionId) {
+        return dataSource.deleteNote(noteId, sourceVersionId);
     },
 
-    /** Restores a note from the trash. Resolves to a write outcome. */
-    recoverNote(noteId) {
-        return dataSource.recoverNote(noteId);
+    /**
+     * Restores a note from the trash. sourceVersionId is as for deleteNote.
+     * Resolves to a write outcome.
+     */
+    recoverNote(noteId, sourceVersionId) {
+        return dataSource.recoverNote(noteId, sourceVersionId);
     },
 
     /** Permanently destroys a trashed note. Resolves to a write outcome. */
@@ -934,6 +1026,23 @@ export const dataLayer = {
      */
     refreshMirror() {
         return dataSource.refreshMirror();
+    },
+
+    /**
+     * Attempts delivery of any queued write commands, in order, stopping at
+     * the first transient failure; a no-op in online-only mode. The UI
+     * calls this at launch so that commands queued in an earlier session
+     * are delivered. Resolves when the pass is finished and never rejects,
+     * so it is safe to invoke without awaiting.
+     */
+    async drainQueue() {
+        try {
+            await dataSource.drainQueue();
+        } catch (e) {
+            if (!(e instanceof LoggedOutError)) {
+                recordFailure("the queue delivery pass failed", e);
+            }
+        }
     },
 
     /**

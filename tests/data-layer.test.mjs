@@ -52,6 +52,36 @@ function deliveredOutcome(note) {
     return {outcome: "delivered", note: note, status: 200, errorMessage: null, failureDetail: null};
 }
 
+/** A rejected write outcome, as sendWriteCommand builds one. */
+function rejectedOutcome(status) {
+    return {
+        outcome: "rejected",
+        note: null,
+        status: status,
+        errorMessage: status === null ? null : "the server explained the problem",
+        failureDetail: status === null ? "request did not complete" : `HTTP ${status}`,
+    };
+}
+
+/**
+ * A network stub for delivery passes: answers each write method from a
+ * list of scripted outcomes, in order, and records the calls it receives.
+ */
+function deliveryNetwork(script) {
+    const network = {calls: []};
+    for (const [method, outcomes] of Object.entries(script)) {
+        const remaining = [...outcomes];
+        network[method] = async (...args) => {
+            network.calls.push({method: method, args: args});
+            if (remaining.length === 0) {
+                throw new Error(`no scripted outcome left for ${method}`);
+            }
+            return remaining.shift();
+        };
+    }
+    return network;
+}
+
 /** A read failure as the fetch helpers build one when the server is unreachable. */
 function unreachableFailure() {
     return {
@@ -559,38 +589,6 @@ describe("mirror refresh pass", () => {
 });
 
 describe("write write-through", () => {
-    test("a delivered write's returned note replaces the mirrored copy", async () => {
-        await store.putNoteFromServer(makeNote("note_00001", 3));
-        const returned = makeNote("note_00001", 4);
-        const outcome = deliveredOutcome(returned);
-        const source = new OfflineDataSource(store, networkAnswering("editNote", outcome));
-        const result = await source.editNote({
-            noteId: "note_00001",
-            title: returned.title,
-            body: returned.body,
-            sourceVersionId: 3,
-        });
-        assert.equal(result, outcome);
-        assert.equal((await store.getNote("note_00001")).version_id, 4);
-    });
-
-    test("a rejected write leaves the mirror alone", async () => {
-        await store.putNoteFromServer(makeNote("note_00001", 3));
-        const outcome = {
-            outcome: "rejected",
-            note: null,
-            status: 409,
-            errorMessage: "note has been modified",
-            failureDetail: "HTTP 409",
-        };
-        const source = new OfflineDataSource(store, networkAnswering("editNote", outcome));
-        assert.equal(
-            await source.editNote({noteId: "note_00001", title: "t", body: "b", sourceVersionId: 3}),
-            outcome
-        );
-        assert.equal((await store.getNote("note_00001")).version_id, 3);
-    });
-
     test("a delivered destroy removes the note from the mirror", async () => {
         const note = makeNote("note_00001", 3);
         note.delete_time = "2026-08-08T12:00:00Z";
@@ -611,36 +609,6 @@ describe("queue delivery", () => {
             payload: {title: `Title of ${noteId}`, body: `Body of ${noteId}`},
             source_version_id: sourceVersionId,
         };
-    }
-
-    /** A rejected write outcome, as sendWriteCommand builds one. */
-    function rejectedOutcome(status) {
-        return {
-            outcome: "rejected",
-            note: null,
-            status: status,
-            errorMessage: status === null ? null : "the server explained the problem",
-            failureDetail: status === null ? "request did not complete" : `HTTP ${status}`,
-        };
-    }
-
-    /**
-     * A network stub for delivery passes: answers each write method from a
-     * list of scripted outcomes, in order, and records the calls it receives.
-     */
-    function deliveryNetwork(script) {
-        const network = {calls: []};
-        for (const [method, outcomes] of Object.entries(script)) {
-            const remaining = [...outcomes];
-            network[method] = async (argument) => {
-                network.calls.push({method: method, argument: argument});
-                if (remaining.length === 0) {
-                    throw new Error(`no scripted outcome left for ${method}`);
-                }
-                return remaining.shift();
-            };
-        }
-        return network;
     }
 
     /** Waits one macrotask, letting all pending promise callbacks run. */
@@ -683,16 +651,16 @@ describe("queue delivery", () => {
         });
         await new OfflineDataSource(store, network).drainQueue();
         assert.deepEqual(network.calls, [
-            {method: "newNote", argument: {
-                noteId: "note_new11", title: "New title", body: "New body", format: "PlainText"}},
-            {method: "editNote", argument: {
+            {method: "newNote", args: [{
+                noteId: "note_new11", title: "New title", body: "New body", format: "PlainText"}]},
+            {method: "editNote", args: [{
                 noteId: "note_edit1",
                 title: "Title of note_edit1",
                 body: "Body of note_edit1",
                 sourceVersionId: 4,
-            }},
-            {method: "deleteNote", argument: "note_del11"},
-            {method: "recoverNote", argument: "note_rec11"},
+            }]},
+            {method: "deleteNote", args: ["note_del11", 2]},
+            {method: "recoverNote", args: ["note_rec11", 2]},
         ]);
     });
 
@@ -806,6 +774,191 @@ describe("queue delivery", () => {
         await assert.rejects(source.drainQueue(), LoggedOutError);
         // The queue is untouched: wiping it is the logout path's job.
         assert.equal(await store.hasQueuedCommands("note_00001"), true);
+    });
+});
+
+describe("the offline write path", () => {
+    const NOTE_ID_PATTERN = /^[0-9a-zA-Z_~]{10}$/;
+
+    test("a delivered edit reports delivered, and the server's note is mirrored", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const serverNote = makeNote("note_00001", 4);
+        serverNote.title = "as the server stored it";
+        const outcome = deliveredOutcome(serverNote);
+        const network = deliveryNetwork({editNote: [outcome]});
+        const source = new OfflineDataSource(store, network);
+        const result = await source.editNote(
+            {noteId: "note_00001", title: "New title", body: "New body", sourceVersionId: 3});
+        assert.equal(result, outcome);
+        assert.deepEqual(await store.getNote("note_00001"), serverNote);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        // The delivery was built from the mirror's version.
+        assert.equal(network.calls[0].args[0].sourceVersionId, 3);
+    });
+
+    test("an edit with the server unreachable reports queued with the local note", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const network = deliveryNetwork({editNote: [rejectedOutcome(null)]});
+        const source = new OfflineDataSource(store, network);
+        const result = await source.editNote(
+            {noteId: "note_00001", title: "New title", body: "New body", sourceVersionId: 3});
+        assert.equal(result.outcome, "queued");
+        assert.equal(result.note.version_id, 4);
+        assert.equal(result.note.title, "New title");
+        assert.deepEqual(await store.getNote("note_00001"), result.note);
+        assert.equal(await store.hasQueuedCommands("note_00001"), true);
+    });
+
+    test("a server refusal reports rejected, dropping the command and the mirror entry", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const outcome = rejectedOutcome(400);
+        const source = new OfflineDataSource(store, deliveryNetwork({editNote: [outcome]}));
+        const result = await source.editNote(
+            {noteId: "note_00001", title: "New title", body: "New body", sourceVersionId: 3});
+        assert.equal(result, outcome);
+        assert.equal(await store.getNote("note_00001"), undefined);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+    });
+
+    test("a 409 reports rejected with its status, for the caller's conflict flow", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({editNote: [rejectedOutcome(409)]}));
+        const result = await source.editNote(
+            {noteId: "note_00001", title: "New title", body: "New body", sourceVersionId: 3});
+        assert.equal(result.outcome, "rejected");
+        assert.equal(result.status, 409);
+    });
+
+    test("newNote generates the id and sends it with the create", async () => {
+        const serverNote = makeNote("note_00001", 0);
+        const network = deliveryNetwork({newNote: [deliveredOutcome(serverNote)]});
+        const source = new OfflineDataSource(store, network);
+        const result = await source.newNote(
+            {noteId: null, title: "A title", body: "A body", format: "PlainText"});
+        assert.equal(result.outcome, "delivered");
+        const sent = network.calls[0].args[0];
+        assert.match(sent.noteId, NOTE_ID_PATTERN);
+        assert.equal(sent.title, "A title");
+    });
+
+    test("newNote with the server unreachable reports queued with the local note", async () => {
+        const network = deliveryNetwork({newNote: [rejectedOutcome(null)]});
+        const source = new OfflineDataSource(store, network);
+        const result = await source.newNote(
+            {noteId: null, title: "A title", body: "A body", format: "PlainText"});
+        assert.equal(result.outcome, "queued");
+        assert.match(result.note.note_id, NOTE_ID_PATTERN);
+        assert.equal(result.note.version_id, 0);
+        assert.equal(result.note.user_id, null);
+        assert.deepEqual(await store.getNote(result.note.note_id), result.note);
+        const queued = await store.queuedCommandsForNote(result.note.note_id);
+        assert.equal(queued.length, 1);
+        assert.equal(queued[0].command_type, NEW_NOTE);
+    });
+
+    test("a queued delete marks the mirrored note deleted", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({deleteNote: [rejectedOutcome(null)]}));
+        const result = await source.deleteNote("note_00001", 3);
+        assert.equal(result.outcome, "queued");
+        assert.notEqual((await store.getNote("note_00001")).delete_time, undefined);
+        assert.equal(await store.hasQueuedCommands("note_00001"), true);
+    });
+
+    test("a queued delete of an unmirrored note enqueues alone, with a null note", async () => {
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({deleteNote: [rejectedOutcome(null)]}));
+        const result = await source.deleteNote("note_00001", 7);
+        assert.equal(result.outcome, "queued");
+        assert.equal(result.note, null);
+        assert.equal(await store.getNote("note_00001"), undefined);
+        const queued = await store.queuedCommandsForNote("note_00001");
+        assert.equal(queued.length, 1);
+        assert.equal(queued[0].source_version_id, 7);
+    });
+
+    test("a queued recover clears the mirrored note's delete_time", async () => {
+        const trashed = makeNote("note_00001", 3);
+        trashed.delete_time = "2026-09-10T10:00:00Z";
+        await store.putNoteFromServer(trashed);
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({recoverNote: [rejectedOutcome(null)]}));
+        const result = await source.recoverNote("note_00001", 3);
+        assert.equal(result.outcome, "queued");
+        assert.equal("delete_time" in (await store.getNote("note_00001")), false);
+    });
+
+    test("a write behind a stuck command reports queued without being attempted", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        await store.putNoteFromServer(makeNote("note_00002", 5));
+        const network = deliveryNetwork(
+            {editNote: [rejectedOutcome(null), rejectedOutcome(null)]});
+        const source = new OfflineDataSource(store, network);
+        await source.editNote(
+            {noteId: "note_00001", title: "t1", body: "b1", sourceVersionId: 3});
+        const result = await source.editNote(
+            {noteId: "note_00002", title: "t2", body: "b2", sourceVersionId: 5});
+        assert.equal(result.outcome, "queued");
+        // Both delivery attempts were for the stuck head command, never for note 2.
+        assert.deepEqual(network.calls.map((c) => c.args[0].noteId),
+            ["note_00001", "note_00001"]);
+        assert.equal(await store.hasQueuedCommands("note_00002"), true);
+    });
+
+    test("a write drains the backlog: earlier commands deliver first, then its own", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        await store.putNoteFromServer(makeNote("note_00002", 5));
+        const serverFirst = makeNote("note_00001", 4);
+        const serverSecond = makeNote("note_00002", 6);
+        const network = deliveryNetwork({editNote: [
+            rejectedOutcome(null),
+            deliveredOutcome(serverFirst),
+            deliveredOutcome(serverSecond),
+        ]});
+        const source = new OfflineDataSource(store, network);
+        await source.editNote(
+            {noteId: "note_00001", title: "t1", body: "b1", sourceVersionId: 3});
+        const result = await source.editNote(
+            {noteId: "note_00002", title: "t2", body: "b2", sourceVersionId: 5});
+        assert.equal(result.outcome, "delivered");
+        assert.equal(result.note, serverSecond);
+        assert.deepEqual(await store.getNote("note_00001"), serverFirst);
+        assert.deepEqual(await store.getNote("note_00002"), serverSecond);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        assert.equal(await store.hasQueuedCommands("note_00002"), false);
+    });
+
+    test("a failed local commit reports rejected with no queued command", async () => {
+        const brokenStore = {
+            getNote: async () => undefined,
+            commitLocalWrite: async () => {
+                throw new Error("local storage failed");
+            },
+        };
+        const source = new OfflineDataSource(brokenStore, deliveryNetwork({}));
+        const result = await source.editNote(
+            {noteId: "note_00001", title: "t", body: "b", sourceVersionId: 3});
+        assert.equal(result.outcome, "rejected");
+        assert.equal(result.status, null);
+        assert.equal(result.errorMessage, null);
+        assert.match(result.failureDetail, /local storage failed/);
+    });
+
+    test("a LoggedOutError during delivery passes through to the caller", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const network = {
+            editNote: async () => {
+                throw new LoggedOutError("session rejected");
+            },
+        };
+        const source = new OfflineDataSource(store, network);
+        await assert.rejects(
+            source.editNote(
+                {noteId: "note_00001", title: "t", body: "b", sourceVersionId: 3}),
+            LoggedOutError
+        );
     });
 });
 
