@@ -37,7 +37,8 @@
       "Bash(node --test tests/*.test.mjs)",
       "Bash(node --test \"tests/**/*.test.mjs\")",
       "Bash(just test *)",
-      "Bash(just test-js *)"
+      "Bash(just test-js *)",
+      "Bash(node --input-type=module --check)"
     ]
   }
 }

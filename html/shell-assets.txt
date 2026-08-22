@@ -9,6 +9,7 @@
 /data-layer.js
 /diff.js
 /store.js
+/sync-engine.js
 /manifest.json
 /favicon.ico
 /favicon-16x16.png

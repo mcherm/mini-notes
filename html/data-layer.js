@@ -61,6 +61,7 @@ import {
     currentTimestamp, generateId,
 } from "./commands.js";
 import { openNoteStore } from "./store.js";
+import { DELIVERY_IDLE, DELIVERY_RETRY, SyncEngine } from "./sync-engine.js";
 
 /** Builds a `?continue_key=...` query suffix (empty string for the first page). */
 function continueKeyQuery(continueKey, leadingChar) {
@@ -324,9 +325,15 @@ class NetworkDataSource {
     async refreshMirror() {}
 
     /** There is no queue in this mode, so there is nothing to deliver. */
-    async drainQueue() {
+    async drainQueue(foregroundSeq) {
         return new Map();
     }
+
+    /** There is no queue in this mode, so background rejections cannot occur. */
+    setBackgroundRejectionHandler(handler) {}
+
+    /** There is no sync engine in this mode, so there is nothing to wake. */
+    wakeSyncEngine() {}
 
     /** Nothing is stored locally in this mode, so there is nothing to wipe. */
     async wipeLocalData() {}
@@ -446,7 +453,9 @@ function searchMirroredNotes(notes, searchString) {
  * unreachable failures answered from it (docs/pwa_design.md → "The Read
  * Path"). Offline-capable writes run the other way around: the command is
  * committed locally first, mirror and queue in one transaction, and a
- * delivery pass then pushes the queue to the server (→ "The Write Path").
+ * delivery pass then pushes the queue to the server (→ "The Write Path");
+ * a command a pass leaves stuck is retried by the sync engine attached in
+ * init() (→ "Delivering Delayed Updates").
  * Writes of server state into the mirror go through NoteStore's
  * read-barrier-guarded operations, and for reads a local-store failure
  * never changes a call's result: the network's answer stands.
@@ -457,6 +466,31 @@ export class OfflineDataSource {
         this.network = network;
         this.refreshInProgress = false;
         this.lastDrain = Promise.resolve();
+        // Both are attached after construction: the sync engine by init(),
+        // the handler by setBackgroundRejectionHandler(). Either may stay
+        // null for a whole session (and does in tests).
+        this.syncEngine = null;
+        this.onBackgroundRejection = null;
+    }
+
+    /**
+     * Registers the function called when a delivery pass hits a definitive
+     * refusal of a command whose outcome no write call is awaiting; see
+     * runDrainPass.
+     */
+    setBackgroundRejectionHandler(handler) {
+        this.onBackgroundRejection = handler;
+    }
+
+    /**
+     * Resets the sync engine's retry backoff and triggers an immediate
+     * delivery attempt — in the tab running the engine's loop, which is
+     * not necessarily this one (html/sync-engine.js).
+     */
+    wakeSyncEngine() {
+        if (this.syncEngine !== null) {
+            this.syncEngine.wake();
+        }
     }
 
     /**
@@ -659,15 +693,29 @@ export class OfflineDataSource {
     /**
      * Commits one offline-capable write command locally and reports the
      * outcome of its first delivery attempt (docs/pwa_design.md → "The
-     * Write Path"). The mirror update and the queue append happen in one
-     * transaction; if that fails, nothing was committed and the write is
-     * rejected. The delivery pass that follows sends the whole queue in
-     * order, so the new command's own attempt happens only after every
-     * earlier command has delivered; when the pass stops before reaching
-     * it, or the command's own delivery fails transiently, the command is
-     * safely queued and the outcome says so.
+     * Write Path"). A queued outcome additionally wakes the sync engine:
+     * the command is still in the queue, and enqueueing is one of the
+     * events that resets the engine's backoff.
      */
     async commitAndDeliver(localNote, command) {
+        const outcome = await this.commitAndAttempt(localNote, command);
+        if (outcome.outcome === "queued") {
+            this.wakeSyncEngine();
+        }
+        return outcome;
+    }
+
+    /**
+     * The commit and first delivery attempt behind commitAndDeliver. The
+     * mirror update and the queue append happen in one transaction; if
+     * that fails, nothing was committed and the write is rejected. The
+     * delivery pass that follows sends the whole queue in order, so the
+     * new command's own attempt happens only after every earlier command
+     * has delivered; when the pass stops before reaching it, or the
+     * command's own delivery fails transiently, the command is safely
+     * queued and the outcome says so.
+     */
+    async commitAndAttempt(localNote, command) {
         let seq;
         try {
             seq = await this.store.commitLocalWrite(localNote, command);
@@ -678,7 +726,7 @@ export class OfflineDataSource {
         }
         let outcomes;
         try {
-            outcomes = await this.drainQueue();
+            outcomes = await this.drainQueue(seq);
         } catch (e) {
             if (e instanceof LoggedOutError) throw e;
             recordFailure("the delivery pass after a local commit failed", e);
@@ -781,16 +829,22 @@ export class OfflineDataSource {
      * command is still queued). The pass rejects if a delivery throws
      * (LoggedOutError: the session is gone, and the logout path wipes the
      * queue) or the store's bookkeeping fails.
+     *
+     * foregroundSeq is the seq of the just-enqueued command whose outcome
+     * the caller of the write is already awaiting, or null when there is
+     * none: a definitive refusal of any *other* command is reported to
+     * the background-rejection handler, since no caller would otherwise
+     * hear of it.
      */
-    drainQueue() {
-        const run = () => this.runDrainPass();
+    drainQueue(foregroundSeq) {
+        const run = () => this.runDrainPass(foregroundSeq);
         const pass = this.lastDrain.then(run, run);
         this.lastDrain = pass.catch(() => undefined);
         return pass;
     }
 
     /** The body of one drainQueue pass; see drainQueue. */
-    async runDrainPass() {
+    async runDrainPass(foregroundSeq) {
         const outcomes = new Map();
         while (true) {
             const command = await this.store.peekCommand();
@@ -810,10 +864,49 @@ export class OfflineDataSource {
                     `the server refused a queued ${command.command_type} for note `
                         + `${command.note_id}; the command was dropped`,
                     outcome.failureDetail);
+                if (command.update_queue_seq !== foregroundSeq) {
+                    this.reportBackgroundRejection(command, outcome);
+                }
                 await this.store.removeFailedCommand(
                     command.update_queue_seq, command.note_id);
             }
         }
+    }
+
+    /**
+     * Hands a background definitive refusal to the registered handler, if
+     * any. A handler failure is logged and absorbed: reporting a refusal
+     * must not be able to stop the delivery pass that found it.
+     */
+    reportBackgroundRejection(command, outcome) {
+        if (this.onBackgroundRejection === null) {
+            return;
+        }
+        try {
+            this.onBackgroundRejection(command, outcome);
+        } catch (e) {
+            recordFailure("the background-rejection handler failed", e);
+        }
+    }
+
+    /**
+     * The sync engine's delivery attempt (html/sync-engine.js): one pass
+     * over the queue, then a report of whether the engine may go idle. A
+     * rejected session reports an idle queue — the forced logout is
+     * wiping it. Any other failure propagates, which the engine treats
+     * as a retry.
+     */
+    async attemptQueueDelivery() {
+        try {
+            await this.drainQueue(null);
+        } catch (e) {
+            if (e instanceof LoggedOutError) {
+                return DELIVERY_IDLE;
+            }
+            throw e;
+        }
+        const head = await this.store.peekCommand();
+        return head === null ? DELIVERY_IDLE : DELIVERY_RETRY;
     }
 
     /**
@@ -924,16 +1017,26 @@ export const dataLayer = {
     /**
      * Selects the implementation to use for this session; must be awaited
      * before any other method is called. Offline note storage is used
-     * whenever a working IndexedDB is present, proven by opening it and
-     * performing a trivial write rather than by asking about API support;
+     * whenever a working IndexedDB is present — proven by opening it and
+     * performing a trivial write rather than by asking about API support —
+     * and the Web Locks API exists for the sync engine's election;
      * otherwise the session runs online-only. The choice is not revisited
-     * until the next launch.
+     * until the next launch. In offline mode this also starts the sync
+     * engine, whose start is the launch-time delivery attempt in the tab
+     * that wins the election.
      */
     async init() {
         const network = new NetworkDataSource();
         try {
+            if (navigator.locks === undefined) {
+                throw new Error("the Web Locks API is unavailable");
+            }
             const store = await openNoteStore();
-            dataSource = new OfflineDataSource(store, network);
+            const offline = new OfflineDataSource(store, network);
+            offline.syncEngine = new SyncEngine(
+                navigator.locks, () => offline.attemptQueueDelivery());
+            dataSource = offline;
+            offline.syncEngine.start();
             console.log("data layer: offline note storage is active");
         } catch (e) {
             dataSource = network;
@@ -1037,12 +1140,34 @@ export const dataLayer = {
      */
     async drainQueue() {
         try {
-            await dataSource.drainQueue();
+            await dataSource.drainQueue(null);
         } catch (e) {
             if (!(e instanceof LoggedOutError)) {
                 recordFailure("the queue delivery pass failed", e);
             }
         }
+    },
+
+    /**
+     * Resets the sync engine's retry backoff and triggers an immediate
+     * delivery attempt, in whichever tab runs the engine; a no-op in
+     * online-only mode. The UI calls this on the browser's `online`
+     * event.
+     */
+    wakeSyncEngine() {
+        dataSource.wakeSyncEngine();
+    },
+
+    /**
+     * Registers the function called when a queued command is definitively
+     * refused during a background delivery pass — a failure no write call
+     * is left awaiting, so this handler is the only way the user hears of
+     * it. The handler receives (command, outcome): the queue record and
+     * the write outcome the server answered with. A no-op in online-only
+     * mode, where nothing is ever queued.
+     */
+    setBackgroundRejectionHandler(handler) {
+        dataSource.setBackgroundRejectionHandler(handler);
     },
 
     /**

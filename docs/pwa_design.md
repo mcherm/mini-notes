@@ -158,16 +158,16 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > new-note ids are client-generated), enqueueing triggers a delivery pass
 > that sends the queued commands in order — one in flight, stopping at the
 > first transient failure — and the write's promise reports delivered,
-> queued, or rejected as designed. A delivery pass also runs at app launch,
-> so commands queued in an earlier session are delivered then. Not yet
-> implemented, from "Delivering Delayed Updates": there is no retry loop —
-> a queued command is re-attempted only when a later write triggers a pass
-> or at the next launch; a definitive failure (including a 409) is handled
-> by removing the command and evicting the note's mirror entry, with no
+> queued, or rejected as designed. The sync engine's retry loop
+> (`html/sync-engine.js`) is in place: the Web Locks election (offline mode
+> now requires the API), the exponential backoff, its reset on the `online`
+> event, app launch, and enqueue, and the hourly idle recheck; a rejected
+> session wipes local data through the existing forced-logout path. Not
+> yet implemented, from "Delivering Delayed Updates": a definitive failure
+> (including a 409) is handled by removing the command, evicting the
+> note's mirror entry, and telling the user via a floating alert, with no
 > conflict or removal fix-up passes, so queued commands stacked behind a
-> failed one may fail in turn; there is no poisoned-command detection; and
-> there is no Web Locks election — each tab may run its own delivery pass,
-> which the duplicate-delivery rules make safe.
+> failed one may fail in turn; and there is no poisoned-command detection.
 
 ### Goals
 
@@ -324,7 +324,7 @@ When a command for a note is removed without having been applied (definitive fai
 
 When a command gets a 409, the branch of history in the queue continues on the conflict note. In one pass over the later queued commands for the original note: rewrite their `note_id` to the conflict note's `note_id`, and prepend `"[CONFLICTED] "` to each queued edit's title (so the marker survives the later edits overwriting the title). Their `source_version_id`s are left unchanged — the conflict note continues the same version sequence, so they are already correct. The mirror entry for the original note is re-keyed to the conflict note's `note_id` in the same pass; the original note then has no pending commands, so the normal mechanisms re-fetch the server's version of it. If the note is open in the UI, the open note follows the branch to the conflict note (the offline analog of today's online conflict handling).
 
-Whenever the queue is non-empty, a background retry loop attempts delivery, with exponential backoff between attempts, capped at a few hours (a long-offline device being hours out of date is acceptable). Three events reset the backoff and trigger an immediate attempt: the browser's `online` event, app launch, and a new command being enqueued. The retry loop runs in whichever tab holds the Web Lock for the sync engine.
+Whenever the queue is non-empty, a background retry loop attempts delivery, with exponential backoff between attempts, capped at a few hours (a long-offline device being hours out of date is acceptable). Three events reset the backoff and trigger an immediate attempt: the browser's `online` event, app launch, and a new command being enqueued. The retry loop runs in whichever tab holds the Web Lock for the sync engine; when its queue is idle it rechecks about hourly anyway, since a command enqueued from another tab arrives without any of the three events firing in the lock-holding tab.
 
 When a delivery response returns a note, the mirror is updated from it only if the queue contains no remaining commands for that note (queue-index use case 5); if later commands are still pending, the mirror already reflects them and the response is not written.
 

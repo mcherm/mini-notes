@@ -1569,6 +1569,7 @@ setSessionExpiredHandler(stateUpdateForLogout);
  */
 async function startUp() {
     await dataLayer.init();
+    dataLayer.setBackgroundRejectionHandler(actionBackgroundRejection);
     await loadNoteHeaders(null);
     // The launch-time queue delivery and mirror refresh. The load above
     // settles the login question first: a 401 has flipped the logged-in
@@ -1594,6 +1595,25 @@ async function deliverThenRefresh() {
 function actionMirrorRefreshTimer() {
     if (!isLoggedIn() || document.visibilityState === "hidden") return;
     dataLayer.refreshMirror();
+}
+
+/** Wakes the sync engine when the browser regains connectivity. */
+function actionOnline() {
+    dataLayer.wakeSyncEngine();
+}
+
+/**
+ * Reports a queued write command that the server definitively refused
+ * during a background delivery pass. The command has been dropped
+ * (docs/pwa_design.md → "Delivery Outcomes"); a floating alert tells the
+ * user which note lost a change, and why when the server said.
+ */
+function actionBackgroundRejection(command, outcome) {
+    const subject = command.payload.title !== undefined
+        ? `"${command.payload.title}"`
+        : "a note";
+    const reason = outcome.errorMessage ?? "the server refused it";
+    showFloatingAlert(`A queued change to ${subject} could not be saved: ${reason}`);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1647,6 +1667,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.addEventListener("visibilitychange", actionOnVisibilityChange);
     window.addEventListener("focus", actionOnWindowFocus);
     window.addEventListener("blur", actionOnWindowBlur);
+    window.addEventListener("online", actionOnline);
     setInterval(actionMirrorRefreshTimer, MIRROR_REFRESH_INTERVAL_MS);
 
     // Fix any links to work in both dev & prod environments
