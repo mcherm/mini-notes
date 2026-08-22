@@ -55,6 +55,7 @@
  */
 
 import { apiFetch, extractErrorMessage, getApiBaseUrl, LoggedOutError } from "./api.js";
+import { DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE } from "./commands.js";
 import { openNoteStore } from "./store.js";
 
 /** Builds a `?continue_key=...` query suffix (empty string for the first page). */
@@ -261,10 +262,19 @@ class NetworkDataSource {
         return fetchNote(noteUrl("/api/v1/notes/", noteId));
     }
 
-    newNote({title, body, format}) {
+    /**
+     * noteId is either a client-generated id to create the note under (the
+     * offline write path assigns ids up front), or null to let the server
+     * generate one (used for tha passthrough mode write path).
+     */
+    newNote({noteId, title, body, format}) {
+        const request = {title: title, body: body, format: format};
+        if (noteId !== null) {
+            request.note_id = noteId;
+        }
         return sendWriteCommand(
             `${getApiBaseUrl()}/api/v1/notes`,
-            jsonRequest("POST", {title: title, body: body, format: format}));
+            jsonRequest("POST", request));
     }
 
     editNote({noteId, title, body, sourceVersionId}) {
@@ -290,6 +300,50 @@ class NetworkDataSource {
 
     /** Nothing is stored locally in this mode, so there is nothing to wipe. */
     async wipeLocalData() {}
+}
+
+/**
+ * Sends one queued command to the server through the network data source's
+ * write methods, resolving with the write outcome. The request is built
+ * from the queue record: the payload, plus the record's own note_id and
+ * source_version_id — the latter read at delivery time, not enqueue time,
+ * because the fix-up passes may rewrite it while the command waits.
+ */
+function deliverCommand(network, command) {
+    switch (command.command_type) {
+        case NEW_NOTE:
+            return network.newNote({
+                noteId: command.note_id,
+                title: command.payload.title,
+                body: command.payload.body,
+                format: command.payload.format,
+            });
+        case EDIT_NOTE:
+            return network.editNote({
+                noteId: command.note_id,
+                title: command.payload.title,
+                body: command.payload.body,
+                sourceVersionId: command.source_version_id,
+            });
+        case DELETE_NOTE:
+            return network.deleteNote(command.note_id);
+        case RECOVER_NOTE:
+            return network.recoverNote(command.note_id);
+        default:
+            throw new Error(`unknown queued command type "${command.command_type}"`);
+    }
+}
+
+/**
+ * True when a write outcome is a transient failure — the server was never
+ * reached (network error or timeout) or answered 5xx. A transient failure
+ * leaves the command at the head of the queue for a later delivery pass;
+ * every other rejection is definitive (docs/pwa_design.md → "Delivery
+ * Outcomes").
+ */
+function isTransientFailure(outcome) {
+    return outcome.outcome === "rejected"
+        && (outcome.status === null || outcome.status >= 500);
 }
 
 /**
@@ -371,6 +425,7 @@ export class OfflineDataSource {
         this.store = store;
         this.network = network;
         this.refreshInProgress = false;
+        this.lastDrain = Promise.resolve();
     }
 
     /**
@@ -586,9 +641,9 @@ export class OfflineDataSource {
         return {ok: true, note: mirrored};
     }
 
-    async newNote({title, body, format}) {
+    async newNote({noteId, title, body, format}) {
         return this.mirrorWriteOutcome(
-            await this.network.newNote({title: title, body: body, format: format})
+            await this.network.newNote({noteId: noteId, title: title, body: body, format: format})
         );
     }
 
@@ -620,6 +675,61 @@ export class OfflineDataSource {
             );
         }
         return outcome;
+    }
+
+    /**
+     * One delivery pass over the update queue (docs/pwa_design.md →
+     * "Delivering Delayed Updates"): repeatedly deliver the command at the
+     * head of the queue — never more than one in flight — until the queue
+     * is empty or a delivery fails transiently, which leaves that command
+     * at the head for a later pass. A delivered command is completed
+     * through the store: removed from the queue, with the server's
+     * returned note written to the mirror unless later commands for that
+     * note remain. A definitively refused command is removed, its note is
+     * evicted from the mirror so reads return to the server's truth, and
+     * the refusal is logged.
+     *
+     * Passes never overlap: a call while a pass is running waits for that
+     * pass to finish, then runs a full pass of its own. Resolves with a
+     * Map from update_queue_seq to the write outcome of every command this
+     * pass attempted — how the write path learns the fate of a command it
+     * just enqueued (a seq absent from the Map was not attempted, so that
+     * command is still queued). The pass rejects if a delivery throws
+     * (LoggedOutError: the session is gone, and the logout path wipes the
+     * queue) or the store's bookkeeping fails.
+     */
+    drainQueue() {
+        const run = () => this.runDrainPass();
+        const pass = this.lastDrain.then(run, run);
+        this.lastDrain = pass.catch(() => undefined);
+        return pass;
+    }
+
+    /** The body of one drainQueue pass; see drainQueue. */
+    async runDrainPass() {
+        const outcomes = new Map();
+        while (true) {
+            const command = await this.store.peekCommand();
+            if (command === null) {
+                return outcomes;
+            }
+            const outcome = await deliverCommand(this.network, command);
+            outcomes.set(command.update_queue_seq, outcome);
+            if (isTransientFailure(outcome)) {
+                return outcomes;
+            }
+            if (outcome.outcome === "delivered") {
+                await this.store.completeDeliveredCommand(
+                    command.update_queue_seq, command.note_id, outcome.note);
+            } else {
+                recordFailure(
+                    `the server refused a queued ${command.command_type} for note `
+                        + `${command.note_id}; the command was dropped`,
+                    outcome.failureDetail);
+                await this.store.removeFailedCommand(
+                    command.update_queue_seq, command.note_id);
+            }
+        }
     }
 
     /**
@@ -783,7 +893,7 @@ export const dataLayer = {
 
     /** Creates a note. Resolves to a write outcome (see the file header). */
     newNote({title, body, format}) {
-        return dataSource.newNote({title: title, body: body, format: format});
+        return dataSource.newNote({noteId: null, title: title, body: body, format: format});
     },
 
     /**
