@@ -165,11 +165,14 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > session wipes local data through the existing forced-logout path. The
 > removal fix-up pass is in place: removing a definitively failed command
 > repairs the later queued commands for its note, and the note's mirror
-> entry is evicted only when no later commands remain. Not yet
-> implemented, from "Delivering Delayed Updates": the conflict fix-up
-> exists as a store operation but is not yet invoked — a 409 is still
-> handled as a definitive failure, removing the command and telling the
-> user via a floating alert; and there is no poisoned-command detection.
+> entry is evicted only when no later commands remain. The conflict
+> fix-up pass is in place as well: a queued command answered with a 409
+> re-addresses the note's later queued commands and its mirror entry to
+> the conflict note the server returned. Not yet implemented, from
+> "Delivering Delayed Updates": the UI does not follow an open note to
+> its conflict note — a background conflict updates local data silently,
+> and a foreground one falls back to the online conflict handling's full
+> refresh; and there is no poisoned-command detection.
 
 ### Goals
 

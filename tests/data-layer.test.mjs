@@ -64,6 +64,17 @@ function rejectedOutcome(status) {
     };
 }
 
+/** A 409 write outcome carrying the conflict note, as sendWriteCommand builds one. */
+function conflictOutcome(conflictNote) {
+    return {
+        outcome: "rejected",
+        note: conflictNote,
+        status: 409,
+        errorMessage: null,
+        failureDetail: "HTTP 409",
+    };
+}
+
 /**
  * A network stub for delivery passes: answers each write method from a
  * list of scripted outcomes, in order, and records the calls it receives.
@@ -717,7 +728,7 @@ describe("queue delivery", () => {
         assert.equal(await store.hasQueuedCommands("note_00002"), false);
     });
 
-    test("a 409 is handled as a definitive refusal", async () => {
+    test("a 409 without a conflict note falls back to the definitive-failure path", async () => {
         await store.commitLocalWrite(
             makeNote("note_00001", 4), editCommand("note_00001", 3));
         const network = deliveryNetwork({editNote: [rejectedOutcome(409)]});
@@ -919,6 +930,99 @@ describe("background rejection reporting", () => {
     });
 });
 
+describe("conflict handling in the delivery pass", () => {
+    test("re-addresses the queued branch to the conflict note and continues the pass", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        const localLater = makeNote("note_00001", 5);
+        await store.commitLocalWrite(localLater, editCommand("note_00001", 4));
+        const network = deliveryNetwork({
+            editNote: [conflictOutcome(makeNote("conflict_01", 4)), rejectedOutcome(null)],
+        });
+        await new OfflineDataSource(store, network).drainQueue(null);
+        // The second delivery attempt was the re-addressed later command.
+        assert.equal(network.calls.length, 2);
+        const readdressed = network.calls[1].args[0];
+        assert.equal(readdressed.noteId, "conflict_01");
+        assert.equal(readdressed.title, "[CONFLICTED] Title of note_00001");
+        assert.equal(readdressed.sourceVersionId, 4);
+        // The original note's local data now lives under the conflict id; the
+        // read barrier kept the server's conflict note out of the mirror,
+        // since the re-addressed command is still ahead of it.
+        assert.equal(await store.getNote("note_00001"), undefined);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        assert.equal((await store.getNote("conflict_01")).version_id, 5);
+        assert.equal(await store.hasQueuedCommands("conflict_01"), true);
+    });
+
+    test("with no later commands, the server's conflict note is mirrored", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        const serverConflict = makeNote("conflict_01", 4);
+        serverConflict.title = "[CONFLICTED] Title of note_00001";
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({editNote: [conflictOutcome(serverConflict)]}));
+        await source.drainQueue(null);
+        assert.equal(await store.getNote("note_00001"), undefined);
+        assert.deepEqual(await store.getNote("conflict_01"), serverConflict);
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        assert.equal(await store.hasQueuedCommands("conflict_01"), false);
+    });
+
+    test("a background conflict is reported to the conflict handler, not the rejection handler", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        const serverConflict = makeNote("conflict_01", 4);
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({editNote: [conflictOutcome(serverConflict)]}));
+        const conflicts = [];
+        const rejections = [];
+        source.setBackgroundConflictHandler(
+            (command, conflictNote) =>
+                conflicts.push({command: command, conflictNote: conflictNote}));
+        source.setBackgroundRejectionHandler((command, outcome) => rejections.push(command));
+        await source.drainQueue(null);
+        assert.equal(conflicts.length, 1);
+        assert.equal(conflicts[0].command.note_id, "note_00001");
+        assert.equal(conflicts[0].conflictNote, serverConflict);
+        assert.deepEqual(rejections, []);
+    });
+
+    test("the foreground command's conflict is not reported: its caller hears it", async () => {
+        await store.putNoteFromServer(makeNote("note_00001", 3));
+        const serverConflict = makeNote("conflict_01", 4);
+        const source = new OfflineDataSource(
+            store, deliveryNetwork({editNote: [conflictOutcome(serverConflict)]}));
+        const conflicts = [];
+        source.setBackgroundConflictHandler((command, conflictNote) => conflicts.push(command));
+        const result = await source.editNote(
+            {noteId: "note_00001", title: "t", body: "b", sourceVersionId: 3});
+        assert.equal(result.outcome, "rejected");
+        assert.equal(result.status, 409);
+        assert.equal(result.note, serverConflict);
+        assert.deepEqual(conflicts, []);
+    });
+
+    test("a throwing conflict handler does not stop the pass", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00002", 2), editCommand("note_00002", 1));
+        const source = new OfflineDataSource(store, deliveryNetwork({
+            editNote: [
+                conflictOutcome(makeNote("conflict_01", 4)),
+                deliveredOutcome(makeNote("note_00002", 2)),
+            ],
+        }));
+        source.setBackgroundConflictHandler(() => {
+            throw new Error("the handler broke");
+        });
+        const outcomes = await source.drainQueue(null);
+        assert.equal(outcomes.size, 2);
+        assert.equal(await store.hasQueuedCommands("note_00002"), false);
+    });
+});
+
 describe("the offline write path", () => {
     const NOTE_ID_PATTERN = /^[0-9a-zA-Z_~]{10}$/;
 
@@ -962,14 +1066,20 @@ describe("the offline write path", () => {
         assert.equal(await store.hasQueuedCommands("note_00001"), false);
     });
 
-    test("a 409 reports rejected with its status, for the caller's conflict flow", async () => {
+    test("a 409 reports rejected with the conflict note, for the caller's conflict flow", async () => {
         await store.putNoteFromServer(makeNote("note_00001", 3));
+        const serverConflict = makeNote("conflict_01", 4);
         const source = new OfflineDataSource(
-            store, deliveryNetwork({editNote: [rejectedOutcome(409)]}));
+            store, deliveryNetwork({editNote: [conflictOutcome(serverConflict)]}));
         const result = await source.editNote(
             {noteId: "note_00001", title: "New title", body: "New body", sourceVersionId: 3});
         assert.equal(result.outcome, "rejected");
         assert.equal(result.status, 409);
+        assert.equal(result.note, serverConflict);
+        // The local fix-up ran: the note's local data continues under the
+        // conflict id, replaced by the server's copy of the conflict note.
+        assert.equal(await store.getNote("note_00001"), undefined);
+        assert.deepEqual(await store.getNote("conflict_01"), serverConflict);
     });
 
     test("newNote generates the id and sends it with the create", async () => {

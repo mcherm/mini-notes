@@ -35,6 +35,8 @@
  *   either because the server refused it or because the device could not
  *   commit it locally. `status` holds the HTTP status when a server refused
  *   it, and null when the failure was local or the request never completed.
+ *   For a conflict (409), `note` carries the conflict note the server
+ *   created; for every other rejection `note` is null.
  *
  * A failure carries two strings, and they are not interchangeable:
  *
@@ -106,11 +108,14 @@ function writeDelivered(note, status, failureDetail) {
     };
 }
 
-/** Builds the rejected form of a write outcome. */
-function writeRejected(status, errorMessage, failureDetail) {
+/**
+ * Builds the rejected form of a write outcome. note is the conflict note
+ * from a 409 answer, and null for every other rejection.
+ */
+function writeRejected(status, errorMessage, failureDetail, note) {
     return {
         outcome: "rejected",
-        note: null,
+        note: note,
         status: status,
         errorMessage: errorMessage,
         failureDetail: failureDetail,
@@ -202,13 +207,24 @@ async function sendWriteCommand(url, options) {
         response = await apiFetch(url, options);
     } catch (e) {
         if (e instanceof LoggedOutError) throw e;
-        return writeRejected(null, null, recordFailure(`request to ${url} did not complete`, e));
+        return writeRejected(
+            null, null, recordFailure(`request to ${url} did not complete`, e), null);
+    }
+    if (response.status === 409) {
+        // A conflict answer's body is not an error message but the conflict
+        // note the server created (docs/pwa_design.md → "Delivery Outcomes");
+        // it rides on the outcome so the conflict fix-up can follow it.
+        const parsed = await readJson(response, url);
+        const note = (parsed.data !== null && parsed.data.note) ? parsed.data.note : null;
+        return writeRejected(
+            response.status, null, `HTTP ${response.status} from ${url}`, note);
     }
     if (!response.ok) {
         return writeRejected(
             response.status,
             await extractErrorMessage(response),
-            `HTTP ${response.status} from ${url}`);
+            `HTTP ${response.status} from ${url}`,
+            null);
     }
     if (response.status === 204) {
         // No content by definition; the command carries no note back.
@@ -331,6 +347,9 @@ class NetworkDataSource {
 
     /** There is no queue in this mode, so background rejections cannot occur. */
     setBackgroundRejectionHandler(handler) {}
+
+    /** There is no queue in this mode, so background conflicts cannot occur. */
+    setBackgroundConflictHandler(handler) {}
 
     /** There is no sync engine in this mode, so there is nothing to wake. */
     wakeSyncEngine() {}
@@ -466,11 +485,12 @@ export class OfflineDataSource {
         this.network = network;
         this.refreshInProgress = false;
         this.lastDrain = Promise.resolve();
-        // Both are attached after construction: the sync engine by init(),
-        // the handler by setBackgroundRejectionHandler(). Either may stay
-        // null for a whole session (and does in tests).
+        // All three are attached after construction: the sync engine by
+        // init(), the handlers by their set…Handler methods. Any of them
+        // may stay null for a whole session (and does in tests).
         this.syncEngine = null;
         this.onBackgroundRejection = null;
+        this.onBackgroundConflict = null;
     }
 
     /**
@@ -480,6 +500,15 @@ export class OfflineDataSource {
      */
     setBackgroundRejectionHandler(handler) {
         this.onBackgroundRejection = handler;
+    }
+
+    /**
+     * Registers the function called when a delivery pass hits a conflict on
+     * a command whose outcome no write call is awaiting; see
+     * completeConflictBranch.
+     */
+    setBackgroundConflictHandler(handler) {
+        this.onBackgroundConflict = handler;
     }
 
     /**
@@ -722,7 +751,8 @@ export class OfflineDataSource {
         } catch (e) {
             return writeRejected(
                 null, null,
-                recordFailure(`could not commit a ${command.command_type} locally`, e));
+                recordFailure(`could not commit a ${command.command_type} locally`, e),
+                null);
         }
         let outcomes;
         try {
@@ -751,7 +781,8 @@ export class OfflineDataSource {
         } catch (e) {
             return writeRejected(
                 null, null,
-                recordFailure("could not read the mirror to apply a write", e));
+                recordFailure("could not read the mirror to apply a write", e),
+                null);
         }
         const {note, command} = buildWrite(existing);
         return this.commitAndDeliver(note, command);
@@ -817,9 +848,10 @@ export class OfflineDataSource {
      * at the head for a later pass. A delivered command is completed
      * through the store: removed from the queue, with the server's
      * returned note written to the mirror unless later commands for that
-     * note remain. A definitively refused command is removed, its note is
-     * evicted from the mirror so reads return to the server's truth, and
-     * the refusal is logged.
+     * note remain. A command answered with a conflict is completed through
+     * the conflict fix-up (completeConflictBranch). Any other definitively
+     * refused command is removed and repaired through the store's removal
+     * fix-up, and the refusal is logged.
      *
      * Passes never overlap: a call while a pass is running waits for that
      * pass to finish, then runs a full pass of its own. Resolves with a
@@ -859,6 +891,8 @@ export class OfflineDataSource {
             if (outcome.outcome === "delivered") {
                 await this.store.completeDeliveredCommand(
                     command.update_queue_seq, command.note_id, outcome.note);
+            } else if (outcome.status === 409 && outcome.note !== null) {
+                await this.completeConflictBranch(command, outcome.note, foregroundSeq);
             } else {
                 recordFailure(
                     `the server refused a queued ${command.command_type} for note `
@@ -870,6 +904,31 @@ export class OfflineDataSource {
                 await this.store.removeFailedCommand(
                     command.update_queue_seq, command.note_id);
             }
+        }
+    }
+
+    /**
+     * Completes a queued command the server answered with a conflict: the
+     * server created a conflict note holding the command's content, and the
+     * note's queued branch of history continues there (docs/pwa_design.md →
+     * "Fix-up Pass: Conflict"). The store's fix-up re-addresses the later
+     * queued commands and the mirror entry to the conflict note; the
+     * server's own copy of the conflict note is then written to the mirror,
+     * unless the re-addressed commands are still ahead of it (the read
+     * barrier skips it). A conflict on a command whose outcome no write
+     * call is awaiting is reported to the background-conflict handler; the
+     * foreground command's caller learns of it from its own outcome, as
+     * for rejections.
+     */
+    async completeConflictBranch(command, conflictNote, foregroundSeq) {
+        console.log(
+            `data layer: a queued ${command.command_type} for note ${command.note_id} `
+                + `conflicted; its queued changes continue on note ${conflictNote.note_id}`);
+        await this.store.completeConflictCommand(
+            command.update_queue_seq, command.note_id, conflictNote.note_id);
+        await this.store.putNoteFromServer(conflictNote);
+        if (command.update_queue_seq !== foregroundSeq) {
+            this.reportBackgroundConflict(command, conflictNote);
         }
     }
 
@@ -886,6 +945,21 @@ export class OfflineDataSource {
             this.onBackgroundRejection(command, outcome);
         } catch (e) {
             recordFailure("the background-rejection handler failed", e);
+        }
+    }
+
+    /**
+     * Hands a background conflict to the registered handler, if any. As for
+     * reportBackgroundRejection, a handler failure is logged and absorbed.
+     */
+    reportBackgroundConflict(command, conflictNote) {
+        if (this.onBackgroundConflict === null) {
+            return;
+        }
+        try {
+            this.onBackgroundConflict(command, conflictNote);
+        } catch (e) {
+            recordFailure("the background-conflict handler failed", e);
         }
     }
 
@@ -1168,6 +1242,20 @@ export const dataLayer = {
      */
     setBackgroundRejectionHandler(handler) {
         dataSource.setBackgroundRejectionHandler(handler);
+    },
+
+    /**
+     * Registers the function called when a queued command meets an edit
+     * conflict during a background delivery pass. The local fix-up has
+     * already run when the handler is called: the note's queued changes and
+     * its mirror entry continue under the conflict note. The handler
+     * receives (command, conflictNote): the queue record and the conflict
+     * note the server created — its cue to move the UI off the original
+     * note if it is showing. A no-op in online-only mode, where nothing is
+     * ever queued.
+     */
+    setBackgroundConflictHandler(handler) {
+        dataSource.setBackgroundConflictHandler(handler);
     },
 
     /**
