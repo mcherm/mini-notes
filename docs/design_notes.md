@@ -260,9 +260,9 @@ still be recovered.
 **Description:**
 If note_id corresponds to a note in this user's account that has been soft-deleted
 but is not yet unrecoverable, then this "recovers" that note, restoring it to being
-a regular note. The recovered note is returned. Recovering a note that is not
-deleted makes no change and returns that note (so calls are idempotent). If the note
-does not exist this returns a 404 error.
+a regular note and updating its modify_time. The recovered note is returned.
+Recovering a note that is not deleted makes no change and returns that note (so
+calls are idempotent). If the note does not exist this returns a 404 error.
 
 ### Destroy Deleted Note
 **Path:** /api/v1/deleted_notes/*{note_id}* [DELETE]

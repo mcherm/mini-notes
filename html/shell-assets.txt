@@ -5,6 +5,7 @@
 /main.css
 /main.js
 /api.js
+/commands.js
 /data-layer.js
 /diff.js
 /store.js

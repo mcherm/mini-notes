@@ -21,6 +21,7 @@ The app shell currently consists of these assets, all served from the site root:
 - `main.css`
 - `main.js`
 - `api.js`
+- `commands.js`
 - `data-layer.js`
 - `diff.js`
 - `store.js`
@@ -320,18 +321,18 @@ When a delivery response returns a note, the mirror is updated from it only if t
 
 The notes stored in the `IndexedDB` will need to have the following fields. This table shows the fields, along with a note about how each is populated when we perform an offline update.
 
-| Field       | Source during offline update                                           |
-|-------------|------------------------------------------------------------------------|
-| user_id     | This is a constant, per user.                                          |
-| note_id     | In the update command (client-generated for new-note).                 |
-| version_id  | 0 for new-note; incremented by edit-note; unchanged by delete/recover. |
-| title       | This is in the update command.                                         |
-| body        | This is in the update command.                                         |
-| create_time | Set by new-note; left as-is for other commands.                        |
-| modify_time | Set by system clock.                                                   |
-| format      | This is a constant.                                                    |
-| undo_stack  | A diff is generated locally (see below).                               |
-| delete_time | Set by system clock on delete-note; cleared by recover-deleted-note.   |
+| Field       | Source during offline update                                             |
+|-------------|--------------------------------------------------------------------------|
+| user_id     | Unknown locally: null until the server's copy of the note replaces this. |
+| note_id     | In the update command (client-generated for new-note).                   |
+| version_id  | 0 for new-note; incremented by edit-note; unchanged by delete/recover.   |
+| title       | This is in the update command.                                           |
+| body        | This is in the update command.                                           |
+| create_time | Set by new-note; left as-is for other commands.                          |
+| modify_time | Set by system clock; delete-note leaves it unchanged.                    |
+| format      | This is a constant.                                                      |
+| undo_stack  | A diff is generated locally (see below).                                 |
+| delete_time | Set to the purge time by delete-note; cleared by recover-deleted-note.   |
 
 Generating the undo diff for offline edits requires a JavaScript implementation of the diff format (specified in
 `design_notes.md`), maintained in parallel with the Rust implementation. The two are ports of one another and produce
