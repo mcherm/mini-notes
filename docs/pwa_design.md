@@ -1,6 +1,6 @@
 # PWA Design
 
-This document describes how Mini-Notes behaves as an installable Progressive Web App: what is cached, how it is cached, and how updates are delivered. It is organized into sections, each covering one part of the offline/PWA story. This first section covers the **app shell**. Later sections will cover the local data store and synchronization.
+This document describes how Mini-Notes behaves as an installable Progressive Web App: what is cached, how it is cached, and how updates are delivered. It is organized into sections, each covering one part of the offline/PWA story: the **app shell**, and then the local data store and synchronization (**note data caching**).
 
 ## App Shell Caching
 
@@ -138,42 +138,6 @@ The deploy steps:
 The existing up-to-date check (skip the deploy when nothing under `html/` is newer than the sentinel) continues to work unchanged, since the deploy writes nothing into `html/`.
 
 ## Note Data Caching
-
-> **Implementation status:** this section is partly implemented. The backend
-> changes below are done. The data-access interface (`html/data-layer.js`),
-> the diff generator (`html/diff.js`), and the local store (`html/store.js` —
-> the mirror and the update queue, with the read barrier) all exist. Feature
-> detection at startup selects the offline or passthrough implementation; in
-> offline mode every successful server response is written through to the
-> mirror, and the mirror is wiped at logout and on a rejected session. The
-> read path is complete: when the server is unreachable, get-notes,
-> get-deleted-notes, get-note and search-notes are served from the mirror
-> (lists and search answer in a single page); get-note races the server
-> against a timeout and serves the mirrored copy when it expires
-> (Mechanism 1); and the Mechanism 3 background refresh runs at launch,
-> after login, and hourly while the app is visible — it is also what
-> populates an empty mirror. The write path is complete: every
-> offline-capable write is applied to the mirror and appended to the queue
-> in one transaction (`html/commands.js` holds the per-command field logic;
-> new-note ids are client-generated), enqueueing triggers a delivery pass
-> that sends the queued commands in order — one in flight, stopping at the
-> first transient failure — and the write's promise reports delivered,
-> queued, or rejected as designed. The sync engine's retry loop
-> (`html/sync-engine.js`) is in place: the Web Locks election (offline mode
-> now requires the API), the exponential backoff, its reset on the `online`
-> event, app launch, and enqueue, and the hourly idle recheck; a rejected
-> session wipes local data through the existing forced-logout path. The
-> removal fix-up pass is in place: removing a definitively failed command
-> repairs the later queued commands for its note, and the note's mirror
-> entry is evicted only when no later commands remain. The conflict
-> fix-up pass is in place as well: a queued command answered with a 409
-> re-addresses the note's later queued commands and its mirror entry to
-> the conflict note the server returned, and the UI follows an open note
-> to its conflict note — a background conflict is also announced with a
-> floating alert. Poisoned-command detection is in place: a queued
-> command that keeps failing while the server's health endpoint answers
-> is given one last retry, then removed, with the removal fix-up applied
-> and the user told.
 
 ### Goals
 

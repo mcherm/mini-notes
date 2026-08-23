@@ -176,6 +176,7 @@
                         <settings-nav-item data-target="about-info" class="active">About</settings-nav-item>
                         <settings-nav-item data-target="user-account-info">User Accounts</settings-nav-item>
                         <settings-nav-item data-target="privacy-info">Privacy</settings-nav-item>
+                        <settings-nav-item data-target="local-storage">Local Storage</settings-nav-item>
                         <settings-nav-item data-target="usage-info">Usage Policy</settings-nav-item>
                         <settings-nav-item data-target="import-export">Import/Export</settings-nav-item>
                         <settings-nav-item data-target="installing-info">Installing</settings-nav-item>
@@ -191,7 +192,10 @@
                     <settings-text id="about-info" class="active">
                         Mini-Notes is a simple web application for keeping notes. It was written and is maintained by
                         <a href="https://www.mcherm.com">Michael Chermside</a>, with significant use of
-                        <a href="https://claude.com/product/claude-code">Claude Code</a>.
+                        <a href="https://claude.com/product/claude-code">Claude Code</a>. For those who feel strongly
+                        on this subject: nothing here was "vibecoded": all of the design was done by a human and every
+                        line of code (other than tests) was carefully reviewed by a human being, but AI was used
+                        extensively in the coding.
                     </settings-text>
                     <settings-text id="user-account-info">
                         Anyone may make an account by providing an email and a password. We do not currently verify
@@ -219,6 +223,15 @@
 
                         <p>If you choose to delete your account, all information (including the content of all notes
                         is removed and cannot be recovered.</p>
+                    </settings-text>
+                    <settings-text id="local-storage">
+                        If you allow it to use local storage, Mini-notes will keep a copy of the notes in memory
+                        provided by your browser. This will enable you to continue reading and editing notes even if
+                        your device is offline. The changes will automatically sync when the network is available
+                        again and if conflicts occur a second copy of the note will be saved to ensure that no work
+                        is lost. However, if you go an extended period (like a week) without using Mini-notes, certain
+                        browsers may delete the local copy, which would lose any edits that were not synced.
+                        Installing Mini-notes to your home screen avoids this.
                     </settings-text>
                     <settings-text id="usage-info">
                         Mini-notes is intended for personal notekeeping at a reasonable scale. Storing a few hundred
@@ -266,8 +279,8 @@
                         </dl>
                     </settings-text>
                     <settings-text id="installing-info">
-                        On most phones and some other systems, Mini-notes can be installed as a PWA (a kind of app).
-                        This installation is done through your browser.
+                        On most phones and some other systems, Mini-notes can be installed "to your home screen" as
+                        a PWA (a kind of app). This installation is done through your browser.
 
                         <p>One of these guides might be helpful:
                         </p>
