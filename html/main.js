@@ -6,6 +6,7 @@ import {
     LoggedOutError,
     setSessionExpiredHandler,
 } from "./api.js";
+import { CONFLICT_TITLE_PREFIX } from "./commands.js";
 import { byModifyTimeNewestFirst, dataLayer } from "./data-layer.js";
 import { applyNoteDiff } from "./diff.js";
 
@@ -813,7 +814,7 @@ async function saveNote(title, body) {
     }
     if (result.outcome === "rejected") {
         if (result.status === 409) {
-            await handleConflict();
+            await handleConflict(result.note);
             return;
         }
         showFloatingAlert(result.errorMessage ?? "Failed to save changes to note.");
@@ -824,10 +825,29 @@ async function saveNote(title, body) {
     }
 }
 
-/** Handles an edit conflict by doing a full state refresh. */
-async function handleConflict() {
+/**
+ * Handles an edit conflict on a save: the server left the note untouched
+ * and created a conflict note holding this save's content. When that note
+ * is known it is followed directly — it becomes the displayed note, with
+ * the body textarea left as it is, since it holds exactly what was saved
+ * into the conflict note plus any keystrokes typed while the save was in
+ * flight, which the next save must keep. When the conflict note is not
+ * known (the 409 body could not be read), fall back to a full state
+ * refresh that selects the first note in the list — probably the conflict
+ * note, which likely has the newest modify_time.
+ */
+async function handleConflict(conflictNote) {
     const conflictingNoteId = intendedCurrentNoteId;
     document.querySelector("input.search").value = "";
+    if (conflictNote !== null) {
+        if (setIntendedNoteIfUnchanged(conflictingNoteId, conflictNote.note_id)) {
+            setCurrentNote(conflictNote);
+            document.querySelector("article input.title").value = conflictNote.title;
+            updateUndoRedoButtons();
+        }
+        await loadNoteHeaders(null);
+        return;
+    }
     setIntendedNote(null);
     setCurrentNote(null);
     renderNote();
@@ -1570,6 +1590,7 @@ setSessionExpiredHandler(stateUpdateForLogout);
 async function startUp() {
     await dataLayer.init();
     dataLayer.setBackgroundRejectionHandler(actionBackgroundRejection);
+    dataLayer.setBackgroundConflictHandler(actionBackgroundConflict);
     await loadNoteHeaders(null);
     // The launch-time queue delivery and mirror refresh. The load above
     // settles the login question first: a 401 has flipped the logged-in
@@ -1614,6 +1635,54 @@ function actionBackgroundRejection(command, outcome) {
         : "a note";
     const reason = outcome.errorMessage ?? "the server refused it";
     showFloatingAlert(`A queued change to ${subject} could not be saved: ${reason}`);
+}
+
+/**
+ * Reacts to a queued write command that met an edit conflict during a
+ * background delivery pass. The data layer has already run the conflict
+ * fix-up (docs/pwa_design.md → "Fix-up Pass: Conflict"): the note's queued
+ * changes and its mirror entry now continue under the conflict note. Here
+ * the UI follows that branch. A floating alert announces it; if the
+ * original note is the one being displayed, the editor is pointed at the
+ * conflict note — swapping the identity underneath the user's draft rather
+ * than re-rendering, since the mirror's re-keyed entry (not the older
+ * conflictNote snapshot) reflects any queued edits and the draft may hold
+ * unsaved keystrokes on top of those. The title gains the conflict prefix
+ * so the marker survives the next save. The note list is reloaded to show
+ * the branch, unless a search is active — its results would be replaced by
+ * the full list.
+ */
+function actionBackgroundConflict(command, conflictNote) {
+    const subject = command.payload.title !== undefined
+        ? `"${command.payload.title}"`
+        : "a note";
+    showFloatingAlert(
+        `A queued change to ${subject} conflicted with a newer version of the note `
+            + `and was kept as "${conflictNote.title}".`);
+    if (intendedCurrentNoteId === command.note_id) {
+        setIntendedNote(conflictNote.note_id);
+        if (currentNote !== null && currentNote.note_id === command.note_id) {
+            const titleInput = document.querySelector("article input.title");
+            titleInput.value = CONFLICT_TITLE_PREFIX + titleInput.value;
+            setCurrentNote({
+                ...currentNote,
+                note_id: conflictNote.note_id,
+                title: CONFLICT_TITLE_PREFIX + currentNote.title,
+            });
+        } else {
+            // The original note was still loading; load the conflict note
+            // instead (the load of the original can no longer render, since
+            // the intended note has moved on).
+            loadNote(conflictNote.note_id);
+        }
+    }
+    if (document.querySelector("input.search").value === "") {
+        if (trashView) {
+            loadTrashNoteHeaders(null);
+        } else {
+            loadNoteHeaders(null);
+        }
+    }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

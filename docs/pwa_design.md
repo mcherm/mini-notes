@@ -168,11 +168,10 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > entry is evicted only when no later commands remain. The conflict
 > fix-up pass is in place as well: a queued command answered with a 409
 > re-addresses the note's later queued commands and its mirror entry to
-> the conflict note the server returned. Not yet implemented, from
-> "Delivering Delayed Updates": the UI does not follow an open note to
-> its conflict note — a background conflict updates local data silently,
-> and a foreground one falls back to the online conflict handling's full
-> refresh; and there is no poisoned-command detection.
+> the conflict note the server returned, and the UI follows an open note
+> to its conflict note — a background conflict is also announced with a
+> floating alert. Not yet implemented, from "Delivering Delayed
+> Updates": there is no poisoned-command detection.
 
 ### Goals
 
