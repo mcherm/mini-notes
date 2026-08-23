@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 
 import { LoggedOutError } from "../html/api.js";
 import { DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE } from "../html/commands.js";
-import { OfflineDataSource } from "../html/data-layer.js";
+import { OfflineDataSource, POISON_CHECK_THRESHOLD } from "../html/data-layer.js";
 import { NoteStore, NOTES_STORE } from "../html/store.js";
 import { DELIVERY_IDLE, DELIVERY_RETRY } from "../html/sync-engine.js";
 import { FakeBackend } from "./fake-backend.mjs";
@@ -50,7 +50,14 @@ function networkAnswering(methodName, result) {
 
 /** A successful write outcome, as sendWriteCommand builds one. */
 function deliveredOutcome(note) {
-    return {outcome: "delivered", note: note, status: 200, errorMessage: null, failureDetail: null};
+    return {
+        outcome: "delivered",
+        note: note,
+        status: 200,
+        errorMessage: null,
+        failureDetail: null,
+        poisoned: false,
+    };
 }
 
 /** A rejected write outcome, as sendWriteCommand builds one. */
@@ -61,6 +68,7 @@ function rejectedOutcome(status) {
         status: status,
         errorMessage: status === null ? null : "the server explained the problem",
         failureDetail: status === null ? "request did not complete" : `HTTP ${status}`,
+        poisoned: false,
     };
 }
 
@@ -72,6 +80,7 @@ function conflictOutcome(conflictNote) {
         status: 409,
         errorMessage: null,
         failureDetail: "HTTP 409",
+        poisoned: false,
     };
 }
 
@@ -1020,6 +1029,97 @@ describe("conflict handling in the delivery pass", () => {
         const outcomes = await source.drainQueue(null);
         assert.equal(outcomes.size, 2);
         assert.equal(await store.hasQueuedCommands("note_00002"), false);
+    });
+});
+
+describe("poisoned-command detection", () => {
+    /** An array of n transient (unreachable) rejections. */
+    function transientFailures(n) {
+        return Array.from({length: n}, () => rejectedOutcome(null));
+    }
+
+    /** Runs n delivery passes, as the sync engine's retries would. */
+    async function drainTimes(source, n) {
+        for (let i = 0; i < n; i += 1) {
+            await source.drainQueue(null);
+        }
+    }
+
+    test("the health check is not consulted below the failure threshold", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        const network = deliveryNetwork({
+            editNote: transientFailures(POISON_CHECK_THRESHOLD - 1),
+            checkHealth: [],
+        });
+        const source = new OfflineDataSource(store, network);
+        await drainTimes(source, POISON_CHECK_THRESHOLD - 1);
+        assert.equal(network.calls.filter((c) => c.method === "checkHealth").length, 0);
+        assert.equal(await store.hasQueuedCommands("note_00001"), true);
+    });
+
+    test("an unanswered health check leaves the command queued and backing off", async () => {
+        await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        const network = deliveryNetwork({
+            editNote: transientFailures(POISON_CHECK_THRESHOLD + 1),
+            checkHealth: [false, false],
+        });
+        const source = new OfflineDataSource(store, network);
+        await drainTimes(source, POISON_CHECK_THRESHOLD + 1);
+        // The health check ran on the threshold failure and again on the
+        // one after it; the command survives both.
+        assert.equal(network.calls.filter((c) => c.method === "checkHealth").length, 2);
+        assert.equal(await store.hasQueuedCommands("note_00001"), true);
+        assert.notEqual(await store.getNote("note_00001"), undefined);
+    });
+
+    test("a healthy server triggers an immediate last retry, which can succeed", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        const serverNote = makeNote("note_00001", 4);
+        const network = deliveryNetwork({
+            editNote: [
+                ...transientFailures(POISON_CHECK_THRESHOLD),
+                deliveredOutcome(serverNote),
+            ],
+            checkHealth: [true],
+        });
+        const source = new OfflineDataSource(store, network);
+        await drainTimes(source, POISON_CHECK_THRESHOLD - 1);
+        const outcomes = await source.drainQueue(null);
+        assert.equal(outcomes.get(seq).outcome, "delivered");
+        assert.equal(await store.hasQueuedCommands("note_00001"), false);
+        assert.deepEqual(await store.getNote("note_00001"), serverNote);
+    });
+
+    test("a command failing its last retry is poisoned, removed, and reported", async () => {
+        const seq = await store.commitLocalWrite(
+            makeNote("note_00001", 4), editCommand("note_00001", 3));
+        await store.commitLocalWrite(
+            makeNote("note_00001", 5), editCommand("note_00001", 4));
+        const network = deliveryNetwork({
+            // The first threshold-1 passes fail once each; the threshold
+            // pass fails, passes the health check, fails the last retry,
+            // then attempts the next command, which fails transiently and
+            // ends the pass.
+            editNote: transientFailures(POISON_CHECK_THRESHOLD + 2),
+            checkHealth: [true],
+        });
+        const source = new OfflineDataSource(store, network);
+        const rejections = [];
+        source.setBackgroundRejectionHandler(
+            (command, outcome) => rejections.push({command: command, outcome: outcome}));
+        await drainTimes(source, POISON_CHECK_THRESHOLD);
+        // The poisoned command is gone; the removal fix-up repaired its
+        // successor, which is still queued, and the mirror entry stays.
+        const remaining = await store.queuedCommandsForNote("note_00001");
+        assert.deepEqual(remaining.map((c) => c.update_queue_seq), [2]);
+        assert.deepEqual(remaining.map((c) => c.source_version_id), [3]);
+        assert.equal((await store.getNote("note_00001")).version_id, 5);
+        assert.equal(rejections.length, 1);
+        assert.equal(rejections[0].command.update_queue_seq, seq);
+        assert.equal(rejections[0].outcome.poisoned, true);
     });
 });
 

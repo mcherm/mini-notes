@@ -24,7 +24,7 @@
  * mirror instead of failing (see OfflineDataSource).
  *
  * Write methods resolve to an outcome object `{outcome, note, status,
- * errorMessage, failureDetail}`, where outcome is one of:
+ * errorMessage, failureDetail, poisoned}`, where outcome is one of:
  *
  * - `"delivered"` — the server accepted the command; `note` is what it
  *   returned (null for a command whose response carries no note).
@@ -37,6 +37,12 @@
  *   it, and null when the failure was local or the request never completed.
  *   For a conflict (409), `note` carries the conflict note the server
  *   created; for every other rejection `note` is null.
+ *
+ * `poisoned` is true on the rejected outcome of a queued command that was
+ * declared poisoned: its delivery kept failing transiently even though the
+ * server's health endpoint answered, so it was removed undelivered
+ * (docs/pwa_design.md → "Detecting a Poisoned Command"). On every other
+ * outcome `poisoned` is false.
  *
  * A failure carries two strings, and they are not interchangeable:
  *
@@ -105,6 +111,7 @@ function writeDelivered(note, status, failureDetail) {
         status: status,
         errorMessage: null,
         failureDetail: failureDetail,
+        poisoned: false,
     };
 }
 
@@ -119,6 +126,7 @@ function writeRejected(status, errorMessage, failureDetail, note) {
         status: status,
         errorMessage: errorMessage,
         failureDetail: failureDetail,
+        poisoned: false,
     };
 }
 
@@ -135,6 +143,7 @@ function writeQueued(note) {
         status: null,
         errorMessage: null,
         failureDetail: null,
+        poisoned: false,
     };
 }
 
@@ -337,6 +346,23 @@ class NetworkDataSource {
         return sendWriteCommand(noteUrl("/api/v1/deleted_notes/", noteId), {method: "DELETE"});
     }
 
+    /**
+     * True when the server answers its unauthenticated health endpoint with
+     * success — the test poisoned-command detection uses to tell being
+     * offline from a command the server cannot process. Uses plain fetch,
+     * not apiFetch: no session is involved, and a failing health check must
+     * never route through the logout handling.
+     */
+    async checkHealth() {
+        const url = `${getApiBaseUrl()}/api/v1/health-check`;
+        try {
+            const response = await fetch(url, {method: "GET"});
+            return response.ok;
+        } catch (e) {
+            return false;
+        }
+    }
+
     /** There is no mirror in this mode, so there is nothing to refresh. */
     async refreshMirror() {}
 
@@ -395,12 +421,21 @@ function deliverCommand(network, command) {
  * reached (network error or timeout) or answered 5xx. A transient failure
  * leaves the command at the head of the queue for a later delivery pass;
  * every other rejection is definitive (docs/pwa_design.md → "Delivery
- * Outcomes").
+ * Outcomes"). A poisoned outcome is transient in form but definitive by
+ * declaration: the command has already been given its last retry.
  */
 function isTransientFailure(outcome) {
     return outcome.outcome === "rejected"
+        && outcome.poisoned === false
         && (outcome.status === null || outcome.status >= 500);
 }
+
+/**
+ * How many consecutive transient failures of one queued command trigger
+ * the health check that begins poisoned-command detection
+ * (docs/pwa_design.md → "Detecting a Poisoned Command").
+ */
+export const POISON_CHECK_THRESHOLD = 5;
 
 /**
  * True when a note header agrees with a mirrored note: same version, same
@@ -485,6 +520,11 @@ export class OfflineDataSource {
         this.network = network;
         this.refreshInProgress = false;
         this.lastDrain = Promise.resolve();
+        // Consecutive transient failures of the queued command at the head
+        // of the queue, counted across delivery passes for poisoned-command
+        // detection (deliverWithPoisonDetection). Held in memory only: a
+        // relaunch starts the count over.
+        this.headFailures = {seq: null, count: 0};
         // All three are attached after construction: the sync engine by
         // init(), the handlers by their set…Handler methods. Any of them
         // may stay null for a whole session (and does in tests).
@@ -845,7 +885,9 @@ export class OfflineDataSource {
      * "Delivering Delayed Updates"): repeatedly deliver the command at the
      * head of the queue — never more than one in flight — until the queue
      * is empty or a delivery fails transiently, which leaves that command
-     * at the head for a later pass. A delivered command is completed
+     * at the head for a later pass — unless the failure is escalated into
+     * a poisoned declaration (deliverWithPoisonDetection), which removes
+     * the command like a definitive refusal. A delivered command is completed
      * through the store: removed from the queue, with the server's
      * returned note written to the mirror unless later commands for that
      * note remain. A command answered with a conflict is completed through
@@ -883,7 +925,7 @@ export class OfflineDataSource {
             if (command === null) {
                 return outcomes;
             }
-            const outcome = await deliverCommand(this.network, command);
+            const outcome = await this.deliverWithPoisonDetection(command);
             outcomes.set(command.update_queue_seq, outcome);
             if (isTransientFailure(outcome)) {
                 return outcomes;
@@ -894,10 +936,12 @@ export class OfflineDataSource {
             } else if (outcome.status === 409 && outcome.note !== null) {
                 await this.completeConflictBranch(command, outcome.note, foregroundSeq);
             } else {
-                recordFailure(
-                    `the server refused a queued ${command.command_type} for note `
-                        + `${command.note_id}; the command was dropped`,
-                    outcome.failureDetail);
+                const description = outcome.poisoned
+                    ? `a queued ${command.command_type} for note ${command.note_id} kept `
+                        + `failing with the server reachable; it was declared poisoned and dropped`
+                    : `the server refused a queued ${command.command_type} for note `
+                        + `${command.note_id}; the command was dropped`;
+                recordFailure(description, outcome.failureDetail);
                 if (command.update_queue_seq !== foregroundSeq) {
                     this.reportBackgroundRejection(command, outcome);
                 }
@@ -905,6 +949,45 @@ export class OfflineDataSource {
                     command.update_queue_seq, command.note_id);
             }
         }
+    }
+
+    /**
+     * Delivers the head command once, escalating persistent transient
+     * failure into poisoned-command detection (docs/pwa_design.md →
+     * "Detecting a Poisoned Command"). Transient failures of the same
+     * command are counted across delivery passes; from the
+     * POISON_CHECK_THRESHOLDth on, each failure triggers a health check to
+     * tell being offline from a command the server cannot process. When
+     * the health check fails, the device really is offline: the failure
+     * stays transient and the retry loop keeps backing off. When it
+     * succeeds, the command is retried once more; if that retry also fails
+     * transiently, the command is declared poisoned. Resolves with the
+     * outcome of the last delivery attempt made, marked poisoned: true on
+     * a declaration — the caller then removes the command like a
+     * definitive refusal.
+     */
+    async deliverWithPoisonDetection(command) {
+        const outcome = await deliverCommand(this.network, command);
+        if (!isTransientFailure(outcome)) {
+            this.headFailures = {seq: null, count: 0};
+            return outcome;
+        }
+        if (this.headFailures.seq !== command.update_queue_seq) {
+            this.headFailures = {seq: command.update_queue_seq, count: 0};
+        }
+        this.headFailures.count += 1;
+        if (this.headFailures.count < POISON_CHECK_THRESHOLD) {
+            return outcome;
+        }
+        if (!(await this.network.checkHealth())) {
+            return outcome;
+        }
+        const retry = await deliverCommand(this.network, command);
+        this.headFailures = {seq: null, count: 0};
+        if (!isTransientFailure(retry)) {
+            return retry;
+        }
+        return {...retry, poisoned: true};
     }
 
     /**

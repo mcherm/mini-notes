@@ -170,8 +170,10 @@ The existing up-to-date check (skip the deploy when nothing under `html/` is new
 > re-addresses the note's later queued commands and its mirror entry to
 > the conflict note the server returned, and the UI follows an open note
 > to its conflict note — a background conflict is also announced with a
-> floating alert. Not yet implemented, from "Delivering Delayed
-> Updates": there is no poisoned-command detection.
+> floating alert. Poisoned-command detection is in place: a queued
+> command that keeps failing while the server's health endpoint answers
+> is given one last retry, then removed, with the removal fix-up applied
+> and the user told.
 
 ### Goals
 

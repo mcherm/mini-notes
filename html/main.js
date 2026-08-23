@@ -1633,7 +1633,8 @@ function actionBackgroundRejection(command, outcome) {
     const subject = command.payload.title !== undefined
         ? `"${command.payload.title}"`
         : "a note";
-    const reason = outcome.errorMessage ?? "the server refused it";
+    const reason = outcome.errorMessage
+        ?? (outcome.poisoned ? "sending it failed repeatedly" : "the server refused it");
     showFloatingAlert(`A queued change to ${subject} could not be saved: ${reason}`);
 }
 
