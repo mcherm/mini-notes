@@ -1,8 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(make build:*)",
-      "Bash(make zip:*)",
       "Bash(cargo check:*)",
       "Bash(cargo test:*)",
       "WebSearch",
@@ -20,12 +18,8 @@
       "Bash(just --list)",
       "Bash(just --dry-run deploy)",
       "Bash(rustc --version)",
-      "Bash(zig version *)",
-      "Bash(cargo zigbuild *)",
-      "Bash(cargo lambda *)",
       "Bash(cargo tree *)",
       "Bash(just --dry-run build-api-v1)",
-      "Bash(cargo-lambda zig *)",
       "Bash(docker info *)",
       "Bash(jj st *)",
       "Bash(jj diff *)",
