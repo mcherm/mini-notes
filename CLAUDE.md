@@ -5,21 +5,28 @@ Personal web app for storing/editing notes. Plain HTML/JS frontend, Rust Lambda 
 ## Build & Deploy
 
 ```bash
-just build          # cargo-lambda, ARM64 target
+just build          # arm64 Linux binary, built in a container
 just zip            # package for Lambda
 just deploy         # deploy to dev (STAGE=prod just deploy for prod)
 ```
 
 Run `just` (or `just --list`) to see all recipes. Each lambda has its own targets, e.g. `just build-api-v1`, `just zip-api-v1`, `just deploy-api-v1`.
 
-Builds compile inside a Linux container via `cargo lambda build --compiler cross`
-(cross-rs + Docker) rather than the default zig cross-compiler, which fails to link
-`aws-lc-sys` (the AWS SDK's TLS crypto library). So a build needs the **Docker daemon
-running** and the `cross` tool installed; the build recipe checks both and fails fast
-with guidance if either is missing.
+Builds run `cargo build` inside an arm64 Linux container (`BUILD_IMAGE` in the justfile),
+which matches Lambda's OS, so nothing is cross-compiled. **This requires an arm64 build
+host** (Apple Silicon); building on an x86 Mac is not supported. The build needs the
+**Docker daemon running**; the recipe checks and fails fast with guidance if it isn't.
 
-Requires `just` (`cargo install just`), `cargo-lambda` (`cargo install cargo-lambda`),
-`cross` (`cargo install cross`), and a running Docker daemon.
+`BUILD_IMAGE` is pinned to `rust:1-bullseye` (glibc 2.31) because the `provided.al2023`
+runtime has glibc 2.34 and glibc is not forward compatible. A newer base image compiles
+and deploys without complaint, then fails at Lambda init — keep the image's glibc at or
+below 2.34.
+
+Container builds use `target/container/` so their Linux artifacts don't collide with the
+macOS ones `cargo test` writes to `target/`.
+
+Requires `just` (`cargo install just`), a running Docker daemon, and the AWS CLI. A host
+Rust toolchain is needed only for `just test-rust`.
 
 ## Project Structure
 

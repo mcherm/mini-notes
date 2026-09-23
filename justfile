@@ -1,14 +1,20 @@
-# Requires: cargo-lambda (cargo install cargo-lambda), cross (cargo install cross),
-#           a running Docker daemon, AWS CLI, just
-# https://www.cargo-lambda.info/  •  https://just.systems/
+# Requires: a running Docker daemon, AWS CLI, just
+#           (plus a host Rust toolchain, for `just test-rust`)
+# https://just.systems/
 #
 # To add a lambda: add build-<name>, zip-<name>, and deploy-<name> recipes
 # (delegating to the _build/_zip/_deploy helpers), and add them to the
 # `build`, `zip`, and `deploy-lambdas` aggregate recipes below.
 
-LAMBDA_DIR := "target/lambda"
-STAGE      := env_var_or_default("STAGE", "dev")
-SENTINELS  := "target/.sentinels"
+LAMBDA_DIR       := "target/lambda"
+STAGE            := env_var_or_default("STAGE", "dev")
+SENTINELS        := "target/.sentinels"
+
+# The Lambda build runs in this image. Pinned to bullseye (glibc 2.31) because the
+# provided.al2023 runtime has glibc 2.34 and glibc is not forward compatible: a newer
+# base such as bookworm (2.36) compiles and deploys fine, then fails at Lambda init.
+CONTAINER_TARGET := "target/container"
+BUILD_IMAGE      := "rust:1-bullseye"
 
 # CloudFront distribution ids, per stage.
 CF_DIST_ID_dev  := "EE5QH6UGUBU5G"
@@ -33,26 +39,24 @@ build-job-heartbeat: (_build "job-heartbeat")
 _build LAMBDA:
     #!/usr/bin/env bash
     set -euo pipefail
-    # We build with `--compiler cross`, which compiles inside a Linux container
-    # (via cross-rs + Docker) using a native C toolchain. This is required because
-    # the default zig cross-compiler fails to archive aws-lc-sys's C crypto library
-    # (the AWS SDK's TLS backend), producing an empty .a and link errors. Preconditions
-    # are detected here and reported together so a missing setup fails fast and clearly.
-    missing=0
-    if ! command -v cross >/dev/null 2>&1; then
-        echo "• 'cross' is not installed — install it with:  cargo install cross" >&2
-        missing=1
-    fi
+    # The build runs inside an arm64 Linux container: the same CPU as this Mac and the
+    # same OS as Lambda, so it is an ordinary native build with no cross-compilation.
     if ! docker info >/dev/null 2>&1; then
         echo "• Docker daemon isn't reachable — the build runs inside a Linux container." >&2
-        echo "  Start Docker (Docker Desktop, colima, …) and re-run." >&2
-        missing=1
-    fi
-    if [ "$missing" -ne 0 ]; then
-        echo "Cannot run the container-based Lambda build until the above are resolved." >&2
+        echo "  Start Docker (OrbStack, Docker Desktop, colima, …) and re-run." >&2
         exit 1
     fi
-    cargo lambda build --release --arm64 --lambda-dir {{LAMBDA_DIR}} --package {{LAMBDA}} --compiler cross
+    # A container-only target dir keeps these Linux artifacts from colliding with the
+    # macOS ones that `cargo test` writes to target/; CARGO_HOME persists the registry.
+    docker run --rm \
+        --platform linux/arm64 \
+        -v "$PWD":/work -w /work \
+        -e CARGO_TARGET_DIR=/work/{{CONTAINER_TARGET}} \
+        -e CARGO_HOME=/work/{{CONTAINER_TARGET}}/cargo-home \
+        {{BUILD_IMAGE}} \
+        cargo build --release --package {{LAMBDA}}
+    mkdir -p {{LAMBDA_DIR}}/{{LAMBDA}}
+    cp {{CONTAINER_TARGET}}/release/{{LAMBDA}} {{LAMBDA_DIR}}/{{LAMBDA}}/bootstrap
 
 # ── Zip ───────────────────────────────────────────────────────────────────────
 
