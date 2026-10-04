@@ -571,14 +571,14 @@ async function login() {
             body: JSON.stringify({email: email, password: password}),
         });
     } catch (e) {
-        showInlineAlert("#login-alert", "login-form", FALLBACK_ERROR_MESSAGE);
+        showInlineAlert("#login-alert", "form.login-form", FALLBACK_ERROR_MESSAGE);
         return;
     }
     if (response.ok) {
         await stateUpdateForLogin();
         return;
     }
-    showInlineAlert("#login-alert", "login-form", await extractErrorMessage(response));
+    showInlineAlert("#login-alert", "form.login-form", await extractErrorMessage(response));
 }
 
 /** Sends new account request to the API. Same 401 reasoning as login(). */
@@ -595,14 +595,14 @@ async function createUser() {
             body: JSON.stringify({email: email, password: password}),
         });
     } catch (e) {
-        showInlineAlert("#login-alert", "login-form", FALLBACK_ERROR_MESSAGE);
+        showInlineAlert("#login-alert", "form.login-form", FALLBACK_ERROR_MESSAGE);
         return;
     }
     if (response.ok) {
         await stateUpdateForLogin();
         return;
     }
-    showInlineAlert("#login-alert", "login-form", await extractErrorMessage(response));
+    showInlineAlert("#login-alert", "form.login-form", await extractErrorMessage(response));
 }
 
 /** Sends user edit request to the API to update email and/or password. */
@@ -1197,6 +1197,15 @@ function applyNoteDiffToPage(diff, reverse) {
 
 // ========== Actions ==========
 
+/**
+ * Invoked when a form is submitted, it does nothing. The reason this exists is to block the
+ * implicit form submission that is default HTML behavior. In this application, all calls to
+ * the server are performed by JavaScript.
+ */
+function actionFormSubmit(event) {
+    event.preventDefault();
+}
+
 /** Handles the login button click by sending credentials to the API. */
 async function actionLoginBtn() {
     await login();
@@ -1688,6 +1697,10 @@ function actionBackgroundConflict(command, conflictNote) {
 
 document.addEventListener("DOMContentLoaded", () => {
     setupScrollObserver();
+
+    document.querySelectorAll("form").forEach(form => {
+        form.addEventListener("submit", actionFormSubmit);
+    });
 
     document.querySelector("#user-btn").addEventListener("click", actionUserBtn);
     document.querySelector("#login-btn").addEventListener("click", actionLoginBtn);

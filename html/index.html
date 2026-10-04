@@ -51,16 +51,16 @@
                 <button class="settings-btn">&#x2699;&#xFE0F;</button>
             </header>
             <login-area>
-                <login-form>
+                <form class="login-form">
                     <label for="email-entry">Email:</label>
                     <input type="email" id="email-entry">
                     <label for="password-entry">Password:</label>
                     <input type="password" id="password-entry">
                     <inline-alert id="login-alert" role="alert"></inline-alert>
-                    <button id="login-btn">Log In</button>
-                    <button id="new-account-btn">New Account</button>
+                    <button id="login-btn" type="button">Log In</button>
+                    <button id="new-account-btn" type="button">New Account</button>
                     <a id="forgot-password-link">Forgot password?</a>
-                </login-form>
+                </form>
             </login-area>
         </body-content>
         <floating-alert role="alert">
@@ -112,14 +112,14 @@
     <shadow-box id="user-edit-dialog">
         <shadow-content>
             <user-edit>
-                <user-edit-form>
+                <form class="user-edit-form">
                     <label for="user-edit-password">Current Password:</label>
-                    <input type="password" id="user-edit-password" value="">
+                    <input type="password" id="user-edit-password" value="" autocomplete="current-password">
                     <label for="user-edit-new-email">New Email:</label>
                     <input type="text" id="user-edit-new-email" value="">
                     <label for="user-edit-new-password">New Password:</label>
-                    <input type="password" id="user-edit-new-password" value="">
-                </user-edit-form>
+                    <input type="password" id="user-edit-new-password" value="" autocomplete="new-password">
+                </form>
                 <button id="close-user-edit-btn">&#x2190;</button>
                 <button id="user-edit-btn">Edit</button>
             </user-edit>
@@ -140,12 +140,12 @@
         <shadow-content>
             <forgot-password-area>
                 <p>Enter the email for your account to send a password reset email.</p>
-                <forgot-password-form>
+                <form class="forgot-password-form">
                     <label for="forgot-password-email">Email:</label>
                     <input type="email" id="forgot-password-email" value="">
-                    <button id="close-forgot-password-btn">&#x2190;</button>
-                    <button id="send-forgot-password-btn">Send Reset Email</button>
-                </forgot-password-form>
+                    <button id="close-forgot-password-btn" type="button">&#x2190;</button>
+                    <button id="send-forgot-password-btn" type="button">Send Reset Email</button>
+                </form>
             </forgot-password-area>
         </shadow-content>
     </shadow-box>

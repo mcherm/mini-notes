@@ -304,7 +304,7 @@ user-delete > inline-alert {
     display: none; /* it's only shown in mobile form */
 }
 
-login-form {
+form.login-form {
     justify-self: center;
     display: grid;
     grid-template-areas:
@@ -429,7 +429,7 @@ floating-alert-message {
     text-align: center;
 }
 
-user-form, info-form, user-edit-form, user-details-form {
+user-form, info-form, form.user-edit-form, user-details-form {
     grid-area: form_1;
     justify-self: center;
     display: grid;
@@ -452,7 +452,7 @@ forgot-password-area > p {
     margin: 0;
 }
 
-forgot-password-form {
+form.forgot-password-form {
     grid-area: form_1;
     justify-self: center;
     display: grid;

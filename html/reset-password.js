@@ -90,6 +90,15 @@ function loadParamsFromUrl() {
 // ========== Actions ==========
 
 /**
+ * Invoked when a form is submitted, it does nothing. The reason this exists is to block the
+ * implicit form submission that is default HTML behavior. In this application, all calls to
+ * the server are performed by JavaScript.
+ */
+function actionFormSubmit(event) {
+    event.preventDefault();
+}
+
+/**
  * Sends the password-reset change request. Redirects to the login page on
  * success; displays an error in the inline-alert on failure.
  */
@@ -111,19 +120,20 @@ async function actionResetSubmitBtn() {
             }),
         });
     } catch (e) {
-        showInlineAlert("#reset-alert", "reset-form", FALLBACK_ERROR_MESSAGE);
+        showInlineAlert("#reset-alert", "form.reset-form", FALLBACK_ERROR_MESSAGE);
         return;
     }
     if (response.ok) {
         window.location.href = "/index.html";
         return;
     }
-    showInlineAlert("#reset-alert", "reset-form", await extractErrorMessage(response));
+    showInlineAlert("#reset-alert", "form.reset-form", await extractErrorMessage(response));
 }
 
 // ========== Initialization ==========
 
 document.addEventListener("DOMContentLoaded", () => {
     loadParamsFromUrl();
+    document.querySelector("form.reset-form").addEventListener("submit", actionFormSubmit);
     document.querySelector("#reset-submit-btn").addEventListener("click", actionResetSubmitBtn);
 });

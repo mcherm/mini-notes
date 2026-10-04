@@ -1,6 +1,5 @@
 # Things to do
 * Do a destroy when offline and it shows an error BUT also removes it from the UI.
-* Fix the annoying behavior that Chrome and Safari seem to think the search box is a password box and offer to save the password or populate it.
 * Run clippy and fix all issues. Add a just command for it and a validator for JavaScript.
 * Go through .js files and find duplicated code. Extract to a common file.
 * The "test" directory is JUST tests of the javascript. Move or rename accordingly.

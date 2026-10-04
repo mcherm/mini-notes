@@ -19,9 +19,9 @@ Each pattern is realized by one or two custom elements. All of them share a sing
 **When to use:** the user is on a form whose result they are unavoidably waiting for (e.g. the form *is* the page, with nowhere else to navigate).
 
 **Sites:**
-- Login (`#login-alert` inside `<login-form>`)
+- Login (`#login-alert` inside `<form class="login-form">`)
 - Create account (same element as login — the form has two submit buttons)
-- Set new password on the password-reset page (`#reset-alert` inside `<reset-form>`)
+- Set new password on the password-reset page (`#reset-alert` inside `<form class="reset-form">`)
 
 **Behaviour:**
 - On submission failure, the alert displays the backend's error string. The form remains usable.
