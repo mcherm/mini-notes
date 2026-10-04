@@ -1,5 +1,5 @@
 # Requires: a running Docker daemon, AWS CLI, just
-#           (plus a host Rust toolchain, for `just test-rust`)
+#           (plus a host Rust toolchain, for `just test-rust` and `just lint-rust`)
 # https://just.systems/
 #
 # To add a lambda: add build-<name>, zip-<name>, and deploy-<name> recipes
@@ -184,6 +184,15 @@ test-js:
     # The glob is quoted so that node expands it rather than the shell: handing node
     # a bare directory makes it treat the directory itself as a single test file.
     node --test "tests/**/*.test.mjs"
+
+# ── Lint ──────────────────────────────────────────────────────────────────────
+
+# Run every static checker.
+lint: lint-rust
+
+# Run clippy on all Rust code (including tests); warnings fail the check.
+lint-rust:
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 
