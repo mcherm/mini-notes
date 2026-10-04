@@ -120,7 +120,7 @@ pub async fn handle_get_all_users_detail(
             user,
         })
         .collect();
-    users.sort_by(|a, b| b.user_detail.notes.cmp(&a.user_detail.notes));
+    users.sort_by_key(|a| std::cmp::Reverse(a.user_detail.notes));
 
     let users_json: JsonValue = users.into_iter().map(JsonValue::from).collect();
     let body_json = json!({

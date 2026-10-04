@@ -93,18 +93,14 @@ fn scan_tagged_text(buf: &[u8]) -> Vec<String> {
         if read_u32(buf, i) == TEXT_RECORD_TAG {
             let count = read_u32(buf, i + 4) as usize;
             let start = i + 8;
-            if (1..=MAX_TEXT_UNITS).contains(&count) {
-                if let Some(end) = start.checked_add(count * 2) {
-                    if end <= buf.len() {
-                        if let Some(text) = decode_utf16le(&buf[start..end]) {
-                            if is_plausible_text(&text) {
-                                out.push(text);
-                                i = end;
-                                continue;
-                            }
-                        }
-                    }
-                }
+            if (1..=MAX_TEXT_UNITS).contains(&count) &&
+                let Some(end) = start.checked_add(count * 2) &&
+                end <= buf.len() && let Some(text) = decode_utf16le(&buf[start..end]) &&
+                is_plausible_text(&text)
+            {
+                out.push(text);
+                i = end;
+                continue;
             }
         }
         i += 1;
@@ -133,11 +129,11 @@ fn read_timestamp(buf: &[u8], offset: usize) -> Option<String> {
 /// Decode bytes as UTF-16LE, returning `None` if the byte count is odd or the units aren't valid
 /// UTF-16. The strict (non-lossy) decode doubles as a validity check while scanning.
 fn decode_utf16le(bytes: &[u8]) -> Option<String> {
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .collect();
     String::from_utf16(&units).ok()

@@ -216,7 +216,7 @@ pub fn get_s(item: &DynamoDBRecord, field: &str) -> Result<String, String> {
 
 /// Helper for reading timestamp fields from DynamoDB.
 pub fn get_timestamp(item: &DynamoDBRecord, field: &str) -> Result<Timestamp, String> {
-    Timestamp::from_str(&get_s(&item, field)?)
+    Timestamp::from_str(&get_s(item, field)?)
 }
 
 /// Helper for reading Optional<String> fields from DynamoDB.

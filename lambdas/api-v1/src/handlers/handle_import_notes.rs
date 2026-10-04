@@ -157,14 +157,15 @@ fn sniff_json_format(parsed: &JsonValue) -> Option<JsonFormat> {
     if mini_notes_array.is_some() {
         return Some(JsonFormat::MiniNotes);
     }
-    if let Some(simplenotes_array) = parsed.get("activeNotes").and_then(|v| v.as_array()) {
-        if simplenotes_array.iter().all(|note| {
-            note.get("content").is_some()
-                && note.get("creationDate").is_some()
-                && note.get("lastModified").is_some()
-        }) {
-            return Some(JsonFormat::SimpleNote);
-        }
+    let has_necessary_fields = |note: &JsonValue| {
+        note.get("content").is_some()
+            && note.get("creationDate").is_some()
+            && note.get("lastModified").is_some()
+    };
+    if let Some(simplenotes_array) = parsed.get("activeNotes").and_then(|v| v.as_array()) &&
+        simplenotes_array.iter().all(has_necessary_fields)
+    {
+        return Some(JsonFormat::SimpleNote);
     }
     None
 }
@@ -590,7 +591,7 @@ mod tests {
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
             import_params(Some("export.zip")),
-            Bytes::from(body),
+            body,
         ).await;
 
         let Json(json) = result.unwrap();
@@ -641,7 +642,7 @@ mod tests {
             current_time_stub("2026-03-15T12:00:00.000000000Z"),
             IdGenerator(fake_id),
             import_params(Some("export.zip")),
-            Bytes::from(body),
+            body,
         ).await;
 
         let Json(json) = result.unwrap();

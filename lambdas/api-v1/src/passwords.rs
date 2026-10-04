@@ -98,9 +98,9 @@ mod test {
         let password_hash = generate_password_hash("abc123")?;
         println!("Password hash = '{}'", password_hash);
         let bad_verify = verify_password("xxx000", &password_hash)?;
-        assert_eq!(bad_verify, false);
+        assert!(!bad_verify);
         let good_verify = verify_password("abc123", &password_hash)?;
-        assert_eq!(good_verify, true);
+        assert!(good_verify);
         Ok(())
     }
 }

@@ -99,14 +99,14 @@ pub async fn handle_pwd_reset_send(
     // token is also past its MAX_AGE — that's the change-password
     // handler's concern.) This exists to prevent (or at least delay)
     // attacks that spam a user rapidly with large number of emails.
-    if let Some(ref existing) = user.password_reset_token {
-        if existing.issued_at + PASSWORD_RESET_RESEND_COOLDOWN > current_time.timestamp {
-            info!(
-                user_id = user.user_id,
-                "existing reset token is still within cooldown; not resending"
-            );
-            return Ok(StatusCode::NO_CONTENT);
-        }
+    if let Some(ref existing) = user.password_reset_token &&
+        existing.issued_at + PASSWORD_RESET_RESEND_COOLDOWN > current_time.timestamp
+    {
+        info!(
+            user_id = user.user_id,
+            "existing reset token is still within cooldown; not resending"
+        );
+        return Ok(StatusCode::NO_CONTENT);
     }
 
     // Generate, store, send.

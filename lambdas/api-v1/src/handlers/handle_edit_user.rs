@@ -34,10 +34,8 @@ pub async fn handle_edit_user(
     info!(user_id, "user edit attempt");
 
     // Validate the proposed new password, if one was provided
-    if let Some(ref new_password) = body.new_password {
-        if let Err(msg) = validate_password(new_password) {
-            return Err(http_error(400, msg));
-        }
+    if let Some(ref new_password) = body.new_password && let Err(msg) = validate_password(new_password) {
+        return Err(http_error(400, msg));
     }
 
     let user = common::fetch_user_by_id(&state.dynamo_client, &state.users_table_name, &user_id).await?;

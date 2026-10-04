@@ -59,10 +59,8 @@ pub async fn handle_edit_note(
     let existing_note: Option<Note> = get_existing_note(&state, &note_id, &user_id).await?;
 
     // --- Reject edits to soft-deleted notes ---
-    if let Some(note) = existing_note.as_ref() {
-        if note.delete_time.is_some() {
-            return Err(http_error(403, "cannot edit a deleted note"));
-        }
+    if let Some(note) = existing_note.as_ref() && note.delete_time.is_some() {
+        return Err(http_error(403, "cannot edit a deleted note"));
     }
 
     // --- Bail now if we find that it's not the right version ---
