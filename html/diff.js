@@ -330,7 +330,7 @@ class DiffEncoder {
      * two strings: the text to delete and the text to insert.
      */
     pushEdit(del, ins) {
-        this.string += "[" + escapeStr(del) + "|" + escapeStr(ins) + "]";
+        this.string += `[${escapeStr(del)}|${escapeStr(ins)}]`;
         this.queued = null;
         this.prevWasEqual = false;
     }

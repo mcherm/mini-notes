@@ -592,7 +592,7 @@ describe("mirror refresh pass", () => {
             fetchedNoteIds: [],
             getNotes: async (ck) => headerPage(activePages, ck),
             getDeletedNotes: async (ck) => headerPage(trashedPages, ck),
-            getNote: async (noteId, raceTimeoutMs) => {
+            getNote: async (noteId, _raceTimeoutMs) => {
                 network.fetchedNoteIds.push(noteId);
                 const note = notes[noteId];
                 return note !== undefined ? {ok: true, note: note} : httpFailure(404);
@@ -730,8 +730,8 @@ describe("mirror refresh pass", () => {
                         () => resolve({ok: true, noteHeaders: [], continueKey: null});
                 });
             },
-            getDeletedNotes: async (ck) => ({ok: true, noteHeaders: [], continueKey: null}),
-            getNote: async (noteId, raceTimeoutMs) => {
+            getDeletedNotes: async (_ck) => ({ok: true, noteHeaders: [], continueKey: null}),
+            getNote: async (_noteId, _raceTimeoutMs) => {
                 throw new Error("no note should be fetched");
             },
         };
@@ -745,7 +745,7 @@ describe("mirror refresh pass", () => {
 
     test("a rejected session ends the pass quietly", async () => {
         const network = {
-            getNotes: async (ck) => {
+            getNotes: async (_ck) => {
                 throw new LoggedOutError("session rejected");
             },
         };
@@ -1042,7 +1042,7 @@ describe("background rejection reporting", () => {
         const source = new OfflineDataSource(
             store, deliveryNetwork({editNote: [rejectedOutcome(400)]}));
         const reported = [];
-        source.setBackgroundRejectionHandler((command, outcome) => reported.push(command));
+        source.setBackgroundRejectionHandler((command, _outcome) => reported.push(command));
         const outcome = await source.editNote(
             {noteId: "note_00001", title: "t", body: "b", sourceVersionId: 4});
         assert.equal(outcome.outcome, "rejected");
@@ -1057,7 +1057,7 @@ describe("background rejection reporting", () => {
             editNote: [rejectedOutcome(400), deliveredOutcome(makeNote("note_00002", 3))],
         }));
         const reported = [];
-        source.setBackgroundRejectionHandler((command, outcome) => reported.push(command));
+        source.setBackgroundRejectionHandler((command, _outcome) => reported.push(command));
         const outcome = await source.editNote(
             {noteId: "note_00002", title: "t", body: "b", sourceVersionId: 2});
         assert.equal(outcome.outcome, "delivered");
@@ -1133,7 +1133,7 @@ describe("conflict handling in the delivery pass", () => {
         source.setBackgroundConflictHandler(
             (command, conflictNote) =>
                 conflicts.push({command: command, conflictNote: conflictNote}));
-        source.setBackgroundRejectionHandler((command, outcome) => rejections.push(command));
+        source.setBackgroundRejectionHandler((command, _outcome) => rejections.push(command));
         await source.drainQueue(null);
         assert.equal(conflicts.length, 1);
         assert.equal(conflicts[0].command.note_id, "note_00001");
@@ -1147,7 +1147,7 @@ describe("conflict handling in the delivery pass", () => {
         const source = new OfflineDataSource(
             store, deliveryNetwork({editNote: [conflictOutcome(serverConflict)]}));
         const conflicts = [];
-        source.setBackgroundConflictHandler((command, conflictNote) => conflicts.push(command));
+        source.setBackgroundConflictHandler((command, _conflictNote) => conflicts.push(command));
         const result = await source.editNote(
             {noteId: "note_00001", title: "t", body: "b", sourceVersionId: 3});
         assert.equal(result.outcome, "rejected");

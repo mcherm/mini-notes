@@ -71,7 +71,7 @@ export async function extractErrorMessage(response) {
         if (data && typeof data.error === "string" && data.error.length > 0) {
             return data.error;
         }
-    } catch (e) {
+    } catch (_err) {
         // Body wasn't JSON — fall through to fallback.
     }
     return FALLBACK_ERROR_MESSAGE;

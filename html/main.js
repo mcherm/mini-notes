@@ -287,7 +287,7 @@ function clearNoteListForError() {
 /** Updates the can-undo/can-redo classes on #note based on current stack state. */
 function updateUndoRedoButtons() {
     const noteElem = document.getElementById("note");
-    const canUndo = !!(currentNote && currentNote.undo_stack && currentNote.undo_stack.length > 0);
+    const canUndo = !!(currentNote?.undo_stack && currentNote.undo_stack.length > 0);
     const canRedo = !!(currentNote && redo_stack.length > 0);
     noteElem.classList.toggle("can-undo", canUndo);
     noteElem.classList.toggle("can-redo", canRedo);
@@ -470,7 +470,7 @@ function fillInlineAlert(alert, message) {
 
 /** Dismisses the inline-alert whose close button was clicked. */
 function actionInlineAlertClose(event) {
-    clearInlineAlert("#" + event.currentTarget.closest("inline-alert").id);
+    clearInlineAlert(`#${event.currentTarget.closest("inline-alert").id}`);
 }
 
 /**
@@ -586,7 +586,7 @@ function clearProgressBox(box) {
 async function logout() {
     try {
         await apiFetch(`${getApiBaseUrl()}/api/v1/user_logout`, { method: "POST" });
-    } catch (e) {
+    } catch (_err) {
         // Ignore errors — logout should always proceed client-side
     }
     stateUpdateForLogout();
@@ -610,7 +610,7 @@ async function login() {
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({email: email, password: password}),
         });
-    } catch (e) {
+    } catch (_err) {
         showInlineAlert("#login-alert", "form.login-form", FALLBACK_ERROR_MESSAGE);
         return;
     }
@@ -634,7 +634,7 @@ async function createUser() {
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({email: email, password: password}),
         });
-    } catch (e) {
+    } catch (_err) {
         showInlineAlert("#login-alert", "form.login-form", FALLBACK_ERROR_MESSAGE);
         return;
     }
@@ -903,7 +903,7 @@ async function saveNoteIfChanged() {
     while (saveInFlight) {
         try {
             await saveInFlight;
-        } catch (e) {
+        } catch (_err) {
             // Ignored: the initiating caller handles it.
         }
     }
@@ -1434,7 +1434,7 @@ function actionCloseUserEditBtn() {
 async function actionUserEditBtn() {
     try {
         await editUser();
-    } catch (e) {
+    } catch (_err) {
         hideShadowBox("user-edit-dialog");
         return;
     }
@@ -1498,7 +1498,8 @@ async function actionDeleteUserBtn() {
 }
 
 /** Opens the forgot-password dialog. Pre-fills email from the login field. */
-function actionForgotPasswordLink() {
+function actionForgotPasswordLink(event) {
+    event.preventDefault();
     const loginEmail = document.querySelector("#email-entry").value;
     document.querySelector("#forgot-password-email").value = loginEmail;
     showShadowBox("forgot-password-dialog");
@@ -1513,7 +1514,7 @@ function actionCloseForgotPasswordBtn() {
 async function actionSendForgotPasswordBtn() {
     try {
         await sendPasswordResetEmail();
-    } catch (e) {
+    } catch (_err) {
         // The API returns 204 in every "expected" case, so a thrown error
         // here means a network failure or similar. Per the indistinguishable-
         // response design, we close the dialog without surfacing it.
@@ -1523,7 +1524,7 @@ async function actionSendForgotPasswordBtn() {
 
 /** Handles the undo button by applying a diff from the undo stack. */
 function actionUndoBtn() {
-    if (!currentNote || !currentNote.undo_stack) {
+    if (!currentNote?.undo_stack) {
         return;
     }
     const diff = currentNote.undo_stack.pop();

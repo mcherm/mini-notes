@@ -7,7 +7,7 @@
 // checked-in placeholders cache nothing, so an unstamped html/ tree runs the
 // app entirely from the network.
 const ASSET_VERSION = "dev";
-const CACHE_NAME = "app-shell-" + ASSET_VERSION;
+const CACHE_NAME = `app-shell-${ASSET_VERSION}`;
 
 // The app shell: these paths (plus navigations to "/") are served cache-first.
 // Everything else — admin.html, reset-password.html and their assets, and all

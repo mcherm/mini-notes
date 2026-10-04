@@ -1,5 +1,3 @@
-"use strict";
-
 // ========== Utilities ==========
 
 function getApiBaseUrl() {
@@ -28,7 +26,7 @@ async function extractErrorMessage(response) {
         if (data && typeof data.error === "string" && data.error.length > 0) {
             return data.error;
         }
-    } catch (e) {
+    } catch (_err) {
         // Body wasn't JSON — fall through to fallback.
     }
     return FALLBACK_ERROR_MESSAGE;
@@ -59,7 +57,7 @@ function fillInlineAlert(alert, message) {
 
 /** Dismisses the inline-alert whose close button was clicked. */
 function actionInlineAlertClose(event) {
-    clearInlineAlert("#" + event.currentTarget.closest("inline-alert").id);
+    clearInlineAlert(`#${event.currentTarget.closest("inline-alert").id}`);
 }
 
 /**
@@ -140,7 +138,7 @@ async function actionResetSubmitBtn() {
                 new_password: newPassword,
             }),
         });
-    } catch (e) {
+    } catch (_err) {
         showInlineAlert("#reset-alert", "form.reset-form", FALLBACK_ERROR_MESSAGE);
         return;
     }

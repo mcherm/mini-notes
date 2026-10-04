@@ -1,6 +1,5 @@
 # Things to do
 * Do a destroy when offline and it shows an error BUT also removes it from the UI.
-* Run clippy and fix all issues. Add a just command for it and a validator for JavaScript.
 * Go through .js files and find duplicated code. Extract to a common file.
 * Merge the code for alert handling (showInlineAlert, clearInlineAlert and friends) and other duplicated code in main.js, admin.js and reset-password.js into a common file.
 * The "test" directory is JUST tests of the javascript. Move or rename accordingly.

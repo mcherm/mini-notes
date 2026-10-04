@@ -144,7 +144,7 @@ describe("applyEditNote on a mirrored note", () => {
     });
 
     test("caps the undo stack at 50, dropping the oldest entries", () => {
-        const fullStack = Array.from({length: 50}, (unused, i) => `b:[a\\|b]${i}`);
+        const fullStack = Array.from({length: 50}, (_unused, i) => `b:[a\\|b]${i}`);
         const {note} = applyEditNote(makeNote({undo_stack: fullStack}), edit, NOW);
         assert.equal(note.undo_stack.length, 50);
         assert.equal(note.undo_stack[0], "b:[a\\|b]1");

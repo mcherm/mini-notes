@@ -481,8 +481,6 @@ form.forgot-password-form {
     grid-column: 1 / -1;
     justify-self: center;
     color: var(--brand-color-dk);
-    text-decoration: underline;
-    cursor: pointer;
     font-size: 0.9em;
 }
 

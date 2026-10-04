@@ -226,7 +226,7 @@ async function sendWriteCommand(url, options) {
         // note the server created (docs/pwa_design.md → "Delivery Outcomes");
         // it rides on the outcome so the conflict fix-up can follow it.
         const parsed = await readJson(response, url);
-        const note = (parsed.data !== null && parsed.data.note) ? parsed.data.note : null;
+        const note = (parsed.data?.note) ? parsed.data.note : null;
         return writeRejected(
             response.status, null, `HTTP ${response.status} from ${url}`, note);
     }
@@ -242,7 +242,7 @@ async function sendWriteCommand(url, options) {
         return writeDelivered(null, response.status, null);
     }
     const parsed = await readJson(response, url);
-    const note = (parsed.data !== null && parsed.data.note) ? parsed.data.note : null;
+    const note = (parsed.data?.note) ? parsed.data.note : null;
     return writeDelivered(note, response.status, parsed.failureDetail);
 }
 
@@ -306,7 +306,7 @@ class NetworkDataSource {
      * raceTimeoutMs is part of the shared interface but means nothing here:
      * with no local copy to fall back to, the network is simply awaited.
      */
-    getNote(noteId, raceTimeoutMs) {
+    getNote(noteId, _raceTimeoutMs) {
         return fetchNote(noteUrl("/api/v1/notes/", noteId));
     }
 
@@ -335,12 +335,12 @@ class NetworkDataSource {
      * sourceVersionId is part of the shared interface but is not sent: the
      * server derives everything it needs from the session and the note id.
      */
-    deleteNote(noteId, sourceVersionId) {
+    deleteNote(noteId, _sourceVersionId) {
         return sendWriteCommand(noteUrl("/api/v1/notes/", noteId), {method: "DELETE"});
     }
 
     /** sourceVersionId is not sent; see deleteNote. */
-    recoverNote(noteId, sourceVersionId) {
+    recoverNote(noteId, _sourceVersionId) {
         return sendWriteCommand(noteUrl("/api/v1/recover_note/", noteId), {method: "POST"});
     }
 
@@ -360,13 +360,13 @@ class NetworkDataSource {
         try {
             const response = await fetch(url, {method: "GET"});
             return response.ok;
-        } catch (e) {
+        } catch (_err) {
             return false;
         }
     }
 
     /** There is no mirror in this mode, so there are no cached notes to read. */
-    async getCachedNotes(fromTrashList, limit) {
+    async getCachedNotes(_fromTrashList, _limit) {
         return null;
     }
 
@@ -374,15 +374,15 @@ class NetworkDataSource {
     async refreshMirror() {}
 
     /** There is no queue in this mode, so there is nothing to deliver. */
-    async drainQueue(foregroundSeq) {
+    async drainQueue(_foregroundSeq) {
         return new Map();
     }
 
     /** There is no queue in this mode, so background rejections cannot occur. */
-    setBackgroundRejectionHandler(handler) {}
+    setBackgroundRejectionHandler(_handler) {}
 
     /** There is no queue in this mode, so background conflicts cannot occur. */
-    setBackgroundConflictHandler(handler) {}
+    setBackgroundConflictHandler(_handler) {}
 
     /** There is no sync engine in this mode, so there is nothing to wake. */
     wakeSyncEngine() {}

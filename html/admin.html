@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="main.css" type="text/css"/>
     <link rel="stylesheet" href="admin.css" type="text/css"/>
-    <script src="admin.js"></script>
+    <script src="admin.js" type="module"></script>
   </head>
   <body class="logged-in"> <!-- assume logged in until proven otherwise -->
     <body-content id="admin-page">
@@ -20,9 +20,9 @@
       </header>
       <admin-commands>
         <label for="site-data-btn">Site Data</label>
-        <button id="site-data-btn">Go</button>
+        <button type="button" id="site-data-btn">Go</button>
         <label for="users-detail-btn">Users Detail (slow)</label>
-        <button id="users-detail-btn">Go</button>
+        <button type="button" id="users-detail-btn">Go</button>
       </admin-commands>
     </body-content>
     <shadow-box id="site-data-display-dialog">
@@ -43,7 +43,7 @@
             <input type="text" id="note-size-display" disabled value="">
           </site-data-form>
           <inline-alert id="site-data-alert" role="alert"></inline-alert>
-          <button id="close-site-data-shadowbox-btn">&#x2190;</button>
+          <button type="button" id="close-site-data-shadowbox-btn">&#x2190;</button>
         </site-data-area>
       </shadow-content>
     </shadow-box>
@@ -73,7 +73,7 @@
             <label for="invalid-user-count-display">Invalid Users:</label>
             <input type="text" id="invalid-user-count-display" disabled value="">
           </users-detail-totals>
-          <button id="close-users-detail-shadowbox-btn">&#x2190;</button>
+          <button type="button" id="close-users-detail-shadowbox-btn">&#x2190;</button>
         </users-detail-area>
       </shadow-content>
     </shadow-box>

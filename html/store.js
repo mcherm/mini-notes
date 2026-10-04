@@ -144,7 +144,7 @@ class IdbBackend {
                 callbackError = e;
                 try {
                     tx.abort();
-                } catch (ignored) {
+                } catch (_ignored) {
                     // The transaction had already ended; the abort handler
                     // below (or oncomplete) has the last word.
                 }

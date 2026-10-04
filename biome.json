@@ -1,0 +1,15 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "linter": {
+    "rules": {
+      "a11y": {
+        "noInteractiveElementToNoninteractiveRole": "off",
+        "noPositiveTabindex": "off",
+        "useValidLang": "off"
+      },
+      "style": {
+        "noDescendingSpecificity": "off"
+      }
+    }
+  }
+}

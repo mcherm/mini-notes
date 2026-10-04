@@ -1,5 +1,3 @@
-"use strict";
-
 /** Thrown by apiFetch when a 401 triggers logout, to abort the caller's flow. */
 class LoggedOutError extends Error {
     constructor() { super("Session expired — logged out"); }
@@ -54,7 +52,7 @@ async function extractErrorMessage(response) {
         if (data && typeof data.error === "string" && data.error.length > 0) {
             return data.error;
         }
-    } catch (e) {
+    } catch (_err) {
         // Body wasn't JSON — fall through to fallback.
     }
     return FALLBACK_ERROR_MESSAGE;
@@ -85,7 +83,7 @@ function fillInlineAlert(alert, message) {
 
 /** Dismisses the inline-alert whose close button was clicked. */
 function actionInlineAlertClose(event) {
-    clearInlineAlert("#" + event.currentTarget.closest("inline-alert").id);
+    clearInlineAlert(`#${event.currentTarget.closest("inline-alert").id}`);
 }
 
 /**

@@ -17,15 +17,15 @@
         <body-content id="main-page">
             <header>
                 <header-text>Mini-Notes</header-text>
-                <button class="settings-btn">&#x2699;&#xFE0F;</button>
-                <button id="trash-btn">&#x1F5D1;&#xFE0F;</button>
-                <button id="user-btn">&#x1F464;</button>
+                <button type="button" class="settings-btn">&#x2699;&#xFE0F;</button>
+                <button type="button" id="trash-btn">&#x1F5D1;&#xFE0F;</button>
+                <button type="button" id="user-btn">&#x1F464;</button>
             </header>
             <nav>
                 <nav-header>
-                    <button id="new-note">New</button>
+                    <button type="button" id="new-note">New</button>
                     <input class="search" type="search" value="" placeholder="&#128269;">
-                    <button id="close-trash-view-btn">Close Trash View</button>
+                    <button type="button" id="close-trash-view-btn">Close Trash View</button>
                 </nav-header>
                 <note-list>
                 </note-list>
@@ -33,13 +33,13 @@
             </nav>
             <article id="note">
                 <note-header>
-                    <button id="back-to-list">&#x2713;</button>
+                    <button type="button" id="back-to-list">&#x2713;</button>
                     <input class="title" type="text" value="" tabindex="1">
-                    <button id="redo-btn">&#x21AA;&#xFE0F;</button>
-                    <button id="undo-btn">&#x21A9;&#xFE0F;</button>
-                    <button id="note-info-btn">&#x1F4DD;</button>
-                    <button id="restore-note-btn">Restore</button>
-                    <button id="delete-forever-btn">Destroy</button>
+                    <button type="button" id="redo-btn">&#x21AA;&#xFE0F;</button>
+                    <button type="button" id="undo-btn">&#x21A9;&#xFE0F;</button>
+                    <button type="button" id="note-info-btn">&#x1F4DD;</button>
+                    <button type="button" id="restore-note-btn">Restore</button>
+                    <button type="button" id="delete-forever-btn">Destroy</button>
                 </note-header>
                 <inline-alert id="note-pane-alert" role="alert"></inline-alert>
                 <textarea class="note-body" tabindex="2"></textarea>
@@ -48,7 +48,7 @@
         <body-content id="login-page">
             <header>
                 <header-text>Mini-Notes</header-text>
-                <button class="settings-btn">&#x2699;&#xFE0F;</button>
+                <button type="button" class="settings-btn">&#x2699;&#xFE0F;</button>
             </header>
             <login-area>
                 <form class="login-form">
@@ -59,14 +59,14 @@
                     <inline-alert id="login-alert" role="alert"></inline-alert>
                     <button id="login-btn" type="button">Log In</button>
                     <button id="new-account-btn" type="button">New Account</button>
-                    <a id="forgot-password-link">Forgot password?</a>
+                    <a id="forgot-password-link" href="#forgot-password-dialog">Forgot password?</a>
                 </form>
             </login-area>
         </body-content>
         <floating-alert role="alert">
             <floating-alert-top>
                 <floating-alert-dots></floating-alert-dots>
-                <button class="close" aria-label="Dismiss">&#x2715;</button>
+                <button type="button" class="close" aria-label="Dismiss">&#x2715;</button>
             </floating-alert-top>
             <floating-alert-message></floating-alert-message>
         </floating-alert>
@@ -83,11 +83,11 @@
                     <input type="text" id="user-create-date-display" disabled value="">
                 </user-form>
                 <inline-alert id="user-info-alert" role="alert"></inline-alert>
-                <button id="close-user-shadowbox-btn">&#x2190;</button>
-                <button id="logout-btn">Log Out</button>
-                <button id="user-details-btn">Usage</button>
-                <button id="user-edit-dialog-btn">Edit</button>
-                <button id="user-delete-dialog-btn">&#x1F5D1;&#xFE0F;</button>
+                <button type="button" id="close-user-shadowbox-btn">&#x2190;</button>
+                <button type="button" id="logout-btn">Log Out</button>
+                <button type="button" id="user-details-btn">Usage</button>
+                <button type="button" id="user-edit-dialog-btn">Edit</button>
+                <button type="button" id="user-delete-dialog-btn">&#x1F5D1;&#xFE0F;</button>
             </user-area>
         </shadow-content>
     </shadow-box>
@@ -105,7 +105,7 @@
                     <input type="text" id="user-busiest-note-version-display" disabled value="">
                 </user-details-form>
                 <inline-alert id="user-details-alert" role="alert"></inline-alert>
-                <button id="close-user-details-btn">&#x2190;</button>
+                <button type="button" id="close-user-details-btn">&#x2190;</button>
             </user-details>
         </shadow-content>
     </shadow-box>
@@ -120,8 +120,8 @@
                     <label for="user-edit-new-password">New Password:</label>
                     <input type="password" id="user-edit-new-password" value="" autocomplete="new-password">
                 </form>
-                <button id="close-user-edit-btn">&#x2190;</button>
-                <button id="user-edit-btn">Edit</button>
+                <button type="button" id="close-user-edit-btn">&#x2190;</button>
+                <button type="button" id="user-edit-btn">Edit</button>
             </user-edit>
         </shadow-content>
     </shadow-box>
@@ -131,8 +131,8 @@
                 <p>WARNING: This will irreversibly delete your entire account and all information!</p>
                 <progress-box id="delete-user-progress"></progress-box>
                 <inline-alert id="delete-user-alert" role="alert"></inline-alert>
-                <button id="close-user-delete-btn">&#x2190;</button>
-                <button id="delete-user-btn">Delete Account</button>
+                <button type="button" id="close-user-delete-btn">&#x2190;</button>
+                <button type="button" id="delete-user-btn">Delete Account</button>
             </user-delete>
         </shadow-content>
     </shadow-box>
@@ -163,8 +163,8 @@
                     <label for="character-count-display">Characters:</label>
                     <input type="text" id="character-count-display" disabled value="dummy">
                 </info-form>
-                <button id="close-note-info-shadowbox-btn">&#x2190;</button>
-                <button id="delete-note">Delete Note</button>
+                <button type="button" id="close-note-info-shadowbox-btn">&#x2190;</button>
+                <button type="button" id="delete-note">Delete Note</button>
             </note-info>
         </shadow-content>
     </shadow-box>
@@ -185,7 +185,7 @@
                         <settings-nav-item data-target="copyright-info">Copyright</settings-nav-item>
                     </settings-nav-list>
                     <settings-nav-footer>
-                        <button id="close-settings-btn">&#x2190;</button>
+                        <button type="button" id="close-settings-btn">&#x2190;</button>
                     </settings-nav-footer>
                 </settings-nav>
                 <settings-display>
@@ -266,7 +266,7 @@
                         </ul>
                         <input type="file" id="import-notes-file" accept=".txt,.zip,.json,.sdocx">
                         <import-actions>
-                            <button id="import-notes-btn">Import</button>
+                            <button type="button" id="import-notes-btn">Import</button>
                         </import-actions>
                         <progress-box id="import-progress"></progress-box>
                         <inline-alert id="import-alert" role="alert"></inline-alert>
@@ -346,7 +346,7 @@ SOFTWARE.
         }
         // Ask the browser not to evict our storage (the app-shell cache now;
         // note data later) under storage pressure.
-        if (navigator.storage && navigator.storage.persist) {
+        if (navigator.storage?.persist) {
             navigator.storage.persist();
         }
     </script>
