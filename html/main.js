@@ -4,10 +4,11 @@ import {
     FALLBACK_ERROR_MESSAGE,
     getApiBaseUrl,
     LoggedOutError,
+    OFFLINE_ERROR_MESSAGE,
     setSessionExpiredHandler,
 } from "./api.js";
 import { CONFLICT_TITLE_PREFIX } from "./commands.js";
-import { byModifyTimeNewestFirst, dataLayer } from "./data-layer.js";
+import { byModifyTimeNewestFirst, dataLayer, FETCH_TIMED_OUT, raceAgainstTimeout } from "./data-layer.js";
 import { applyNoteDiff } from "./diff.js";
 
 // ========== Constants ==========
@@ -15,12 +16,20 @@ import { applyNoteDiff } from "./diff.js";
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const STALE_UNFOCUSED_EDIT_MS = 60 * 1000; // 1 minute
 /**
- * How long a note fetch may run before the locally mirrored copy (if any)
- * is served instead. Tuned to usually leave the server enough time to
- * answer — including a cold start — without making a user on a hanging
- * connection wait long enough to feel stuck.
+ * How long a server read may run before the app treats the server as
+ * unreachable and shows locally mirrored data instead: a note fetch serves
+ * the mirrored copy (if any), and a first-page list load shows the full
+ * mirrored list. Tuned to usually leave the server enough time to answer —
+ * including a cold start — without making a user on a hanging connection
+ * wait long enough to feel stuck.
  */
-const NOTE_FETCH_TIMEOUT_MS = 3 * 1000;
+const SERVER_FETCH_TIMEOUT_MS = 3 * 1000;
+/**
+ * How many mirrored note headers are shown while the server's first page
+ * of a note list is awaited. Matches the server's page size
+ * (NOTES_PER_BATCH), so the cached list covers what that page will.
+ */
+const FIRST_PAGE_SIZE = 100;
 /**
  * How often the background pass keeping the local mirror in step with the
  * server runs while the app stays open. Deliberately long: the pass only
@@ -46,6 +55,15 @@ let unfocusedEditDebounceTimer = null;
 let saveInFlight = null;
 /** Boolean, where true means we are viewing the trash rather than normal notes. */
 let trashView = false;
+/**
+ * Counts changes to the displayed note list, so that a first-page load
+ * applies its server response only if nothing changed the list while the
+ * response was awaited; otherwise the response is out of date and is
+ * dropped. Incremented when any first-page list load starts (in
+ * loadNotePage) and whenever a write edits the displayed list in place.
+ * Any new code that edits the displayed list in place must increment it.
+ */
+let listGenerationCounter = 0;
 /** Queue of alerts; first one is visible */
 const floatingAlertMessages = [];
 
@@ -388,6 +406,7 @@ function applyNoteToUI(note) {
     };
 
     // --- Update noteHeaders ---
+    listGenerationCounter++;
     const oldIndex = noteHeaders.findIndex(h => h.note_id === note.note_id);
     if (oldIndex !== -1) {
         noteHeaders.splice(oldIndex, 1);
@@ -660,6 +679,80 @@ async function sendPasswordResetEmail() {
 }
 
 /**
+ * True when two header lists would render identically: the same notes in
+ * the same order, with the same title, version and modify time.
+ */
+function sameNoteHeaders(a, b) {
+    return a.length === b.length && a.every((header, i) =>
+        header.note_id === b[i].note_id
+        && header.title === b[i].title
+        && header.version_id === b[i].version_id
+        && header.modify_time === b[i].modify_time);
+}
+
+/**
+ * Shows note headers read from the local mirror as the whole list, with no
+ * continuation key, so scrolling loads nothing more. Does nothing when
+ * there are no headers to show (null: no mirror) or when the displayed list
+ * has changed since the load numbered generation began. Returns true when
+ * the headers were shown.
+ */
+function showCachedNoteHeaders(headers, generation) {
+    if (headers === null || generation !== listGenerationCounter) return false;
+    noteHeaders = headers;
+    continuationKey = null;
+    renderNoteList();
+    updateSentinel();
+    return true;
+}
+
+/**
+ * Applies one dataLayer read result to the list; the second half of
+ * loadNotePage, which documents the parameters and the return value. A
+ * first-page result is dropped when the displayed list has changed since
+ * the load numbered generation began (see listGenerationCounter).
+ * cachedShown is true when the list currently shows mirrored headers from
+ * this same load: a failure then leaves them in place rather than clearing
+ * the list, and a result identical to them is not re-rendered.
+ */
+function applyNotePage(result, continueKey, sortByModifyTime, generation, cachedShown) {
+    if (continueKey === null && generation !== listGenerationCounter) return false;
+    if (!result.ok) {
+        if (continueKey === null && !cachedShown) clearNoteListForError();
+        showInlineAlert("#note-list-alert", null, result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
+        return false;
+    }
+    if (result.fromMirror) {
+        showInlineAlert("#note-list-alert", null, OFFLINE_ERROR_MESSAGE);
+    } else {
+        clearInlineAlert("#note-list-alert");
+    }
+    const newHeaders = result.noteHeaders;
+    continuationKey = result.continueKey;
+
+    if (cachedShown && sameNoteHeaders(noteHeaders, newHeaders)) {
+        // Already displayed: leave the DOM alone, so nothing moves.
+    } else if (continueKey === null) {
+        // First page: replace
+        noteHeaders = newHeaders;
+        if (sortByModifyTime) noteHeaders.sort(byModifyTimeNewestFirst);
+        renderNoteList();
+    } else {
+        // Subsequent page: append
+        noteHeaders = noteHeaders.concat(newHeaders);
+        if (sortByModifyTime) {
+            noteHeaders.sort(byModifyTimeNewestFirst);
+            renderNoteList();
+        } else {
+            appendNoteHeaders(newHeaders);
+        }
+    }
+    updateSentinel();
+    reobserveSentinel();
+    return true;
+}
+
+/**
  * Loads one page of note headers and updates the list.
  *
  * fetchPage(continueKey) -> Promise of a dataLayer read result:
@@ -672,9 +765,23 @@ async function sendPasswordResetEmail() {
  *   after folding in the page, re-rendering it entirely. Search results
  *   need this: their pages arrive in storage (note_id) order, unlike the
  *   list endpoints, which deliver modify_time order themselves.
+ * fetchCachedPage(limit) -> Promise of a header array, or of null: optional
+ *   caller-supplied function reading the same list from the local mirror,
+ *   at most limit headers (null for all). When given, a first-page load
+ *   shows the mirror's first FIRST_PAGE_SIZE headers at once, then the
+ *   server's page when it arrives. If the server has not answered within
+ *   SERVER_FETCH_TIMEOUT_MS, the full mirrored list is shown instead, with
+ *   the OFFLINE_ERROR_MESSAGE alert, and the server's page is still applied
+ *   (clearing the alert) if it arrives later. A first page the data layer
+ *   served from the mirror (fromMirror) shows the same alert.
+ *   (docs/pwa_design.md → "The Read Path")
  *
  * Returns true on success, false on failure (so callers like searchNotes
- * can decide whether to auto-follow further pages).
+ * can decide whether to auto-follow further pages). After a timeout it
+ * returns true without waiting for the server.
+ *
+ * Every first-page load increments listGenerationCounter, and its result
+ * is dropped if the counter has moved on by the time it arrives.
  *
  * Side effects: clears the note-list inline-alert on entry, updates the
  * inline-alert with a backend or fallback message on failure, manages
@@ -686,36 +793,34 @@ async function sendPasswordResetEmail() {
  * sentinel remains visible. A real scroll still fires the observer
  * normally because that's a genuine intersection-state change.
  */
-async function loadNotePage(fetchPage, continueKey, sortByModifyTime) {
+async function loadNotePage(fetchPage, continueKey, sortByModifyTime, fetchCachedPage = null) {
+    if (continueKey === null) listGenerationCounter++;
+    const generation = listGenerationCounter;
     isLoadingNotes = true;
     clearInlineAlert("#note-list-alert");
     try {
-        const result = await fetchPage(continueKey);
-        if (!result.ok) {
-            if (continueKey === null) clearNoteListForError();
-            showInlineAlert("#note-list-alert", null, result.errorMessage ?? FALLBACK_ERROR_MESSAGE);
-            return false;
+        const cachedShown = continueKey === null && fetchCachedPage !== null
+            && showCachedNoteHeaders(await fetchCachedPage(FIRST_PAGE_SIZE), generation);
+        const fetching = fetchPage(continueKey);
+        if (!cachedShown) {
+            return applyNotePage(await fetching, continueKey, sortByModifyTime, generation, false);
         }
-        const newHeaders = result.noteHeaders;
-        continuationKey = result.continueKey;
-
-        if (continueKey === null) {
-            // First page: replace
-            noteHeaders = newHeaders;
-        } else {
-            // Subsequent page: append
-            noteHeaders = noteHeaders.concat(newHeaders);
+        const raced = await raceAgainstTimeout(fetching, SERVER_FETCH_TIMEOUT_MS);
+        if (raced !== FETCH_TIMED_OUT) {
+            return applyNotePage(raced, continueKey, sortByModifyTime, generation, true);
         }
-        if (sortByModifyTime) {
-            noteHeaders.sort(byModifyTimeNewestFirst);
-            renderNoteList();
-        } else if (continueKey === null) {
-            renderNoteList();
-        } else {
-            appendNoteHeaders(newHeaders);
+        // Treat the server as unreachable: show the whole mirrored list,
+        // and apply the server's page if it does arrive later.
+        showCachedNoteHeaders(await fetchCachedPage(null), generation);
+        if (generation === listGenerationCounter) {
+            showInlineAlert("#note-list-alert", null, OFFLINE_ERROR_MESSAGE);
         }
-        updateSentinel();
-        reobserveSentinel();
+        fetching.then(
+            (late) => applyNotePage(late, continueKey, sortByModifyTime, generation, true),
+            (e) => {
+                if (!(e instanceof LoggedOutError)) console.warn("late note list load failed:", e);
+            },
+        );
         return true;
     } catch (e) {
         if (e instanceof LoggedOutError) return false;
@@ -732,12 +837,22 @@ async function loadNotePage(fetchPage, continueKey, sortByModifyTime) {
  * to get the first block of values.
  */
 async function loadNoteHeaders(continueKey) {
-    await loadNotePage((ck) => dataLayer.getNotes(ck), continueKey, false);
+    await loadNotePage(
+        (ck) => dataLayer.getNotes(ck),
+        continueKey,
+        false,
+        (limit) => dataLayer.getCachedNotes(false, limit),
+    );
 }
 
 /** Fetches deleted note headers and renders the note list. */
 async function loadTrashNoteHeaders(continueKey) {
-    await loadNotePage((ck) => dataLayer.getDeletedNotes(ck), continueKey, false);
+    await loadNotePage(
+        (ck) => dataLayer.getDeletedNotes(ck),
+        continueKey,
+        false,
+        (limit) => dataLayer.getCachedNotes(true, limit),
+    );
 }
 
 /** Fetches note headers matching a search string and renders the note list. */
@@ -921,6 +1036,7 @@ async function deleteCurrentNote() {
     setIntendedNote(null);
 
     // Optimistic UI update: remove the note from local state before the API call.
+    listGenerationCounter++;
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
     if (oldIndex !== -1) {
         noteHeaders.splice(oldIndex, 1);
@@ -955,6 +1071,7 @@ function removeCurrentNoteFromTrashList() {
     const noteId = currentNote.note_id;
     setIntendedNote(null);
 
+    listGenerationCounter++;
     const oldIndex = noteHeaders.findIndex(h => h.note_id === noteId);
     if (oldIndex !== -1) {
         noteHeaders.splice(oldIndex, 1);
@@ -1124,7 +1241,7 @@ async function loadNote(noteId) {
     renderNote();
     let result;
     try {
-        result = await dataLayer.getNote(noteId, NOTE_FETCH_TIMEOUT_MS);
+        result = await dataLayer.getNote(noteId, SERVER_FETCH_TIMEOUT_MS);
     } catch (e) {
         if (e instanceof LoggedOutError) return;
         if (intendedCurrentNoteId === noteId) {

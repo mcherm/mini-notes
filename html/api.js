@@ -18,6 +18,13 @@ export class LoggedOutError extends Error {
  */
 export const FALLBACK_ERROR_MESSAGE = "Error in operation.";
 
+/**
+ * Message displayed when data is shown from the local mirror because the
+ * server could not supply it (unreachable, too slow, or answered with an
+ * error).
+ */
+export const OFFLINE_ERROR_MESSAGE = "Offline";
+
 /** Returns the API base URL, choosing prod or dev based on the current hostname. */
 export function getApiBaseUrl() {
     const hostname = window.location.hostname;

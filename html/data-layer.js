@@ -21,7 +21,9 @@
  * not be reached), and false when the server answered, whether with an
  * error status or a body that could not be read. When the server is
  * unreachable, the offline implementation serves reads from the local
- * mirror instead of failing (see OfflineDataSource).
+ * mirror instead of failing (see OfflineDataSource). The first page of a
+ * note list is also served from the mirror when the server answered with an
+ * error; a list page served from the mirror carries `fromMirror: true`.
  *
  * Write methods resolve to an outcome object `{outcome, note, status,
  * errorMessage, failureDetail, poisoned}`, where outcome is one of:
@@ -245,7 +247,7 @@ async function sendWriteCommand(url, options) {
 }
 
 /** Sentinel resolved by raceAgainstTimeout when the timeout fires first. */
-const FETCH_TIMED_OUT = Symbol("fetch timed out");
+export const FETCH_TIMED_OUT = Symbol("fetch timed out");
 
 /**
  * Resolves with the promise's value — or with FETCH_TIMED_OUT when the
@@ -253,7 +255,7 @@ const FETCH_TIMED_OUT = Symbol("fetch timed out");
  * either way. Its eventual settlement is always observed here, so a fetch
  * abandoned to the timeout can never surface as an unhandled rejection.
  */
-function raceAgainstTimeout(promise, timeoutMs) {
+export function raceAgainstTimeout(promise, timeoutMs) {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => resolve(FETCH_TIMED_OUT), timeoutMs);
         promise.then(
@@ -361,6 +363,11 @@ class NetworkDataSource {
         } catch (e) {
             return false;
         }
+    }
+
+    /** There is no mirror in this mode, so there are no cached notes to read. */
+    async getCachedNotes(fromTrashList, limit) {
+        return null;
     }
 
     /** There is no mirror in this mode, so there is nothing to refresh. */
@@ -594,26 +601,109 @@ export class OfflineDataSource {
     }
 
     /**
-     * Offline fallback for the header-list reads: when the server was
-     * unreachable, the first page is answered from the mirror — every
-     * mirrored note on the requested side of the active/trash divide,
-     * newest first, in a single page with no continuation key. Every other
-     * failure is returned unchanged: a failure the server answered with, an
-     * unreachable *later* page (the mirror's complete list cannot continue
-     * a partially delivered server listing), and the case where the mirror
-     * itself cannot be read.
+     * Fallback for the header-list reads: when the first page could not be
+     * read from the server — unreachable, or answered with an error — it is
+     * answered from the mirror instead: every mirrored note on the requested
+     * side of the active/trash divide, newest first, in a single page with
+     * no continuation key, marked fromMirror: true. The network's failure is
+     * logged rather than returned. Every other failure is
+     * returned unchanged: a failed *later* page (the mirror's complete list
+     * cannot continue a partially delivered server listing), and the case
+     * where the mirror itself cannot be read.
      */
     async serveHeadersFromMirror(networkFailure, continueKey, fromTrashList) {
-        if (!networkFailure.unreachable || continueKey !== null) {
+        if (continueKey !== null) {
             return networkFailure;
         }
         try {
             const notes = await this.store.getAllNotes();
-            console.log("data layer: serving the note list from the local mirror");
-            return {ok: true, noteHeaders: mirroredHeaders(notes, fromTrashList), continueKey: null};
+            console.warn(
+                "data layer: serving the note list from the local mirror:",
+                networkFailure.failureDetail);
+            return {
+                ok: true,
+                noteHeaders: mirroredHeaders(notes, fromTrashList),
+                continueKey: null,
+                fromMirror: true,
+            };
         } catch (e) {
             recordFailure("could not serve the note list from the mirror", e);
             return networkFailure;
+        }
+    }
+
+    /**
+     * Adjusts the server's first page of a header list for commands still
+     * waiting in the queue, since for those notes the mirror is ahead of the
+     * server: each such note is shown with its mirrored header instead, or
+     * left out when the mirror has it on the other side of the active/trash
+     * divide, and the page is re-sorted newest first. A queued note the
+     * server did not list (one created locally) is not added. Resolves with
+     * the result unchanged when no listed note has queued commands, or when
+     * the local store cannot be read.
+     */
+    async overlayQueuedChanges(result, fromTrashList) {
+        try {
+            let changed = false;
+            const overlaid = [];
+            for (const header of result.noteHeaders) {
+                if (!(await this.store.hasQueuedCommands(header.note_id))) {
+                    overlaid.push(header);
+                    continue;
+                }
+                const mirrored = await this.store.getNote(header.note_id);
+                if (mirrored === undefined) {
+                    overlaid.push(header);
+                    continue;
+                }
+                changed = true;
+                if (fromTrashList === (mirrored.delete_time !== undefined)) {
+                    overlaid.push(headerFromNote(mirrored));
+                }
+            }
+            if (!changed) {
+                return result;
+            }
+            return {...result, noteHeaders: overlaid.sort(byModifyTimeNewestFirst)};
+        } catch (e) {
+            recordFailure("could not overlay queued changes onto a note list", e);
+            return result;
+        }
+    }
+
+    /**
+     * Shared body of getNotes and getDeletedNotes: reads a page from the
+     * server, reconciles the mirror against it, and — for the first page —
+     * overlays queued changes. A failure falls back to the mirror (see
+     * serveHeadersFromMirror).
+     */
+    async readHeaderPage(fetchPage, continueKey, fromTrashList) {
+        const result = await fetchPage(continueKey);
+        if (!result.ok) {
+            return this.serveHeadersFromMirror(result, continueKey, fromTrashList);
+        }
+        await this.attemptLocalWrite(
+            `could not reconcile the mirror against ${fromTrashList ? "trash" : "active"} note headers`,
+            () => this.reconcileHeaders(result.noteHeaders, fromTrashList)
+        );
+        if (continueKey !== null) {
+            return result;
+        }
+        return this.overlayQueuedChanges(result, fromTrashList);
+    }
+
+    /**
+     * Reads the mirror's headers for one side of the active/trash divide,
+     * newest first, at most limit of them (null for all). Resolves with
+     * null when the mirror cannot be read.
+     */
+    async getCachedNotes(fromTrashList, limit) {
+        try {
+            const headers = mirroredHeaders(await this.store.getAllNotes(), fromTrashList);
+            return limit === null ? headers : headers.slice(0, limit);
+        } catch (e) {
+            recordFailure("could not read cached notes from the mirror", e);
+            return null;
         }
     }
 
@@ -641,28 +731,12 @@ export class OfflineDataSource {
         }
     }
 
-    async getNotes(continueKey) {
-        const result = await this.network.getNotes(continueKey);
-        if (!result.ok) {
-            return this.serveHeadersFromMirror(result, continueKey, false);
-        }
-        await this.attemptLocalWrite(
-            "could not reconcile the mirror against active note headers",
-            () => this.reconcileHeaders(result.noteHeaders, false)
-        );
-        return result;
+    getNotes(continueKey) {
+        return this.readHeaderPage((ck) => this.network.getNotes(ck), continueKey, false);
     }
 
-    async getDeletedNotes(continueKey) {
-        const result = await this.network.getDeletedNotes(continueKey);
-        if (!result.ok) {
-            return this.serveHeadersFromMirror(result, continueKey, true);
-        }
-        await this.attemptLocalWrite(
-            "could not reconcile the mirror against trash note headers",
-            () => this.reconcileHeaders(result.noteHeaders, true)
-        );
-        return result;
+    getDeletedNotes(continueKey) {
+        return this.readHeaderPage((ck) => this.network.getDeletedNotes(ck), continueKey, true);
     }
 
     /**
@@ -1207,6 +1281,10 @@ export const dataLayer = {
      * previous result for the page after it.
      * Resolves to {ok: true, noteHeaders, continueKey} — where continueKey is
      * null when there are no further pages — or {ok: false, errorMessage}.
+     * In offline mode a first page that the server could not supply is
+     * served from the mirror, marked fromMirror: true, and a
+     * first page from the server shows notes with queued commands as the
+     * mirror has them.
      */
     getNotes(continueKey) {
         return dataSource.getNotes(continueKey);
@@ -1215,6 +1293,17 @@ export const dataLayer = {
     /** Reads one page of the user's deleted (trashed) note headers. See getNotes. */
     getDeletedNotes(continueKey) {
         return dataSource.getDeletedNotes(continueKey);
+    },
+
+    /**
+     * Reads note headers from the local mirror alone, without the network:
+     * the trashed notes when fromTrashList is true, the active ones
+     * otherwise, newest first, at most limit of them (null for all).
+     * Resolves with the header array, or with null when there is no mirror
+     * (online-only mode) or it cannot be read. Never rejects.
+     */
+    getCachedNotes(fromTrashList, limit) {
+        return dataSource.getCachedNotes(fromTrashList, limit);
     },
 
     /** Reads one page of note headers matching searchString. See getNotes. */

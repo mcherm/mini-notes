@@ -216,6 +216,26 @@ The read-barrier check (#3, #5) and the mirror write it guards are performed in 
 
 When the server is unreachable, the offline-capable read commands are served from the mirror: `get-notes` and `get-deleted-notes` return the mirrored active and trashed notes, and `get-note` returns the mirrored note. `search-notes` offline is a client-side search over the mirrored notes' titles and bodies — a second, JavaScript implementation of the search semantics. Fetching a note at the start of an edit is governed by Mechanism 1 (see Updating Device Data).
 
+A single timeout, `SERVER_FETCH_TIMEOUT_MS`, decides when a server read is treated as unreachable; it is shared by the note fetch of Mechanism 1 and the first-page list load below.
+
+#### First Page of the Note List
+
+The note list (and the trash list) is shown in one of three ways:
+
+1. **Offline** — every mirrored note on that side of the active/trash divide, newest first, as a single page with no continuation key.
+2. **Online** — pages from the server, each later page loaded on demand when the user scrolls to the end of the list.
+3. **Awaiting the server** — the mirror's newest `FIRST_PAGE_SIZE` notes (the server's page size), with no continuation key, so scrolling loads nothing more.
+
+Every first-page load starts in model 3, painting from the mirror without waiting for the network (online-only mode has no mirror and skips straight to waiting for the server). It then moves on:
+
+- **Server answers within the timeout** → model 2. If the server's page matches the displayed list (same notes, same order, same title, version and modify time), the displayed list is left untouched and only the continuation key is adopted; otherwise the list is replaced.
+- **Timeout, unreachable, or a server error** → model 1, with an "Offline" alert above the list. A 401 is handled as everywhere else (logout).
+- **Server answers after the timeout** → applied as if it had arrived in time, clearing the "Offline" alert.
+
+On the server's first page, any note with queued commands is shown with its mirrored header instead (or left out, if the mirror has it on the other side of the active/trash divide), and the page is re-sorted. A locally created note the server has not yet received is not added.
+
+A first-page response is applied only if the displayed list has not changed while it was awaited. A counter of list changes is incremented whenever any first-page list load (including search) starts and whenever a write edits the displayed list in place; a response whose load began under an earlier counter value is dropped. The mirror has still been reconciled against it.
+
 ### The Write Path
 
 Every offline-capable write command goes through a single path — there is no separate "try the server directly, and fall back to the queue if that fails" logic. A write is committed by updating the local mirror and appending the command to the queue in one IndexedDB transaction. If that transaction fails, nothing was committed and the write is rejected. Because enqueueing a command triggers an immediate delivery attempt (see Delivering Delayed Updates), the server call still happens right away whenever the device is online; being offline only affects how quickly the queue drains.

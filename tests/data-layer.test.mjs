@@ -239,6 +239,7 @@ describe("offline read fallback", () => {
             ok: true,
             noteHeaders: [headerFor(active2), headerFor(active1)],
             continueKey: null,
+            fromMirror: true,
         });
     });
 
@@ -250,6 +251,7 @@ describe("offline read fallback", () => {
             ok: true,
             noteHeaders: [headerFor(trashed)],
             continueKey: null,
+            fromMirror: true,
         });
     });
 
@@ -260,11 +262,23 @@ describe("offline read fallback", () => {
         assert.equal(await source.getNotes("a-continuation-key"), failure);
     });
 
-    test("a list failure the server answered with is not served from the mirror", async () => {
+    test("a first-page failure the server answered with is served from the mirror", async () => {
+        const {active1, active2} = await mirrorThreeNotes();
+        const failure = httpFailure(500);
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", failure));
+        assert.deepEqual(await source.getNotes(null), {
+            ok: true,
+            noteHeaders: [headerFor(active2), headerFor(active1)],
+            continueKey: null,
+            fromMirror: true,
+        });
+    });
+
+    test("a later-page failure the server answered with is not served from the mirror", async () => {
         await mirrorThreeNotes();
         const failure = httpFailure(500);
         const source = new OfflineDataSource(store, networkAnswering("getNotes", failure));
-        assert.equal(await source.getNotes(null), failure);
+        assert.equal(await source.getNotes("a-continuation-key"), failure);
     });
 
     test("an unreachable getNote serves the mirrored note", async () => {
@@ -290,6 +304,136 @@ describe("offline read fallback", () => {
         const failure = unreachableFailure();
         const source = new OfflineDataSource(brokenStore, networkAnswering("getNotes", failure));
         assert.equal(await source.getNotes(null), failure);
+    });
+});
+
+describe("cached note reads", () => {
+    /** Mirrors three active notes (newest last by note_id) and one trashed note. */
+    async function mirrorNotes() {
+        const notes = [1, 2, 3].map((n) => {
+            const note = makeNote(`note_0000${n}`, n);
+            note.modify_time = `2026-08-0${n}T10:00:00Z`;
+            return note;
+        });
+        const trashed = makeNote("note_00009", 1);
+        trashed.delete_time = "2026-08-09T10:00:00Z";
+        for (const note of [...notes, trashed]) {
+            await store.putNoteFromServer(note);
+        }
+        return {notes, trashed};
+    }
+
+    test("serves the active notes newest first, without touching the network", async () => {
+        const {notes} = await mirrorNotes();
+        const source = new OfflineDataSource(store, {});
+        assert.deepEqual(
+            await source.getCachedNotes(false, null),
+            [notes[2], notes[1], notes[0]].map(headerFor));
+    });
+
+    test("serves at most limit headers, keeping the newest", async () => {
+        const {notes} = await mirrorNotes();
+        const source = new OfflineDataSource(store, {});
+        assert.deepEqual(
+            await source.getCachedNotes(false, 2),
+            [notes[2], notes[1]].map(headerFor));
+    });
+
+    test("serves the trashed notes for the trash list", async () => {
+        const {trashed} = await mirrorNotes();
+        const source = new OfflineDataSource(store, {});
+        assert.deepEqual(await source.getCachedNotes(true, null), [headerFor(trashed)]);
+    });
+
+    test("resolves null when the mirror cannot be read", async () => {
+        const brokenStore = {
+            getAllNotes: async () => {
+                throw new Error("local storage failed");
+            },
+        };
+        const source = new OfflineDataSource(brokenStore, {});
+        assert.equal(await source.getCachedNotes(false, null), null);
+    });
+});
+
+describe("queued-change overlay on the first page", () => {
+    /** Mirrors two active notes, the second modified later, and returns them. */
+    async function mirrorTwoNotes() {
+        const older = makeNote("note_00001", 3);
+        older.modify_time = "2026-08-07T10:00:00Z";
+        const newer = makeNote("note_00002", 5);
+        newer.modify_time = "2026-08-08T10:00:00Z";
+        await store.putNoteFromServer(older);
+        await store.putNoteFromServer(newer);
+        return {older, newer};
+    }
+
+    /** Queues a command for a note, applying its effect to the mirror directly. */
+    async function queueLocalChange(localNote) {
+        await backend.transaction([NOTES_STORE], "readwrite",
+            (stores) => stores[NOTES_STORE].put(localNote));
+        await store.enqueueCommand({
+            note_id: localNote.note_id,
+            command_type: EDIT_NOTE,
+            payload: {title: localNote.title, body: localNote.body},
+            source_version_id: localNote.version_id - 1,
+        });
+    }
+
+    /** A first-page result listing the given notes' headers. */
+    function pageOf(...notes) {
+        return {ok: true, noteHeaders: notes.map(headerFor), continueKey: "next-page"};
+    }
+
+    test("a page with no queued notes passes through unchanged", async () => {
+        const {older, newer} = await mirrorTwoNotes();
+        const page = pageOf(newer, older);
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", page));
+        assert.equal(await source.getNotes(null), page);
+    });
+
+    test("a queued note shows its mirrored header, re-sorted newest first", async () => {
+        const {older, newer} = await mirrorTwoNotes();
+        const page = pageOf(newer, older);
+        const edited = {...older, version_id: 4, title: "Edited here", modify_time: "2026-08-10T10:00:00Z"};
+        await queueLocalChange(edited);
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", page));
+        assert.deepEqual(await source.getNotes(null), {
+            ok: true,
+            noteHeaders: [headerFor(edited), headerFor(newer)],
+            continueKey: "next-page",
+        });
+    });
+
+    test("a queued note the mirror has moved to the trash is left out of the active list", async () => {
+        const {older, newer} = await mirrorTwoNotes();
+        const page = pageOf(newer, older);
+        await queueLocalChange({...newer, delete_time: "2026-08-10T10:00:00Z"});
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", page));
+        assert.deepEqual((await source.getNotes(null)).noteHeaders, [headerFor(older)]);
+    });
+
+    test("a queued note that is not mirrored keeps the server's header", async () => {
+        const {older, newer} = await mirrorTwoNotes();
+        const page = pageOf(newer, older);
+        await store.enqueueCommand({
+            note_id: "note_00007",
+            command_type: DELETE_NOTE,
+            payload: {},
+            source_version_id: 1,
+        });
+        const unmirrored = makeNote("note_00007", 1);
+        page.noteHeaders.push(headerFor(unmirrored));
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", page));
+        assert.equal(await source.getNotes(null), page);
+    });
+
+    test("later pages are not overlaid", async () => {
+        const {older, newer} = await mirrorTwoNotes();
+        const page = pageOf(newer, older);
+        await queueLocalChange({...older, version_id: 4, title: "Edited here"});
+        const source = new OfflineDataSource(store, networkAnswering("getNotes", page));
+        assert.equal(await source.getNotes("a-continuation-key"), page);
     });
 });
 
