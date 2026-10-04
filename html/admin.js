@@ -68,6 +68,27 @@ async function extractErrorMessage(response) {
 const _inlineAlertAutoClear = new Map();
 
 /**
+ * Fills an inline-alert with its message and a close button that
+ * dismisses it.
+ */
+function fillInlineAlert(alert, message) {
+    const messageElem = document.createElement("inline-alert-message");
+    messageElem.textContent = message;
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "close";
+    closeButton.setAttribute("aria-label", "Dismiss");
+    closeButton.textContent = "\u2715";
+    closeButton.addEventListener("click", actionInlineAlertClose);
+    alert.append(messageElem, closeButton);
+}
+
+/** Dismisses the inline-alert whose close button was clicked. */
+function actionInlineAlertClose(event) {
+    clearInlineAlert("#" + event.currentTarget.closest("inline-alert").id);
+}
+
+/**
  * Displays a message in an inline-alert. If formSelector is provided,
  * attaches a one-shot input listener so the message clears the next
  * time the user types in that form; pass null to skip the auto-clear
@@ -76,7 +97,7 @@ const _inlineAlertAutoClear = new Map();
 function showInlineAlert(alertSelector, formSelector, message) {
     clearInlineAlert(alertSelector);
     const alert = document.querySelector(alertSelector);
-    alert.textContent = message;
+    fillInlineAlert(alert, message);
     if (formSelector) {
         const form = document.querySelector(formSelector);
         const onInput = () => {

@@ -349,6 +349,16 @@ inline-alert:empty, progress-box:empty {
     display: none;
 }
 
+/* inline-alert holds its message and a close button (see showInlineAlert). */
+inline-alert:not(:empty) {
+    display: flex;
+    align-items: flex-start;
+}
+
+inline-alert-message {
+    flex: 1;
+}
+
 /* floating-alert has inner structure so we check the message section to see whether to hide it */
 floating-alert:has(floating-alert-message:empty) {
     display: none;
@@ -363,7 +373,7 @@ inline-alert, floating-alert {
     color: var(--critical-color-dk);
 }
 
-inline-alert::before, floating-alert-message::before {
+inline-alert-message::before, floating-alert-message::before {
     content: "\26A0\00a0\00a0";
 }
 
@@ -413,7 +423,7 @@ floating-alert-dots {
 
 /* The close button overrides the project's default button look so the X
  * reads as an inline glyph rather than a tinted action button. */
-floating-alert button.close {
+floating-alert button.close, inline-alert button.close {
     background: transparent;
     border: none;
     color: inherit;
