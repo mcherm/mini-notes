@@ -26,6 +26,8 @@ Container builds use `target/container/` so their Linux artifacts don't collide 
 macOS ones `cargo test` writes to `target/`.
 
 Requires `just` (`cargo install just`), a running Docker daemon, and the AWS CLI. A host
+Rust toolchain is needed for `just test-rust` and `just lint-rust`, `node` for
+`just test-js`, and [Biome](https://biomejs.dev/) (`brew install biome`) for `just lint-web`.
 
 ## Key Details
 

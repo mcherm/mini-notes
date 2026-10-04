@@ -1,5 +1,6 @@
 # Requires: a running Docker daemon, AWS CLI, just
-#           (plus a host Rust toolchain, for `just test-rust` and `just lint-rust`)
+#           (plus a host Rust toolchain, for `just test-rust` and `just lint-rust`,
+#           and Biome (https://biomejs.dev/), for `just lint-web`)
 # https://just.systems/
 #
 # To add a lambda: add build-<name>, zip-<name>, and deploy-<name> recipes
@@ -188,11 +189,15 @@ test-js:
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Run every static checker.
-lint: lint-rust
+lint: lint-rust lint-web
 
 # Run clippy on all Rust code (including tests); warnings fail the check.
 lint-rust:
     cargo clippy --workspace --all-targets -- -D warnings
+
+# Run Biome on the JavaScript, CSS, and HTML (requires biome); warnings fail the check.
+lint-web:
+    biome lint --error-on-warnings --max-diagnostics=none html tests
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 
