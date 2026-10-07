@@ -1,25 +1,15 @@
 # Requires: a running Docker daemon, AWS CLI, just
 #           (plus a host Rust toolchain, for `just test-rust` and `just lint-rust`,
-#           and Biome (https://biomejs.dev/), for `just lint-web`)
+#           Biome (https://biomejs.dev/), for `just lint-web`, and
+#           ShellCheck (https://www.shellcheck.net/), for `just lint-scripts`)
 # https://just.systems/
 #
 # To add a lambda: add build-<name>, zip-<name>, and deploy-<name> recipes
 # (delegating to the _build/_zip/_deploy helpers), and add them to the
 # `build`, `zip`, and `deploy-lambdas` aggregate recipes below.
 
-LAMBDA_DIR       := "target/lambda"
-STAGE            := env_var_or_default("STAGE", "dev")
-SENTINELS        := "target/.sentinels"
-
-# The Lambda build runs in this image. Pinned to bullseye (glibc 2.31) because the
-# provided.al2023 runtime has glibc 2.34 and glibc is not forward compatible: a newer
-# base such as bookworm (2.36) compiles and deploys fine, then fails at Lambda init.
-CONTAINER_TARGET := "target/container"
-BUILD_IMAGE      := "rust:1-bullseye"
-
-# CloudFront distribution ids, per stage.
-CF_DIST_ID_dev  := "EE5QH6UGUBU5G"
-CF_DIST_ID_prod := "ELFIR4781UMJC"
+# Also defined in scripts/deploy-lambda.sh and scripts/deploy-frontend.sh; keep them in sync.
+SENTINELS := "target/.sentinels"
 
 # List available recipes (default when run with no arguments).
 default:
@@ -38,26 +28,7 @@ build-job-heartbeat: (_build "job-heartbeat")
 
 [private]
 _build LAMBDA:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # The build runs inside an arm64 Linux container: the same CPU as this Mac and the
-    # same OS as Lambda, so it is an ordinary native build with no cross-compilation.
-    if ! docker info >/dev/null 2>&1; then
-        echo "• Docker daemon isn't reachable — the build runs inside a Linux container." >&2
-        echo "  Start Docker (OrbStack, Docker Desktop, colima, …) and re-run." >&2
-        exit 1
-    fi
-    # A container-only target dir keeps these Linux artifacts from colliding with the
-    # macOS ones that `cargo test` writes to target/; CARGO_HOME persists the registry.
-    docker run --rm \
-        --platform linux/arm64 \
-        -v "$PWD":/work -w /work \
-        -e CARGO_TARGET_DIR=/work/{{CONTAINER_TARGET}} \
-        -e CARGO_HOME=/work/{{CONTAINER_TARGET}}/cargo-home \
-        {{BUILD_IMAGE}} \
-        cargo build --release --package {{LAMBDA}}
-    mkdir -p {{LAMBDA_DIR}}/{{LAMBDA}}
-    cp {{CONTAINER_TARGET}}/release/{{LAMBDA}} {{LAMBDA_DIR}}/{{LAMBDA}}/bootstrap
+    scripts/build-lambda.sh {{LAMBDA}}
 
 # ── Zip ───────────────────────────────────────────────────────────────────────
 
@@ -71,12 +42,12 @@ zip-api-v1: (_zip "api-v1")
 zip-job-heartbeat: (_zip "job-heartbeat")
 
 [private]
-_zip LAMBDA: (_build LAMBDA)
-    zip -j {{LAMBDA_DIR}}/{{LAMBDA}}/bootstrap.zip {{LAMBDA_DIR}}/{{LAMBDA}}/bootstrap
+_zip LAMBDA:
+    scripts/package-lambda.sh {{LAMBDA}}
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
 
-# Deploy everything (lambdas + frontend) for STAGE (default dev; STAGE=prod for prod).
+# Deploy everything (lambdas + frontend) for STAGE (requires `source ./aws/env.sh`; STAGE=prod for prod).
 deploy: deploy-lambdas deploy-frontend
 
 # Deploy all lambdas for STAGE.
@@ -88,90 +59,17 @@ deploy-api-v1: (_deploy "api-v1")
 # Deploy the job-heartbeat lambda for STAGE (skips if sources are unchanged).
 deploy-job-heartbeat: (_deploy "job-heartbeat")
 
-# Fail fast (before touching AWS) if the project environment wasn't sourced.
-# `source ./aws/env.sh` sets AWS_PROFILE=mini-notes; without it, deploys hit the
-# wrong account and fail with a confusing "Function not found".
 [private]
-_check-aws-env:
-    #!/usr/bin/env bash
-    if [ "${AWS_PROFILE:-}" != "mini-notes" ]; then
-        echo "AWS_PROFILE is not 'mini-notes' (currently: '${AWS_PROFILE:-<unset>}')." >&2
-        echo "Deploys would target the wrong AWS account. First run:  source ./aws/env.sh" >&2
-        exit 1
-    fi
-
-[private]
-_deploy LAMBDA: _check-aws-env
-    #!/usr/bin/env bash
-    set -euo pipefail
-    sentinel="{{SENTINELS}}/deploy-{{LAMBDA}}-{{STAGE}}"
-    sources=(lambdas/{{LAMBDA}}/src lambdas/{{LAMBDA}}/Cargo.toml lambdas/common/src lambdas/common/Cargo.toml)
-    if [ -f "$sentinel" ] && [ -z "$(find "${sources[@]}" -type f -newer "$sentinel")" ]; then
-        echo "deploy-{{LAMBDA}}-{{STAGE}}: already up to date"
-        exit 0
-    fi
-    just _zip {{LAMBDA}}
-    aws lambda update-function-code \
-        --function-name mini-notes-{{LAMBDA}}-{{STAGE}} \
-        --zip-file fileb://{{LAMBDA_DIR}}/{{LAMBDA}}/bootstrap.zip \
-        --architectures arm64
-    mkdir -p "{{SENTINELS}}"
-    touch "$sentinel"
+_deploy LAMBDA:
+    scripts/deploy-lambda.sh {{LAMBDA}}
 
 # Deploy the static frontend for STAGE (skips if html/ is unchanged).
-deploy-frontend: _check-aws-env
-    #!/usr/bin/env bash
-    set -euo pipefail
-    sentinel="{{SENTINELS}}/deploy-frontend-{{STAGE}}"
-    if [ -f "$sentinel" ] && [ -z "$(find html -type f -newer "$sentinel")" ]; then
-        echo "deploy-frontend-{{STAGE}}: already up to date"
-        exit 0
-    fi
-    dist_id="{{ if STAGE == "prod" { CF_DIST_ID_prod } else { CF_DIST_ID_dev } }}"
+deploy-frontend:
+    scripts/deploy-frontend.sh
 
-    # Stage the deploy under target/ so html/ (sources only) is never mutated,
-    # then stamp sw.js: SHELL_ASSETS from the canonical list in shell-assets.txt,
-    # and ASSET_VERSION as a content hash of those assets so the browser sees a
-    # changed service worker whenever any shell asset changes.
-    staging="target/frontend-staging"
-    rm -rf "$staging"
-    mkdir -p "$staging"
-    cp -R html/. "$staging"
-    shell_assets=($(grep -v '^#' html/shell-assets.txt || true))
-    [ "${#shell_assets[@]}" -gt 0 ] || { echo "html/shell-assets.txt lists no assets" >&2; exit 1; }
-    hash=$(cd "$staging" && cat "${shell_assets[@]#/}" | shasum -a 256 | cut -c1-16)
-    assets_js=$(printf '"%s", ' "${shell_assets[@]}")
-    sed -i '' -e "s|^const ASSET_VERSION = .*|const ASSET_VERSION = \"$hash\";|" \
-              -e "s|^const SHELL_ASSETS = .*|const SHELL_ASSETS = [${assets_js%, }];|" \
-        "$staging/sw.js"
-    grep -q "const ASSET_VERSION = \"$hash\";" "$staging/sw.js" \
-        || { echo "failed to stamp ASSET_VERSION into sw.js" >&2; exit 1; }
-    grep -qF '"/index.html"' "$staging/sw.js" \
-        || { echo "failed to stamp SHELL_ASSETS into sw.js" >&2; exit 1; }
-
-    # The per-directory README.txt files document the sources; they are not served.
-    find "$staging" -name README.txt -delete
-
-    # Upload in two passes to set Cache-Control: no-cache on every file that can
-    # be fetched outside the service worker's cache: sw.js itself, the HTML
-    # pages, and all scripts and stylesheets (the online-only pages load shared
-    # ones from the network). Images and the manifest keep default headers.
-    # (--exclude also protects those files from --delete in pass one.)
-    no_cache_patterns=("sw.js" "*.html" "*.js" "*.css")
-    exclude_no_cache=()
-    include_no_cache=()
-    for pattern in "${no_cache_patterns[@]}"; do
-        exclude_no_cache+=(--exclude "$pattern")
-        include_no_cache+=(--include "$pattern")
-    done
-    aws s3 sync "$staging/" s3://mini-notes-frontend-{{STAGE}}/ --delete "${exclude_no_cache[@]}"
-    aws s3 sync "$staging/" s3://mini-notes-frontend-{{STAGE}}/ --cache-control no-cache \
-        --exclude "*" "${include_no_cache[@]}"
-    aws cloudfront create-invalidation \
-        --distribution-id "$dist_id" \
-        --paths "/*"
-    mkdir -p "{{SENTINELS}}"
-    touch "$sentinel"
+# Assemble the deployable frontend (stamped sw.js) in target/frontend-staging, without deploying.
+stage-frontend:
+    scripts/stage-frontend.sh
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
@@ -193,7 +91,7 @@ test-js:
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Run every static checker.
-lint: lint-rust lint-web
+lint: lint-rust lint-web lint-scripts
 
 # Run clippy on all Rust code (including tests); warnings fail the check.
 lint-rust:
@@ -202,6 +100,10 @@ lint-rust:
 # Run Biome on the JavaScript, CSS, and HTML (requires biome); warnings fail the check.
 lint-web:
     biome lint --error-on-warnings --max-diagnostics=none html tests
+
+# Run ShellCheck on the scripts in scripts/ (requires shellcheck); any finding fails the check.
+lint-scripts:
+    shellcheck scripts/*.sh scripts/lib/*.sh
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 

@@ -7,15 +7,19 @@ Personal web app for storing/editing notes. Plain HTML/JS frontend, Rust Lambda 
 ```bash
 just build          # arm64 Linux binary, built in a container
 just zip            # package for Lambda
-just deploy         # deploy to dev (STAGE=prod just deploy for prod)
+just deploy         # deploy STAGE (dev or prod; required, set by `source ./aws/env.sh`)
 ```
 
 Run `just` (or `just --list`) to see all recipes. Each lambda has its own targets, e.g. `just build-api-v1`, `just zip-api-v1`, `just deploy-api-v1`.
 
-Builds run `cargo build` inside an arm64 Linux container (`BUILD_IMAGE` in the justfile),
+The justfile recipes are thin wrappers around bash scripts in `scripts/` (see `scripts/README.md`),
+which also work when run directly. The build and deploy constants live in those scripts.
+`aws/` holds the one-time AWS provisioning scripts.
+
+Builds run `cargo build` inside an arm64 Linux container (`BUILD_IMAGE` in `scripts/build-lambda.sh`),
 which matches Lambda's OS, so nothing is cross-compiled. **This requires an arm64 build
 host** (Apple Silicon); building on an x86 Mac is not supported. The build needs the
-**Docker daemon running**; the recipe checks and fails fast with guidance if it isn't.
+**Docker daemon running**; the script checks and fails fast with guidance if it isn't.
 
 `BUILD_IMAGE` is pinned to `rust:1-bullseye` (glibc 2.31) because the `provided.al2023`
 runtime has glibc 2.34 and glibc is not forward compatible. A newer base image compiles
@@ -27,7 +31,8 @@ macOS ones `cargo test` writes to `target/`.
 
 Requires `just` (`cargo install just`), a running Docker daemon, and the AWS CLI. A host
 Rust toolchain is needed for `just test-rust` and `just lint-rust`, `node` for
-`just test-js`, and [Biome](https://biomejs.dev/) (`brew install biome`) for `just lint-web`.
+`just test-js`, [Biome](https://biomejs.dev/) (`brew install biome`) for `just lint-web`, and
+[ShellCheck](https://www.shellcheck.net/) (`brew install shellcheck`) for `just lint-scripts`.
 
 ## Key Details
 

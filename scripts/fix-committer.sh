@@ -2,6 +2,8 @@
 # Fixes commits that have lost their committer information.
 # This can happen when SourceTree modifies the git index in a colocated jj repo.
 
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+
 REVSET='committer_name("") ~ root() & mutable()'
 
 COMMITS=$(jj log -r "$REVSET" --no-graph --template 'change_id.short() ++ "\n"' 2>/dev/null)

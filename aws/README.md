@@ -38,7 +38,6 @@ aws sts get-caller-identity
 | `create-scheduler-role.sh` | Once per stage | Creates the `mini-notes-scheduler-role-<stage>` IAM role that EventBridge Scheduler assumes in order to invoke scheduled-job Lambdas |
 | `create-scheduled-job.sh JOB_NAME SCHEDULE` | Per job | Creates one scheduled-job Lambda (`mini-notes-<JOB_NAME>-<stage>`) and its EventBridge schedule. `JOB_NAME` must begin with `job-` |
 | `init-scheduled-jobs.sh` | When resetting jobs | Declarative source of truth: one `create-scheduled-job.sh` call per job, with comments documenting purpose and frequency. Edit this file to change schedules |
-| `upload-static-assets.sh` | On frontend changes | Syncs `html/` to the S3 frontend bucket for the current stage |
 | `seed-test-data.sh` | As needed | Inserts a sample note into the current stage's DynamoDB table |
 
 ## Initial setup sequence
@@ -54,7 +53,7 @@ chmod +x aws/*.sh
 ./aws/create-dynamodb-table-sessions.sh  # creates mini-notes-sessions-dev
 ./aws/create-iam-role.sh        # creates shared role (run once, not per stage)
 
-make zip-api-v1                    # build binary and package it
+just zip-api-v1                    # build binary and package it
 ./aws/create-lambda-api-v1.sh     # creates Lambda + Function URL; prints the invoke URL
 
 ./aws/create-cors-policy.sh       # creates CORS response headers policy for CloudFront
@@ -75,7 +74,7 @@ One-time setup per stage:
 ```bash
 source aws/env.sh
 ./aws/create-scheduler-role.sh    # IAM role EventBridge uses to invoke job Lambdas
-make zip                          # build & package all lambda binaries
+just zip                          # build & package all lambda binaries
 ./aws/init-scheduled-jobs.sh      # creates the Lambda + schedule for every declared job
 ```
 
@@ -96,14 +95,14 @@ curl "https://<url-id>.lambda-url.<region>.on.aws/api/v1/notes/missing"
 
 ## Stages (dev and prod)
 
-`env.sh` sets `STAGE=dev` by default, so all scripts and `make` targets operate on dev
+`env.sh` sets `STAGE=dev` by default, so all scripts and `just` recipes operate on dev
 resources unless you explicitly override it. This makes it impossible to accidentally
 affect prod during normal development.
 
 **When `STAGE=prod` is required:**
 
 - Setting up prod infrastructure for the first time (run the `create-dynamodb-table-*.sh` scripts and `create-lambda-api-v1.sh` with `STAGE=prod`)
-- Deploying a release build to prod (`make deploy` with `STAGE=prod`)
+- Deploying a release build to prod (`just deploy` with `STAGE=prod`)
 - Seeding or inspecting prod data
 
 In all these cases, override `STAGE` in your shell before running the relevant
@@ -119,7 +118,7 @@ STAGE=prod ./aws/create-dynamodb-table-sessions.sh
 STAGE=prod ./aws/create-lambda-api-v1.sh
 
 # Deploy a release to prod
-STAGE=prod make deploy
+STAGE=prod just deploy
 ```
 
 The `STAGE=prod` prefix overrides the env var for that single command only, leaving
@@ -127,12 +126,12 @@ your shell defaulting to dev for everything else.
 
 ## Ongoing deployments
 
-After code changes, update the Lambda with a single make target:
+After code changes, update the Lambda with a single just recipe:
 
 ```bash
-make deploy-api-v1            # build + zip + upload api-v1 to dev
-STAGE=prod make deploy-api-v1 # same, targeting prod
+just deploy-api-v1            # build + zip + upload api-v1 to dev
+STAGE=prod just deploy-api-v1 # same, targeting prod
 
-make deploy                   # build + zip + upload all lambdas to dev
-STAGE=prod make deploy        # same, targeting prod
+just deploy                   # deploy all lambdas and the frontend to dev
+STAGE=prod just deploy        # same, targeting prod
 ```
