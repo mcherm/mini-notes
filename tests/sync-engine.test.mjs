@@ -1,5 +1,5 @@
 /**
- * Tests for html/sync-engine.js. The Web Locks API and the delivery pass
+ * Tests for html/data/sync-engine.js. The Web Locks API and the delivery pass
  * are injected: a fake lock manager records requests and lets a test grant
  * them, and a scripted attemptDelivery serves a fixed list of results.
  * Timers run under node:test's mock clock.
@@ -12,7 +12,7 @@ import {
     DELIVERY_IDLE, DELIVERY_RETRY, IDLE_RECHECK_DELAY_MS,
     INITIAL_RETRY_DELAY_MS, MAX_RETRY_DELAY_MS, SYNC_ENGINE_LOCK_NAME,
     SyncEngine,
-} from "../html/sync-engine.js";
+} from "../html/data/sync-engine.js";
 
 /**
  * A stand-in for navigator.locks that records each request and leaves it

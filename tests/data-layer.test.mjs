@@ -1,5 +1,5 @@
 /**
- * Tests for html/data-layer.js's OfflineDataSource: the write-through of
+ * Tests for html/data/offline-source.js's OfflineDataSource: the write-through of
  * server responses into the local mirror, and the serving of reads from the
  * mirror when the server is unreachable. The network side is a stub that
  * returns canned results; the store side is a real NoteStore over the fake
@@ -9,11 +9,11 @@
 import { beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LoggedOutError } from "../html/api.js";
-import { DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE } from "../html/commands.js";
-import { OfflineDataSource, POISON_CHECK_THRESHOLD } from "../html/data-layer.js";
-import { NoteStore, NOTES_STORE } from "../html/store.js";
-import { DELIVERY_IDLE, DELIVERY_RETRY } from "../html/sync-engine.js";
+import { LoggedOutError } from "../html/lib/api.js";
+import { DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE } from "../html/model/commands.js";
+import { OfflineDataSource, POISON_CHECK_THRESHOLD } from "../html/data/offline-source.js";
+import { NoteStore, NOTES_STORE } from "../html/data/store.js";
+import { DELIVERY_IDLE, DELIVERY_RETRY } from "../html/data/sync-engine.js";
 import { FakeBackend } from "./fake-backend.mjs";
 
 /** A full note object, shaped as the server returns it. */

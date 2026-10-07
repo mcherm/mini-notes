@@ -9,10 +9,14 @@
 const ASSET_VERSION = "dev";
 const CACHE_NAME = `app-shell-${ASSET_VERSION}`;
 
-// The app shell: these paths (plus navigations to "/") are served cache-first.
-// Everything else — admin.html, reset-password.html and their assets, and all
-// API calls — goes straight to the network.
+// The app shell: these paths (plus navigations to "/") are served cache-first,
+// but only to the app page itself. Everything else — admin.html,
+// reset-password.html, any asset those pages load (even a shell asset), and
+// all API calls — goes to the network.
 const SHELL_ASSETS = [];
+
+// The paths of the one page the shell cache serves.
+const APP_PAGE_PATHS = ["/", "/index.html"];
 
 async function populateShellCache() {
     const cache = await caches.open(CACHE_NAME);
@@ -42,6 +46,19 @@ async function serveShellAsset(path, request) {
     return cached ?? fetch(request);
 }
 
+/**
+ * Serves a shell asset requested by a page. The app page gets the cached
+ * copy; any other page gets the network copy (revalidated against the HTTP
+ * cache), so it never pairs its own fresh code with older shared modules.
+ */
+async function serveSubresource(path, request, clientId) {
+    const client = clientId ? await self.clients.get(clientId) : undefined;
+    if (client && APP_PAGE_PATHS.includes(new URL(client.url).pathname)) {
+        return serveShellAsset(path, request);
+    }
+    return fetch(request, {cache: "no-cache"});
+}
+
 function actionInstall(event) {
     event.waitUntil(populateShellCache());
 }
@@ -60,10 +77,15 @@ function actionFetch(event) {
         return;
     }
     const path = url.pathname === "/" ? "/index.html" : url.pathname;
-    if (SHELL_ASSETS.includes(path)) {
-        event.respondWith(serveShellAsset(path, request));
+    if (!SHELL_ASSETS.includes(path)) {
+        // Any other request falls through to the network untouched.
+        return;
     }
-    // Any other request falls through to the network untouched.
+    if (request.mode === "navigate") {
+        event.respondWith(serveShellAsset(path, request));
+    } else {
+        event.respondWith(serveSubresource(path, request, event.clientId));
+    }
 }
 
 function actionMessage(event) {

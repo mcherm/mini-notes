@@ -1,5 +1,5 @@
 /**
- * Tests for html/store.js's NoteStore, run against the in-memory fake backend
+ * Tests for html/data/store.js's NoteStore, run against the in-memory fake backend
  * in fake-backend.mjs. The real IndexedDB backend is browser-only and is
  * verified manually in DevTools.
  */
@@ -7,7 +7,7 @@
 import { beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { NoteStore, NOTES_STORE, QUEUE_STORE } from "../html/store.js";
+import { NoteStore, NOTES_STORE, QUEUE_STORE } from "../html/data/store.js";
 import { FakeBackend } from "./fake-backend.mjs";
 
 /** A full note object, shaped as the server returns it. */

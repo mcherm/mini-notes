@@ -15,16 +15,12 @@ The "app shell" is the set of static frontend assets that make up the core Mini-
 
 ### What is cached
 
-The app shell currently consists of these assets, all served from the site root:
+The app shell currently consists of these assets:
 
 - `index.html`
 - `main.css`
 - `main.js`
-- `api.js`
-- `commands.js`
-- `data-layer.js`
-- `diff.js`
-- `store.js`
+- Every module under `lib/`, `model/`, `data/` and `app/`
 - `manifest.json`
 - The six icons: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `mini-notes-192x192.png`, `mini-notes-512x512.png`
 
@@ -36,7 +32,7 @@ Explicitly **not** part of the app shell:
 - `reset-password.html` / `reset-password.css` / `reset-password.js` — reached from an email link and inherently requires the backend to verify a token. No offline support.
 - `sw.js` — the service worker script is **never** placed in any cache. It is the one uncached bootstrap file (see below).
 
-One known interaction: both excluded pages link `main.css`, which *is* a shell asset. When the service worker controls those pages it serves them the cached copy of `main.css`, so between deploys they may briefly pair a fresh HTML page with a slightly older stylesheet. This is accepted; everything else on those pages comes from the network (see the fetch handler below).
+The excluded pages also load shell assets: `main.css`, and the shared modules under `lib/`. The shell cache serves only the app page, so those pages always get these assets from the network, matching their own fresh code (see the fetch handler below).
 
 ### Two independent version concepts
 
@@ -44,9 +40,9 @@ Two different version numbers are in play. Keeping them distinct avoids confusio
 
 1. **Asset version** — identifies *which build of the shell* is installed. It is a content hash of the shell assets, stamped into `sw.js` at deploy time, and is used to name the cache (`app-shell-<asset-version>`). It governs only frontend asset freshness.
 
-2. **Service version** — identifies *which backend contract the frontend was built against*. It lives inside a shell asset (`main.js`) and is sent on every backend request (see the separate handshake; documented elsewhere). It governs whether an old frontend may talk to a redeployed backend.
+2. **Service version** — identifies *which backend contract the frontend was built against*. It lives inside a shell asset (`lib/api.js`, through which backend requests are sent) and is sent on every backend request (see the separate handshake; documented elsewhere). It governs whether an old frontend may talk to a redeployed backend.
 
-The two are independent, but coupled in one direction: because the service version lives in `main.js`, refreshing the app shell automatically upgrades the service version as well. A backend-incompatibility forced refresh therefore works by forcing a shell refresh.
+The two are independent, but coupled in one direction: because the service version lives in a shell asset, refreshing the app shell automatically upgrades the service version as well. A backend-incompatibility forced refresh therefore works by forcing a shell refresh.
 
 ### Cache versioning
 
@@ -65,7 +61,7 @@ Because the cache is all-or-nothing on activation, one combined hash for the who
 
 - **install** — open `app-shell-<asset-version>` and populate it with the shell assets. Each asset is fetched with `{cache: 'reload'}` so the fetch bypasses the browser's HTTP cache and pulls the freshly deployed bytes from the network. This closes the trap where a new cache version is filled with stale assets out of the HTTP cache. Population is all-or-nothing (`cache.addAll` or equivalent): if any single fetch fails, the whole install fails and nothing is kept. That failure is safe — the previous service worker and its cache remain in place and in control, and the browser simply retries the install at the next update trigger.
 - **activate** — delete every cache whose name starts with `app-shell-` but does not match the current `app-shell-<asset-version>`. This is the cleanup of superseded shells; caches under other names are left alone, since other features (such as the future note data store) may own caches of their own.
-- **fetch** — the handler is an **allowlist**, not a catch-all. Requests for known shell assets are served cache-first: return the cached response without touching the network. If the entry is unexpectedly missing — browsers may evict Cache Storage under storage pressure — fall back to fetching from the network rather than failing. Navigation requests to `/` (and `/index.html`) are served the cached `index.html`. Every other request — `admin.html`, `reset-password.html` and their css/js, API calls, and anything unrecognized — is passed through to the network untouched. (The service worker's scope covers the whole origin, so it *sees* requests for the excluded pages; it must never answer a navigation to them with `index.html`. `reset-password.html` in particular is reached from an email link and must always come from the network.)
+- **fetch** — the handler is an **allowlist**, not a catch-all. Requests for known shell assets are served cache-first: return the cached response without touching the network. If the entry is unexpectedly missing — browsers may evict Cache Storage under storage pressure — fall back to fetching from the network rather than failing. Navigation requests to `/` (and `/index.html`) are served the cached `index.html`. A shell asset is served from the cache only when the page requesting it (identified by the fetch event's `clientId`) is the app page; for any other page it is fetched from the network with `{cache: 'no-cache'}`. Every other request — `admin.html`, `reset-password.html` and their own css/js, API calls, and anything unrecognized — is passed through to the network untouched. (The service worker's scope covers the whole origin, so it *sees* requests for the excluded pages; it must never answer a navigation to them with `index.html`. `reset-password.html` in particular is reached from an email link and must always come from the network.)
 
 To make eviction unlikely in the first place, the app requests persistent storage once via `navigator.storage.persist()`. This will matter even more for the note data (later section), which lives in the same evictable storage bucket as the shell cache.
 
@@ -85,8 +81,7 @@ If an update check fails (e.g. the device is offline), it fails silently: the al
 There are two caches between the app and the origin: the service worker's Cache Storage (designed above) and the browser's ordinary HTTP cache. The HTTP cache matters in these places:
 
 - **`sw.js` is served `Cache-Control: no-cache`** ("always revalidate," not "never store"). Modern browsers already bypass the HTTP cache when fetching `sw.js` for an update check (`updateViaCache` defaults to `'imports'`), so this header is a safety net rather than the primary mechanism: it covers older browsers, and it caps staleness anywhere the default doesn't apply. It costs nothing and removes a whole class of "why isn't the new version showing up" problems.
-- **Shell assets** need no special headers *once the service worker is in charge*, because it fetches them with `{cache: 'reload'}` at install time, bypassing the HTTP cache.
-- **HTML pages and the online-only pages' assets are served `Cache-Control: no-cache`** — that is `index.html`, `admin.html`, `reset-password.html`, plus `admin.css`/`admin.js` and `reset-password.css`/`reset-password.js`. These are exactly the requests the service worker does *not* answer from its cache: the first-ever visit, and every visit to the excluded pages. Without an explicit header, browsers apply heuristic caching (typically 10% of the file's age since `Last-Modified`) and can serve a stale `admin.html` for days after a deploy — a CloudFront invalidation flushes the CDN but never reaches browsers' HTTP caches.
+- **HTML pages, scripts and stylesheets are served `Cache-Control: no-cache`** — every `*.html`, `*.js` and `*.css`. These can all be requested outside the service worker's cache: the first-ever visit, and every visit to the excluded pages, which load shared scripts and `main.css`. For the app page the header costs nothing once the service worker is in charge, since it fetches shell assets with `{cache: 'reload'}` at install time and serves them from its cache thereafter. Without an explicit header, browsers apply heuristic caching (typically 10% of the file's age since `Last-Modified`) and can serve a stale `admin.html` for days after a deploy — a CloudFront invalidation flushes the CDN but never reaches browsers' HTTP caches.
 
 CloudFront staleness is a non-issue: `just deploy-frontend` already issues a CloudFront `/*` invalidation on every deploy, so the CDN is flushed each time. The only remaining actor is each browser's HTTP cache, fully handled by the points above.
 

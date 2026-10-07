@@ -1,7 +1,5 @@
 # Things to do
 * Do a destroy when offline and it shows an error BUT also removes it from the UI.
-* Go through .js files and find duplicated code. Extract to a common file.
-* Merge the code for alert handling (showInlineAlert, clearInlineAlert and friends) and other duplicated code in main.js, admin.js and reset-password.js into a common file.
 * The "test" directory is JUST tests of the javascript. Move or rename accordingly.
 * Search within a note
 * Support for "log out of all devices" (ask when clicking "logout").

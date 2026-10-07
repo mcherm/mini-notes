@@ -36,6 +36,10 @@ Rust toolchain is needed for `just test-rust` and `just lint-rust`, `node` for
 - Table name set via `TABLE_NAME` env var on the Lambda
 - Domains: `mini-notes.com` (prod), `dev.mini-notes.com` (dev); `api.mini-notes.com` / `dev-api.mini-notes.com` for API
 
+## Frontend Layout
+
+`html/` holds the pages, their entry-point scripts (`main.js`, `admin.js`, `reset-password.js`) and `sw.js`. Modules live in `html/lib/`, `html/model/`, `html/data/` and `html/app/`; each directory's `README.txt` describes what belongs there and what it may import.
+
 ## Coding Standards
 - Instead of customizing div or span elements, we create custom elements (with "-" in the name)
 - Most layout is handled using flex or grid

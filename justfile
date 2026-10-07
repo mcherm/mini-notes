@@ -149,11 +149,15 @@ deploy-frontend: _check-aws-env
     grep -qF '"/index.html"' "$staging/sw.js" \
         || { echo "failed to stamp SHELL_ASSETS into sw.js" >&2; exit 1; }
 
-    # Upload in two passes to set Cache-Control: no-cache on exactly the files
-    # the service worker never serves from its cache: sw.js itself, the HTML
-    # pages, and the online-only pages' assets. Everything else keeps default
-    # headers. (--exclude also protects those files from --delete in pass one.)
-    no_cache_patterns=("sw.js" "*.html" "admin.*" "reset-password.*")
+    # The per-directory README.txt files document the sources; they are not served.
+    find "$staging" -name README.txt -delete
+
+    # Upload in two passes to set Cache-Control: no-cache on every file that can
+    # be fetched outside the service worker's cache: sw.js itself, the HTML
+    # pages, and all scripts and stylesheets (the online-only pages load shared
+    # ones from the network). Images and the manifest keep default headers.
+    # (--exclude also protects those files from --delete in pass one.)
+    no_cache_patterns=("sw.js" "*.html" "*.js" "*.css")
     exclude_no_cache=()
     include_no_cache=()
     for pattern in "${no_cache_patterns[@]}"; do

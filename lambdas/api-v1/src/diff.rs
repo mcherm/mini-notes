@@ -1,6 +1,6 @@
 //! Generation of "diff" strings (the format is documented in docs/design_notes.md).
 //!
-//! This is the Rust counterpart of html/diff.js and needs to be kept in sync with that.
+//! This is the Rust counterpart of html/model/diff.js and needs to be kept in sync with that.
 //!It is structured the same in two layers:
 //!   1. find_chunks() compares two strings to obtain a list of Equal, Delete, and Insert chunks.
 //!   2. DiffEncoder turns that list of chunks into the encoded diff string.
@@ -653,7 +653,7 @@ mod tests {
     }
 
     /// The vectors in tests/diff_vectors.json are shared with the JavaScript implementation
-    /// in html/diff.js, which asserts the same values. The two are ports of one another, so
+    /// in html/model/diff.js, which asserts the same values. The two are ports of one another, so
     /// a failure here means either that this implementation changed or that the two have
     /// drifted apart.
     #[test]

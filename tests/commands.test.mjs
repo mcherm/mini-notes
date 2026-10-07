@@ -1,5 +1,5 @@
 /**
- * Tests for html/commands.js: the pure logic that applies each
+ * Tests for html/model/commands.js: the pure logic that applies each
  * offline-capable write command to a locally mirrored note and builds the
  * corresponding queue record.
  */
@@ -11,8 +11,8 @@ import {
     DELETE_NOTE, EDIT_NOTE, NEW_NOTE, RECOVER_NOTE,
     applyDeleteNote, applyEditNote, applyNewNote, applyRecoverNote,
     currentTimestamp, generateId,
-} from "../html/commands.js";
-import { applyNoteDiff } from "../html/diff.js";
+} from "../html/model/commands.js";
+import { applyNoteDiff } from "../html/model/diff.js";
 
 const NOW = "2026-08-22T15:00:00.000Z";
 

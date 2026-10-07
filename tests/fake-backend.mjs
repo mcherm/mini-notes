@@ -1,6 +1,6 @@
 /**
  * An in-memory implementation of the backend interface documented in
- * html/store.js, so NoteStore can be tested under Node, which has no
+ * html/data/store.js, so NoteStore can be tested under Node, which has no
  * IndexedDB.
  *
  * The fake reproduces the IndexedDB behaviors the store's logic relies on:
@@ -16,7 +16,7 @@
  *   used after its transaction has finished throws
  */
 
-import { NOTES_STORE, QUEUE_STORE, QUEUE_NOTE_ID_INDEX } from "../html/store.js";
+import { NOTES_STORE, QUEUE_STORE, QUEUE_NOTE_ID_INDEX } from "../html/data/store.js";
 
 /** The schema of the real database, matching createSchema in store.js. */
 const SCHEMA = {

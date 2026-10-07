@@ -1,7 +1,7 @@
 {
   "_description": [
     "Shared test vectors for the two diff implementations, lambdas/api-v1/src/diff.rs and",
-    "html/diff.js. They are ports of one another and must produce byte-identical output,",
+    "html/model/diff.js. They are ports of one another and must produce byte-identical output,",
     "so both test suites assert exact equality against note_diff.",
     "",
     "note_diff is the note diff in the UNDO direction -- what handle_edit_note.rs stores in",

@@ -1,5 +1,5 @@
 /**
- * Tests for html/diff.js.
+ * Tests for html/model/diff.js.
  *
  * The bulk of this runs the shared vectors in diff_vectors.json, which lambdas/api-v1/src/diff.rs
  * is checked against by `cargo test`. Because the two implementations are ports of one another,
@@ -10,7 +10,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { applyNoteDiff, applyStringDiff, diffStrings, formatNoteDiff } from "../html/diff.js";
+import { applyNoteDiff, applyStringDiff, diffStrings, formatNoteDiff } from "../html/model/diff.js";
 
 const doc = JSON.parse(readFileSync(new URL("./diff_vectors.json", import.meta.url), "utf8"));
 const vectors = doc.vectors;

@@ -42,7 +42,7 @@
  * timer) inside the callback would commit the transaction out from under it.
  */
 
-import { CONFLICT_TITLE_PREFIX, EDIT_NOTE } from "./commands.js";
+import { CONFLICT_TITLE_PREFIX, EDIT_NOTE } from "../model/commands.js";
 
 // ========== Schema ==========
 
