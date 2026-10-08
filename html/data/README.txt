@@ -10,4 +10,4 @@ data/ — reading and writing note data: the network, the local store, and sync
   sync-engine.js     the single-tab engine that retries queued writes
 
 No DOM. Modules here import from model/, lib/api.js and data/, and are tested
-in tests/. See docs/pwa_design.md ("Note Data Caching").
+in js-tests/. See docs/pwa_design.md ("Note Data Caching").

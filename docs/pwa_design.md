@@ -332,7 +332,7 @@ The notes stored in the `IndexedDB` will need to have the following fields. This
 
 Generating the undo diff for offline edits requires a JavaScript implementation of the diff format (specified in
 `design_notes.md`), maintained in parallel with the Rust implementation. The two are ports of one another and produce
-byte-identical output; the shared test vectors in `tests/diff_vectors.json`, which both test suites assert against,
+byte-identical output; the shared test vectors in `js-tests/diff_vectors.json`, which both test suites assert against,
 keep them in agreement.
 
 ### Required Backend Changes

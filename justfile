@@ -86,7 +86,7 @@ test-js:
     set -euo pipefail
     # The glob is quoted so that node expands it rather than the shell: handing node
     # a bare directory makes it treat the directory itself as a single test file.
-    node --test "tests/**/*.test.mjs"
+    node --test "js-tests/**/*.test.mjs"
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ lint-rust:
 
 # Run Biome on the JavaScript, CSS, and HTML (requires biome); warnings fail the check.
 lint-web:
-    biome lint --error-on-warnings --max-diagnostics=none html tests
+    biome lint --error-on-warnings --max-diagnostics=none html js-tests
 
 # Run ShellCheck on the scripts in scripts/ (requires shellcheck); any finding fails the check.
 lint-scripts:

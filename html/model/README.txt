@@ -5,4 +5,4 @@ model/ — pure note logic
                lambdas/api-v1/src/diff.rs; the two must stay in sync)
 
 No DOM, no network, no storage: everything here runs under Node and is tested
-in tests/. Modules here import only from model/.
+in js-tests/. Modules here import only from model/.

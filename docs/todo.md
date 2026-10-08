@@ -1,6 +1,5 @@
 # Things to do
 * Do a destroy when offline and it shows an error BUT also removes it from the UI.
-* The "test" directory is JUST tests of the javascript. Move or rename accordingly.
 * Search within a note
 * Support for "log out of all devices" (ask when clicking "logout").
 * The way data-layer.js publishes an object that wraps all API calls is clean and elegant. Make the system do that ALSO for requests that do NOT go through the caching layer (but don't mix them).

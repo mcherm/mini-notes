@@ -5,7 +5,7 @@
 //!   1. find_chunks() compares two strings to obtain a list of Equal, Delete, and Insert chunks.
 //!   2. DiffEncoder turns that list of chunks into the encoded diff string.
 //!
-//! The file tests/diff_vectors.json contains a list of test data which is used by the unit
+//! The file js-tests/diff_vectors.json contains a list of test data which is used by the unit
 //! tests for both this Rust implementation and the JavaScript implementation.
 //!
 //! Two types are used throughout, and each function below states which of them it takes:
@@ -636,7 +636,7 @@ mod tests {
 
     // --- shared vectors ---
 
-    /// One case from tests/diff_vectors.json.
+    /// One case from js-tests/diff_vectors.json.
     #[derive(serde::Deserialize)]
     struct DiffVector {
         name: String,
@@ -652,15 +652,15 @@ mod tests {
         vectors: Vec<DiffVector>,
     }
 
-    /// The vectors in tests/diff_vectors.json are shared with the JavaScript implementation
+    /// The vectors in js-tests/diff_vectors.json are shared with the JavaScript implementation
     /// in html/model/diff.js, which asserts the same values. The two are ports of one another, so
     /// a failure here means either that this implementation changed or that the two have
     /// drifted apart.
     #[test]
     fn test_shared_vectors() {
         let file: DiffVectorFile =
-            serde_json::from_str(include_str!("../../../tests/diff_vectors.json"))
-                .expect("tests/diff_vectors.json did not parse");
+            serde_json::from_str(include_str!("../../../js-tests/diff_vectors.json"))
+                .expect("js-tests/diff_vectors.json did not parse");
         assert!(!file.vectors.is_empty(), "diff_vectors.json contained no vectors");
         for vector in file.vectors {
             let actual = format_note_diff(

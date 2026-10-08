@@ -7,7 +7,7 @@
  *   1. findChunks() aligns two strings, producing a list of Equal / Delete / Insert chunks.
  *   2. DiffEncoder turns that list of chunks into the encoded diff string.
  * The two implementations are maintained in parallel and share the test vectors in
- * tests/diff_vectors.json. The applying half (applyStringDiff and applyNoteDiff) has no
+ * js-tests/diff_vectors.json. The applying half (applyStringDiff and applyNoteDiff) has no
  * Rust counterpart, because only the frontend ever applies a diff.
  *
  * Two types are used throughout, and each function below states which of them it takes:
